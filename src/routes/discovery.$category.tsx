@@ -368,7 +368,7 @@ function DiscoveryWorkspace() {
                 ) : (
                   <div
                     className={cn(
-                      view === "canvas" ? "grid gap-3 sm:grid-cols-2 lg:grid-cols-3" : "space-y-2",
+                      view === "canvas" ? "grid gap-3 sm:grid-cols-2" : "space-y-2",
                     )}
                   >
                     {filtered.map((a) => (
@@ -402,7 +402,7 @@ function DiscoveryWorkspace() {
                               </span>
                             ))}
                           </div>
-                          <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
+                          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                             <span>{a.author}</span>
                             <span>{a.createdAt}</span>
                             <button
