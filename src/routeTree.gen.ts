@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PrioritizationRouteImport } from './routes/prioritization'
 import { Route as DiscoveryCategoryRouteImport } from './routes/discovery.$category'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrioritizationRoute = PrioritizationRouteImport.update({
+  id: '/prioritization',
+  path: '/prioritization',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DiscoveryCategoryRoute = DiscoveryCategoryRouteImport.update({
@@ -25,27 +31,31 @@ const DiscoveryCategoryRoute = DiscoveryCategoryRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/prioritization': typeof PrioritizationRoute
   '/discovery/$category': typeof DiscoveryCategoryRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/prioritization': typeof PrioritizationRoute
   '/discovery/$category': typeof DiscoveryCategoryRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/prioritization': typeof PrioritizationRoute
   '/discovery/$category': typeof DiscoveryCategoryRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/discovery/$category'
+  fullPaths: '/' | '/prioritization' | '/discovery/$category'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/discovery/$category'
-  id: '__root__' | '/' | '/discovery/$category'
+  to: '/' | '/prioritization' | '/discovery/$category'
+  id: '__root__' | '/' | '/prioritization' | '/discovery/$category'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PrioritizationRoute: typeof PrioritizationRoute
   DiscoveryCategoryRoute: typeof DiscoveryCategoryRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prioritization': {
+      id: '/prioritization'
+      path: '/prioritization'
+      fullPath: '/prioritization'
+      preLoaderRoute: typeof PrioritizationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/discovery/$category': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PrioritizationRoute: PrioritizationRoute,
   DiscoveryCategoryRoute: DiscoveryCategoryRoute,
 }
 export const routeTree = rootRouteImport
