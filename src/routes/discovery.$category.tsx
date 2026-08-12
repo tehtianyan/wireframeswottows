@@ -106,10 +106,12 @@ function DiscoveryWorkspace() {
   });
 
   const duplicateCandidate = useMemo(() => {
-    if (scoped.length < 2) return null;
-    const [a, b] = scoped;
+    const a = scoped[0];
+    const b = scoped[1];
+    if (!a || !b) return null;
     return { a, b, similarity: 87 };
   }, [scoped]);
+
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
