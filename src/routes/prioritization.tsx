@@ -277,7 +277,7 @@ function PrioritizationWorkspace() {
               <div className="divide-y divide-border">
                 {rankings.map((r) => (
                   <div key={r.category} className="p-4">
-                    <p className="label-caps">Top {categoryMeta[r.category].label}s</p>
+                    <p className="label-caps">Top {categoryMeta[r.category].slug}</p>
                     <ol className="mt-2 space-y-1.5">
                       {r.top.map((a, i) => (
                         <li key={a.id} className="flex items-center gap-2 text-xs">
