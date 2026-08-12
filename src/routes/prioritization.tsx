@@ -34,7 +34,7 @@ export const Route = createFileRoute("/prioritization")({
       },
     ],
   }),
-  component: PrioritizationWorkspace;
+  component: PrioritizationWorkspace,
 });
 
 type SortKey = "most" | "least" | "newest" | "alpha";
