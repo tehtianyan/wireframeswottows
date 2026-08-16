@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AIAssistantPanel, CategoryTag, PanelHeading } from "@/components/workshop-ui";
+import { AIAssistantPanel, BuildBadge, CategoryTag, PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
 import { useCan, useWorkshop } from "@/lib/workshop-store";
 import { categoryMeta, participants, workshop, type SwotCategory } from "@/lib/workshop-data";
@@ -82,7 +82,7 @@ function PrioritizationWorkspace() {
   return (
     <div className="grid-backdrop min-h-[calc(100vh-3.5rem)]">
       <div className="mx-auto max-w-[1500px] space-y-4 p-3 md:p-5">
-        <section className="console-panel p-4 md:p-5">
+        <section className="console-panel p-4 md:p-5" data-build="live">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <span className="label-caps">Activity</span>
@@ -123,8 +123,9 @@ function PrioritizationWorkspace() {
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
           <div className="space-y-4">
-            <section className="console-panel">
+            <section className="console-panel" data-build="live">
               <PanelHeading
+                build="live"
                 title="Prioritization Grid"
                 hint={`${filtered.length} artifacts`}
                 action={
@@ -268,8 +269,9 @@ function PrioritizationWorkspace() {
 
           <div className="space-y-4">
             {/* 3.16 Live rankings */}
-            <section className="console-panel">
+            <section className="console-panel" data-build="live">
               <PanelHeading
+                build="live"
                 title="Live Rankings"
                 hint="Updates as votes are cast"
                 action={<Trophy className="size-4 text-accent" />}
@@ -292,10 +294,11 @@ function PrioritizationWorkspace() {
               </div>
             </section>
 
-            <section className="console-panel p-4">
+            <section className="console-panel p-4" data-build="mock">
               <div className="flex items-center gap-2">
                 <Flame className="size-4 text-accent" />
                 <p className="label-caps">Convergence signal</p>
+                <BuildBadge state="mock" />
               </div>
               <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                 Voting is concentrating on customer-facing strengths and platform modernisation. Threat votes remain
