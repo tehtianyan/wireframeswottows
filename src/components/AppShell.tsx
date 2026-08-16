@@ -189,7 +189,23 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </nav>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1">
+          {showBuildStatus && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-elevated/60 px-4 py-2 text-[11px] text-muted-foreground">
+              <span className="label-caps">Build status</span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-0 w-4 border-t-2 border-success" /> Functional — real
+                interactions and state
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-0 w-4 border-t-2 border-dashed border-destructive" /> Mock UI — no
+                backend behind it
+              </span>
+            </div>
+          )}
+          {children}
+        </main>
+
       </div>
 
       <nav className="sticky bottom-0 z-30 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-2 py-1.5 md:hidden">
