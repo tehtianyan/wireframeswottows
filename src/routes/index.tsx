@@ -13,7 +13,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { AIAssistantPanel, PanelHeading, StatusPill } from "@/components/workshop-ui";
+import { AIAssistantPanel, BuildBadge, PanelHeading, StatusPill } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
 import { useCan, useWorkshop } from "@/lib/workshop-store";
 import {
@@ -82,7 +82,7 @@ function WorkshopDashboard() {
     <div className="grid-backdrop min-h-[calc(100vh-3.5rem)]">
       <div className="mx-auto max-w-[1500px] space-y-4 p-3 md:p-5">
         {/* 1.9 Workshop header */}
-        <section className="console-panel overflow-hidden">
+        <section className="console-panel overflow-hidden" data-build="mock">
           <div className="flex flex-col gap-4 p-4 md:flex-row md:items-start md:justify-between md:p-5">
             <div className="min-w-0">
               <p className="label-caps">Workshop WS-003</p>
@@ -166,8 +166,9 @@ function WorkshopDashboard() {
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
             {/* 1.11 Methodology progress */}
-            <section className="console-panel">
+            <section className="console-panel" data-build="live">
               <PanelHeading
+                build="live"
                 title="Methodology Progress"
                 hint={`${completed} of ${activities.length} stages complete`}
                 action={<span className="font-mono text-sm text-primary">{progress}%</span>}
@@ -209,8 +210,8 @@ function WorkshopDashboard() {
             </section>
 
             {/* 1.12 Activity status panel */}
-            <section className="console-panel overflow-hidden">
-              <PanelHeading title="Activity Status" hint="Ownership and due dates" />
+            <section className="console-panel overflow-hidden" data-build="live">
+              <PanelHeading title="Activity Status" hint="Ownership and due dates" build="live" />
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -258,8 +259,8 @@ function WorkshopDashboard() {
             </section>
 
             {/* 1.13 Metrics */}
-            <section className="console-panel">
-              <PanelHeading title="Workshop Metrics" hint="Live counts across the methodology" />
+            <section className="console-panel" data-build="live">
+              <PanelHeading title="Workshop Metrics" hint="Live counts across the methodology" build="live" />
               <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 lg:grid-cols-7">
                 {metrics.map((m) => (
                   <div key={m.label} className="bg-card p-3.5">
@@ -271,8 +272,8 @@ function WorkshopDashboard() {
             </section>
 
             {/* 1.14 Intelligence summary */}
-            <section className="console-panel">
-              <PanelHeading title="Intelligence Summary" hint="Generated from artifacts, themes and insights" />
+            <section className="console-panel" data-build="mock">
+              <PanelHeading title="Intelligence Summary" hint="Static sample data — no generation engine" build="mock" />
               <div className="grid gap-4 p-4 lg:grid-cols-2">
                 <div className="space-y-2">
                   <p className="label-caps">Top Themes</p>
@@ -329,8 +330,8 @@ function WorkshopDashboard() {
           {/* Right rail */}
           <div className="space-y-4">
             {/* 1.20 Workshop health */}
-            <section className="console-panel">
-              <PanelHeading title="Workshop Health" action={<Gauge className="size-4 text-primary" />} />
+            <section className="console-panel" data-build="mock">
+              <PanelHeading title="Workshop Health" build="mock" action={<Gauge className="size-4 text-primary" />} />
               <div className="p-4">
                 <div className="flex items-end gap-2">
                   <span className="font-display text-4xl font-semibold text-primary">{workshop.healthScore}</span>
@@ -374,8 +375,9 @@ function WorkshopDashboard() {
             />
 
             {/* 1.17 Approval queue */}
-            <section className="console-panel">
+            <section className="console-panel" data-build="mock">
               <PanelHeading
+                build="mock"
                 title="Pending Approvals"
                 hint={canApprove ? "You can approve these" : "Facilitator approval required"}
                 action={<ClipboardCheck className="size-4 text-accent" />}
@@ -401,8 +403,8 @@ function WorkshopDashboard() {
             </section>
 
             {/* 1.16 Participants */}
-            <section className="console-panel">
-              <PanelHeading title="Participants" hint={`${participants.length} invited`} />
+            <section className="console-panel" data-build="mock">
+              <PanelHeading title="Participants" hint={`${participants.length} invited`} build="mock" />
               <div className="max-h-64 divide-y divide-border overflow-y-auto">
                 {participants.map((p) => (
                   <div key={p.id} className="flex items-center gap-2.5 px-4 py-2.5">
@@ -430,8 +432,8 @@ function WorkshopDashboard() {
             </section>
 
             {/* 1.15 Activity feed */}
-            <section className="console-panel">
-              <PanelHeading title="Recent Activity" />
+            <section className="console-panel" data-build="mock">
+              <PanelHeading title="Recent Activity" build="mock" />
               <div className="divide-y divide-border">
                 {activityFeed.map((f) => (
                   <div key={f.id} className="px-4 py-2.5">
@@ -444,8 +446,11 @@ function WorkshopDashboard() {
               </div>
             </section>
 
-            <section className="console-panel p-4">
-              <p className="label-caps">Discovery Shortcuts</p>
+            <section className="console-panel p-4" data-build="live">
+              <div className="flex items-center gap-2">
+                <p className="label-caps">Discovery Shortcuts</p>
+                <BuildBadge state="live" />
+              </div>
               <div className="mt-2.5 grid grid-cols-2 gap-2">
                 {(Object.keys(categoryMeta) as (keyof typeof categoryMeta)[]).map((c) => (
                   <Button key={c} asChild variant="secondary" size="sm" className="justify-start">
