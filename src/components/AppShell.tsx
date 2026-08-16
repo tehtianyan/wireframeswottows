@@ -52,6 +52,7 @@ const notifications = [
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const { role, setRole } = useWorkshop();
+  const { theme, toggleTheme, showBuildStatus, toggleBuildStatus } = useUiPrefs();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   const activeLabel =
@@ -69,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </span>
         </Link>
 
-        <div className="relative ml-auto w-full max-w-sm">
+        <div className="relative ml-auto w-full max-w-sm" data-build="mock">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search workshops, artifacts, themes, insights…"
@@ -77,13 +78,46 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
         </div>
 
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("shrink-0", showBuildStatus && "text-success")}
+          onClick={toggleBuildStatus}
+          aria-label="Toggle build status highlighting"
+          title={
+            showBuildStatus
+              ? "Build status ON — green outline = functional, red dashed = mock UI"
+              : "Build status OFF"
+          }
+        >
+          <SignalHigh className="size-4" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={toggleTheme}
+          aria-label={theme === "dark" ? "Switch to day mode" : "Switch to dark mode"}
+          title={theme === "dark" ? "Switch to day mode" : "Switch to dark mode"}
+        >
+          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+        </Button>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative shrink-0" aria-label="Notifications">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative shrink-0"
+              aria-label="Notifications"
+              data-build="mock"
+            >
               <Bell className="size-4" />
               <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-accent" />
             </Button>
           </DropdownMenuTrigger>
+
           <DropdownMenuContent align="end" className="w-80">
             <DropdownMenuLabel>Notifications</DropdownMenuLabel>
             <DropdownMenuSeparator />
