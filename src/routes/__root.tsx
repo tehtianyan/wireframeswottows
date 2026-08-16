@@ -14,6 +14,8 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppShell } from "@/components/AppShell";
 import { Toaster } from "@/components/ui/sonner";
 import { WorkshopProvider } from "@/lib/workshop-store";
+import { UiPrefsProvider } from "@/lib/ui-prefs";
+
 
 
 function NotFoundComponent() {
