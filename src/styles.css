@@ -148,3 +148,67 @@
     linear-gradient(90deg, oklch(1 0 0 / 3%) 1px, transparent 1px);
   background-size: 44px 44px;
 }
+
+/* Day mode palette: same console geometry, light surfaces. */
+.light {
+  --background: oklch(0.97 0.006 250);
+  --foreground: oklch(0.24 0.028 258);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.028 258);
+  --elevated: oklch(0.955 0.008 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.028 258);
+  --primary: oklch(0.55 0.12 214);
+  --primary-foreground: oklch(0.99 0.005 250);
+  --secondary: oklch(0.93 0.01 250);
+  --secondary-foreground: oklch(0.28 0.028 258);
+  --muted: oklch(0.94 0.008 250);
+  --muted-foreground: oklch(0.48 0.02 254);
+  --accent: oklch(0.7 0.14 66);
+  --accent-foreground: oklch(0.99 0.005 250);
+  --destructive: oklch(0.56 0.2 22);
+  --destructive-foreground: oklch(0.99 0.005 250);
+  --success: oklch(0.55 0.14 158);
+  --success-foreground: oklch(0.99 0.005 250);
+  --warning: oklch(0.66 0.14 70);
+  --warning-foreground: oklch(0.99 0.005 250);
+  --info: oklch(0.55 0.14 250);
+  --info-foreground: oklch(0.99 0.005 250);
+  --strength: oklch(0.52 0.14 158);
+  --weakness: oklch(0.55 0.16 30);
+  --opportunity: oklch(0.54 0.13 232);
+  --threat: oklch(0.53 0.2 12);
+  --border: oklch(0.89 0.01 250);
+  --border-strong: oklch(0.8 0.014 250);
+  --input: oklch(0.89 0.01 250);
+  --ring: oklch(0.55 0.12 214);
+  --sidebar: oklch(0.99 0.004 250);
+  --sidebar-foreground: oklch(0.28 0.028 258);
+  --sidebar-primary: oklch(0.55 0.12 214);
+  --sidebar-primary-foreground: oklch(0.99 0.005 250);
+  --sidebar-accent: oklch(0.93 0.01 250);
+  --sidebar-accent-foreground: oklch(0.24 0.028 258);
+  --sidebar-border: oklch(0.9 0.01 250);
+  --sidebar-ring: oklch(0.55 0.12 214);
+}
+
+.light .grid-backdrop {
+  background-image:
+    linear-gradient(oklch(0 0 0 / 4%) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(0 0 0 / 4%) 1px, transparent 1px);
+}
+
+.light {
+  --shadow-console: 0 1px 2px 0 oklch(0 0 0 / 5%), 0 12px 30px -22px oklch(0 0 0 / 30%);
+}
+
+/* Build-status overlay: green = functional, red = mock-only presentation. */
+html[data-build-status="on"] [data-build="live"] {
+  outline: 1.5px solid var(--success);
+  outline-offset: 1px;
+}
+
+html[data-build-status="on"] [data-build="mock"] {
+  outline: 1.5px dashed var(--destructive);
+  outline-offset: 1px;
+}

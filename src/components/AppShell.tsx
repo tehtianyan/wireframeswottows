@@ -5,9 +5,12 @@ import {
   Compass,
   Database,
   LayoutDashboard,
+  Moon,
   Search,
   Settings,
   Shield,
+  SignalHigh,
+  Sun,
   FileText,
   Layers,
 } from "lucide-react";
@@ -26,7 +29,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkshop } from "@/lib/workshop-store";
+import { useUiPrefs } from "@/lib/ui-prefs";
 import { roleLabels, type Role } from "@/lib/workshop-data";
+
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/" },
@@ -47,6 +52,7 @@ const notifications = [
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const { role, setRole } = useWorkshop();
+  const { theme, toggleTheme, showBuildStatus, toggleBuildStatus } = useUiPrefs();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   const activeLabel =
@@ -64,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </span>
         </Link>
 
-        <div className="relative ml-auto w-full max-w-sm">
+        <div className="relative ml-auto w-full max-w-sm" data-build="mock">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search workshops, artifacts, themes, insights…"
@@ -72,13 +78,46 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
         </div>
 
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("shrink-0", showBuildStatus && "text-success")}
+          onClick={toggleBuildStatus}
+          aria-label="Toggle build status highlighting"
+          title={
+            showBuildStatus
+              ? "Build status ON — green outline = functional, red dashed = mock UI"
+              : "Build status OFF"
+          }
+        >
+          <SignalHigh className="size-4" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={toggleTheme}
+          aria-label={theme === "dark" ? "Switch to day mode" : "Switch to dark mode"}
+          title={theme === "dark" ? "Switch to day mode" : "Switch to dark mode"}
+        >
+          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+        </Button>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative shrink-0" aria-label="Notifications">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative shrink-0"
+              aria-label="Notifications"
+              data-build="mock"
+            >
               <Bell className="size-4" />
               <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-accent" />
             </Button>
           </DropdownMenuTrigger>
+
           <DropdownMenuContent align="end" className="w-80">
             <DropdownMenuLabel>Notifications</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -150,7 +189,23 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </nav>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1">
+          {showBuildStatus && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-elevated/60 px-4 py-2 text-[11px] text-muted-foreground">
+              <span className="label-caps">Build status</span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-0 w-4 border-t-2 border-success" /> Functional — real
+                interactions and state
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-0 w-4 border-t-2 border-dashed border-destructive" /> Mock UI — no
+                backend behind it
+              </span>
+            </div>
+          )}
+          {children}
+        </main>
+
       </div>
 
       <nav className="sticky bottom-0 z-30 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-2 py-1.5 md:hidden">

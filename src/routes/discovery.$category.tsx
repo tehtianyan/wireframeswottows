@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AIAssistantPanel, CategoryTag, PanelHeading } from "@/components/workshop-ui";
+import { AIAssistantPanel, BuildBadge, CategoryTag, PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
 import { useCan, useWorkshop } from "@/lib/workshop-store";
 import {
@@ -140,7 +140,7 @@ function DiscoveryWorkspace() {
     <div className="grid-backdrop min-h-[calc(100vh-3.5rem)]">
       <div className="mx-auto max-w-[1500px] space-y-4 p-3 md:p-5">
         {/* 2.8 Activity header */}
-        <section className="console-panel p-4 md:p-5">
+        <section className="console-panel p-4 md:p-5" data-build="live">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -200,8 +200,8 @@ function DiscoveryWorkspace() {
         <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_340px]">
           {/* Left: artifact list + filters */}
           <div className="space-y-4">
-            <section className="console-panel">
-              <PanelHeading title="Search & Filter" />
+            <section className="console-panel" data-build="live">
+              <PanelHeading title="Search & Filter" build="live" />
               <div className="space-y-3 p-4">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -241,8 +241,8 @@ function DiscoveryWorkspace() {
               </div>
             </section>
 
-            <section className="console-panel">
-              <PanelHeading title="Artifact List" hint={`${filtered.length} shown`} />
+            <section className="console-panel" data-build="live">
+              <PanelHeading title="Artifact List" hint={`${filtered.length} shown`} build="live" />
               <div className="max-h-[420px] divide-y divide-border overflow-y-auto">
                 {filtered.map((a) => (
                   <button
@@ -263,8 +263,8 @@ function DiscoveryWorkspace() {
             </section>
 
             {/* 2.27 Live participants */}
-            <section className="console-panel">
-              <PanelHeading title="In this activity" />
+            <section className="console-panel" data-build="mock">
+              <PanelHeading title="In this activity" hint="Simulated presence" build="mock" />
               <div className="space-y-1.5 p-4">
                 {participants
                   .filter((p) => p.presence !== "offline")
@@ -287,8 +287,9 @@ function DiscoveryWorkspace() {
           {/* Center: creation + canvas */}
           <div className="space-y-4">
             {/* 2.10 Creation toolbar */}
-            <section className="console-panel">
+            <section className="console-panel" data-build="live">
               <PanelHeading
+                build="live"
                 title="Create Artifact"
                 hint={locked && !canFacilitate ? "Editing is locked by the facilitator" : "Title required, max 120 characters"}
               />
@@ -338,8 +339,9 @@ function DiscoveryWorkspace() {
             </section>
 
             {/* 2.12 Artifact canvas */}
-            <section className="console-panel">
+            <section className="console-panel" data-build="live">
               <PanelHeading
+                build="live"
                 title="Artifact Canvas"
                 hint={`${meta.label} artifacts · ${filtered.length} visible`}
                 action={
