@@ -3,7 +3,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useUiPrefs } from "@/lib/ui-prefs";
 import type { ActivityStatus, SwotCategory } from "@/lib/workshop-data";
+
 
 const statusStyles: Record<ActivityStatus, string> = {
   "not-started": "bg-muted text-muted-foreground",
