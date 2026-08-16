@@ -135,12 +135,14 @@ export function AIAssistantPanel({
   }
 
   return (
-    <section className="console-panel flex flex-col overflow-hidden">
+    <section className="console-panel flex flex-col overflow-hidden" data-build="mock">
       <PanelHeading
         title="AI Strategy Assistant"
-        hint="Methodology-aware guidance"
+        hint="Simulated responses — no AI backend"
+        build="mock"
         action={<Sparkles className="size-4 text-primary" />}
       />
+
 
       <div className="flex flex-wrap gap-1.5 border-b border-border px-4 py-3">
         {quickActions.map((a) => (
