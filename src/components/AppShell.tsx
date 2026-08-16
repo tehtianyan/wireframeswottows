@@ -5,9 +5,12 @@ import {
   Compass,
   Database,
   LayoutDashboard,
+  Moon,
   Search,
   Settings,
   Shield,
+  SignalHigh,
+  Sun,
   FileText,
   Layers,
 } from "lucide-react";
@@ -26,7 +29,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkshop } from "@/lib/workshop-store";
+import { useUiPrefs } from "@/lib/ui-prefs";
 import { roleLabels, type Role } from "@/lib/workshop-data";
+
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/" },
