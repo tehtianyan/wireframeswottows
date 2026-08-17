@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AIAssistantPanel, BuildBadge, CategoryTag, PanelHeading } from "@/components/workshop-ui";
+import { AIAssistantPanel, CategoryTag, PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
 import { useCan, useWorkshop } from "@/lib/workshop-store";
 import {
