@@ -262,11 +262,73 @@ export const activityFeed = [
   { id: "f5", actor: "Alex", text: "merged 2 duplicate artifacts in Opportunity Discovery", time: "Yesterday" },
 ];
 
-export const approvalQueue = [
-  { id: "q1", type: "Themes", label: "Talent Resilience", count: 2 },
-  { id: "q2", type: "Insights", label: "Regulatory credibility is a defensible wedge", count: 1 },
-  { id: "q3", type: "Recommendations", label: "Usage-based pricing pilot", count: 3 },
+export type ApprovalType = "Themes" | "Insights" | "Recommendations";
+export type ApprovalDecision = "pending" | "approved" | "rejected";
+
+export interface ApprovalItem {
+  id: string;
+  type: ApprovalType;
+  label: string;
+  count: number;
+  summary: string;
+  submittedBy: string;
+  submittedAt: string;
+  evidence: string[];
+  decision: ApprovalDecision;
+  decidedBy?: string;
+  decidedAt?: string;
+  note?: string;
+}
+
+export const approvalQueue: ApprovalItem[] = [
+  {
+    id: "q1",
+    type: "Themes",
+    label: "Talent Resilience",
+    count: 2,
+    summary: "Cluster of 7 artifacts on hiring speed, attrition risk and competitor pay premiums.",
+    submittedBy: "AI Assistant",
+    submittedAt: "42 min ago",
+    evidence: ["Slow Hiring Pipeline", "Talent Poaching", "Deep Domain Expertise"],
+    decision: "pending",
+  },
+  {
+    id: "q2",
+    type: "Insights",
+    label: "Regulatory credibility is a defensible wedge",
+    count: 1,
+    summary: "Medium-significance insight linking compliance track record to the 2027 disclosure mandate.",
+    submittedBy: "Lena Fischer",
+    submittedAt: "2 hours ago",
+    evidence: ["Regulatory Reporting Mandate", "Data Sovereignty Rules"],
+    decision: "pending",
+  },
+  {
+    id: "q3",
+    type: "Recommendations",
+    label: "Usage-based pricing pilot",
+    count: 3,
+    summary: "Proposal to pilot consumption pricing in two segments before a full rollout decision.",
+    submittedBy: "Marcus Lee",
+    submittedAt: "Yesterday",
+    evidence: ["Usage-Based Pricing", "Limited Self-Service", "Marketplace Distribution"],
+    decision: "pending",
+  },
+  {
+    id: "q4",
+    type: "Themes",
+    label: "Data as a Strategic Asset",
+    count: 4,
+    summary: "Eleven artifacts describing under-used proprietary benchmarking data.",
+    submittedBy: "AI Assistant",
+    submittedAt: "Yesterday",
+    evidence: ["Proprietary Benchmark Data", "Thin Analytics Capability"],
+    decision: "approved",
+    decidedBy: "Sarah Chen",
+    decidedAt: "2 hours ago",
+  },
 ];
+
 
 export const rolePermissions: Record<Role, string[]> = {
   participant: ["create-artifact", "vote", "comment", "ai"],
