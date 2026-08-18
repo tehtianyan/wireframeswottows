@@ -70,13 +70,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </span>
         </Link>
 
-        <div className="relative ml-auto w-full max-w-sm" data-build="mock">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search workshops, artifacts, themes, insights…"
-            className="h-9 border-border bg-elevated pl-8 text-sm placeholder:text-muted-foreground/70"
-          />
-        </div>
+        <GlobalSearch />
+
 
         <Button
           variant="ghost"
