@@ -28,9 +28,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { GlobalSearch } from "@/components/GlobalSearch";
 import { useWorkshop } from "@/lib/workshop-store";
 import { useUiPrefs } from "@/lib/ui-prefs";
 import { roleLabels, type Role } from "@/lib/workshop-data";
+
 
 
 const navItems = [
