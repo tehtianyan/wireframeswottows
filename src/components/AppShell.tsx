@@ -6,7 +6,6 @@ import {
   Database,
   LayoutDashboard,
   Moon,
-  Search,
   Settings,
   Shield,
   SignalHigh,
@@ -25,7 +24,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GlobalSearch } from "@/components/GlobalSearch";
