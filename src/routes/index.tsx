@@ -14,11 +14,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { AIAssistantPanel, BuildBadge, PanelHeading, StatusPill } from "@/components/workshop-ui";
+import { ApprovalQueuePanel } from "@/components/ApprovalQueue";
 import { cn } from "@/lib/utils";
 import { useCan, useWorkshop } from "@/lib/workshop-store";
 import {
   activityFeed,
-  approvalQueue,
   categoryMeta,
   emergingRisks,
   insights,
