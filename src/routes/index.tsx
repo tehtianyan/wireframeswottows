@@ -375,32 +375,8 @@ function WorkshopDashboard() {
             />
 
             {/* 1.17 Approval queue */}
-            <section className="console-panel" data-build="mock">
-              <PanelHeading
-                build="mock"
-                title="Pending Approvals"
-                hint={canApprove ? "You can approve these" : "Facilitator approval required"}
-                action={<ClipboardCheck className="size-4 text-accent" />}
-              />
-              <div className="divide-y divide-border">
-                {approvalQueue.map((q) => (
-                  <div key={q.id} className="flex items-start gap-3 p-3.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="label-caps">{q.type}</p>
-                      <p className="mt-0.5 truncate text-xs">{q.label}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant={canApprove ? "default" : "secondary"}
-                      disabled={!canApprove}
-                      onClick={() => toast.success(`${q.type} approved`)}
-                    >
-                      <CheckCircle2 className="size-3.5" /> Approve
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <ApprovalQueuePanel />
+
 
             {/* 1.16 Participants */}
             <section className="console-panel" data-build="mock">
