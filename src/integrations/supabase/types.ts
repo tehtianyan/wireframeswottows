@@ -14,7 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      workshop_participants: {
+        Row: {
+          artifacts_count: number
+          comments_count: number
+          created_at: string
+          email: string
+          id: string
+          joined_at: string
+          last_active: string
+          name: string
+          presence: string
+          role: string
+          status: string
+          updated_at: string
+          votes_used: number
+        }
+        Insert: {
+          artifacts_count?: number
+          comments_count?: number
+          created_at?: string
+          email: string
+          id?: string
+          joined_at?: string
+          last_active?: string
+          name: string
+          presence?: string
+          role?: string
+          status?: string
+          updated_at?: string
+          votes_used?: number
+        }
+        Update: {
+          artifacts_count?: number
+          comments_count?: number
+          created_at?: string
+          email?: string
+          id?: string
+          joined_at?: string
+          last_active?: string
+          name?: string
+          presence?: string
+          role?: string
+          status?: string
+          updated_at?: string
+          votes_used?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
