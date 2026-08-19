@@ -275,9 +275,9 @@ export interface ApprovalItem {
   submittedAt: string;
   evidence: string[];
   decision: ApprovalDecision;
-  decidedBy?: string;
-  decidedAt?: string;
-  note?: string;
+  decidedBy?: string | undefined;
+  decidedAt?: string | undefined;
+  note?: string | undefined;
 }
 
 export const approvalQueue: ApprovalItem[] = [
