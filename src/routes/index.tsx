@@ -2,8 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
-  ClipboardCheck,
   Gauge,
   Pencil,
   Settings2,
@@ -62,7 +60,6 @@ const stageRoutes: Partial<Record<WorkshopStage, string>> = {
 function WorkshopDashboard() {
   const { artifacts, activities, setActivityStatus } = useWorkshop();
   const canEdit = useCan("edit-workshop");
-  const canApprove = useCan("approve");
 
   const completed = activities.filter((a) => a.status === "complete").length;
   const progress = Math.round((completed / activities.length) * 100);
