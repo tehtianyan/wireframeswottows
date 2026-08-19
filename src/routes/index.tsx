@@ -2,8 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
-  ClipboardCheck,
   Gauge,
   Pencil,
   Settings2,
@@ -14,11 +12,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { AIAssistantPanel, BuildBadge, PanelHeading, StatusPill } from "@/components/workshop-ui";
+import { ApprovalQueuePanel } from "@/components/ApprovalQueue";
 import { cn } from "@/lib/utils";
 import { useCan, useWorkshop } from "@/lib/workshop-store";
 import {
   activityFeed,
-  approvalQueue,
   categoryMeta,
   emergingRisks,
   insights,
@@ -62,7 +60,6 @@ const stageRoutes: Partial<Record<WorkshopStage, string>> = {
 function WorkshopDashboard() {
   const { artifacts, activities, setActivityStatus } = useWorkshop();
   const canEdit = useCan("edit-workshop");
-  const canApprove = useCan("approve");
 
   const completed = activities.filter((a) => a.status === "complete").length;
   const progress = Math.round((completed / activities.length) * 100);
@@ -375,32 +372,8 @@ function WorkshopDashboard() {
             />
 
             {/* 1.17 Approval queue */}
-            <section className="console-panel" data-build="mock">
-              <PanelHeading
-                build="mock"
-                title="Pending Approvals"
-                hint={canApprove ? "You can approve these" : "Facilitator approval required"}
-                action={<ClipboardCheck className="size-4 text-accent" />}
-              />
-              <div className="divide-y divide-border">
-                {approvalQueue.map((q) => (
-                  <div key={q.id} className="flex items-start gap-3 p-3.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="label-caps">{q.type}</p>
-                      <p className="mt-0.5 truncate text-xs">{q.label}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant={canApprove ? "default" : "secondary"}
-                      disabled={!canApprove}
-                      onClick={() => toast.success(`${q.type} approved`)}
-                    >
-                      <CheckCircle2 className="size-3.5" /> Approve
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <ApprovalQueuePanel />
+
 
             {/* 1.16 Participants */}
             <section className="console-panel" data-build="mock">
