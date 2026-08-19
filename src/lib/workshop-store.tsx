@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import {
   activities as seedActivities,
+  approvalQueue as seedApprovals,
   seedArtifacts,
   workshop,
   type ActivityRow,
   type ActivityStatus,
+  type ApprovalItem,
   type Artifact,
   type Role,
   type SwotCategory,
@@ -16,6 +18,10 @@ interface WorkshopContextValue {
   currentUser: string;
   artifacts: Artifact[];
   activities: ActivityRow[];
+  approvals: ApprovalItem[];
+  pendingApprovals: number;
+  decideApproval: (id: string, decision: "approved" | "rejected", note?: string) => void;
+  resetApproval: (id: string) => void;
   votesUsed: number;
   votesRemaining: number;
   voteAllocation: number;
@@ -35,6 +41,33 @@ export function WorkshopProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role>("facilitator");
   const [artifacts, setArtifacts] = useState<Artifact[]>(seedArtifacts);
   const [activities, setActivities] = useState<ActivityRow[]>(seedActivities);
+  const [approvals, setApprovals] = useState<ApprovalItem[]>(seedApprovals);
+
+  const pendingApprovals = useMemo(
+    () => approvals.filter((a) => a.decision === "pending").length,
+    [approvals],
+  );
+
+  const decideApproval = useCallback<WorkshopContextValue["decideApproval"]>((id, decision, note) => {
+    setApprovals((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? { ...a, decision, note: note?.trim() || undefined, decidedBy: "You", decidedAt: "Just now" }
+          : a,
+      ),
+    );
+  }, []);
+
+  const resetApproval = useCallback((id: string) => {
+    setApprovals((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? { ...a, decision: "pending" as const, note: undefined, decidedBy: undefined, decidedAt: undefined }
+          : a,
+      ),
+    );
+  }, []);
+
 
   const votesUsed = useMemo(() => artifacts.reduce((sum, a) => sum + a.myVotes, 0), [artifacts]);
   const voteAllocation = workshop.votesPerParticipant;
