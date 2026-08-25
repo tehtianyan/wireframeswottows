@@ -23,22 +23,27 @@ interface SearchResult {
   icon: typeof Search;
 }
 
-const screens: { label: string; detail: string; to: string }[] = [
-  { label: "Workshop Dashboard", detail: "Progress, activities, intelligence", to: "/" },
-  ...(["strength", "weakness", "opportunity", "threat"] as const).map((c) => ({
-    label: categoryMeta[c].activity,
-    detail: "Discovery workspace",
-    to: `/discovery/${categoryMeta[c].slug}`,
-  })),
-  { label: "Prioritization", detail: "Voting, rankings, heat map", to: "/prioritization" },
-];
-
 export function GlobalSearch() {
   const { artifacts } = useWorkshop();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Computed at render time (not module scope) so it doesn't depend on
+  // cross-chunk import evaluation order in the production SSR bundle.
+  const screens = useMemo<{ label: string; detail: string; to: string }[]>(
+    () => [
+      { label: "Workshop Dashboard", detail: "Progress, activities, intelligence", to: "/" },
+      ...(["strength", "weakness", "opportunity", "threat"] as const).map((c) => ({
+        label: categoryMeta[c].activity,
+        detail: "Discovery workspace",
+        to: `/discovery/${categoryMeta[c].slug}`,
+      })),
+      { label: "Prioritization", detail: "Voting, rankings, heat map", to: "/prioritization" },
+    ],
+    [],
+  );
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -119,7 +124,7 @@ export function GlobalSearch() {
     }
 
     return out.slice(0, 24);
-  }, [query, artifacts]);
+  }, [query, artifacts, screens]);
 
   const grouped = useMemo(() => {
     const order: ResultGroup[] = ["Artifacts", "Themes & insights", "Screens", "Participants"];

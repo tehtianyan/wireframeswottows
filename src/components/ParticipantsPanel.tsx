@@ -123,7 +123,7 @@ export function ParticipantsPanel() {
   }
 
   return (
-    <section className="console-panel" data-build="live">
+    <section id="participants" className="console-panel" data-build="live">
       <PanelHeading
         build="live"
         title="Participants"

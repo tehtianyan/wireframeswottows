@@ -1,7 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
+  Check,
   Gauge,
   Pencil,
   Settings2,
@@ -10,22 +14,48 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AIAssistantPanel, BuildBadge, PanelHeading, StatusPill } from "@/components/workshop-ui";
 import { ApprovalQueuePanel } from "@/components/ApprovalQueue";
+import { ParticipantsPanel } from "@/components/ParticipantsPanel";
+import { participantsQueryOptions } from "@/lib/participants";
 import { cn } from "@/lib/utils";
 import { useCan, useWorkshop } from "@/lib/workshop-store";
 import {
-  activityFeed,
   categoryMeta,
   emergingRisks,
   insights,
   lifecycleStates,
-  participants,
   recommendations,
   stageLabels,
   themes,
-  workshop,
+  type ApprovalType,
   type WorkshopStage,
 } from "@/lib/workshop-data";
 
@@ -58,15 +88,17 @@ const stageRoutes: Partial<Record<WorkshopStage, string>> = {
 };
 
 function WorkshopDashboard() {
-  const { artifacts, activities, setActivityStatus } = useWorkshop();
+  const { workshop, updateWorkshop, setWorkshopStatus, artifacts, activities, approvals, activityFeed, setActivityStatus } =
+    useWorkshop();
   const canEdit = useCan("edit-workshop");
+  const { data: people = [] } = useQuery(participantsQueryOptions);
 
   const completed = activities.filter((a) => a.status === "complete").length;
   const progress = Math.round((completed / activities.length) * 100);
   const votesCast = artifacts.reduce((s, a) => s + a.votes, 0);
 
   const metrics = [
-    { label: "Participants", value: participants.length },
+    { label: "Participants", value: people.length },
     { label: "Artifacts", value: artifacts.length },
     { label: "Votes Cast", value: votesCast },
     { label: "Themes", value: themes.length },
@@ -75,14 +107,119 @@ function WorkshopDashboard() {
     { label: "Reports", value: 2 },
   ];
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: workshop.name,
+    objective: workshop.objective,
+    tags: workshop.tags.join(", "),
+  });
+
+  function openEdit() {
+    setEditForm({ name: workshop.name, objective: workshop.objective, tags: workshop.tags.join(", ") });
+    setEditOpen(true);
+  }
+
+  function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editForm.name.trim()) {
+      toast.error("Workshop name is required");
+      return;
+    }
+    updateWorkshop({
+      name: editForm.name.trim(),
+      objective: editForm.objective.trim(),
+      tags: editForm.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    });
+    setEditOpen(false);
+    toast.success("Workshop details updated");
+  }
+
+  const settableStages = lifecycleStates.filter((s) => s !== "Archived");
+
+  const approvalPct = (type: ApprovalType) => {
+    const items = approvals.filter((a) => a.type === type);
+    if (items.length === 0) return 100;
+    return Math.round((items.filter((a) => a.decision === "approved").length / items.length) * 100);
+  };
+  const votingCoverage = artifacts.length
+    ? Math.round((artifacts.filter((a) => a.votes > 0).length / artifacts.length) * 100)
+    : 100;
+  const participationRate = people.length
+    ? Math.round((people.filter((p) => p.presence !== "offline").length / people.length) * 100)
+    : 100;
+
+  const healthFactors = [
+    { label: "Completion", value: progress, kind: "completion" as const },
+    { label: "Participation", value: participationRate, kind: "participation" as const },
+    { label: "Voting coverage", value: votingCoverage, kind: "voting" as const },
+    { label: "Theme approval", value: approvalPct("Themes"), kind: "approval" as const, approvalType: "Themes" as const },
+    {
+      label: "Insight approval",
+      value: approvalPct("Insights"),
+      kind: "approval" as const,
+      approvalType: "Insights" as const,
+    },
+    {
+      label: "Recommendation approval",
+      value: approvalPct("Recommendations"),
+      kind: "approval" as const,
+      approvalType: "Recommendations" as const,
+    },
+  ];
+  const healthScore = Math.round(healthFactors.reduce((s, f) => s + f.value, 0) / healthFactors.length);
+  const healthStatus = healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "At risk" : "Critical";
+  const healthStatusColor =
+    healthScore >= 75 ? "text-success" : healthScore >= 50 ? "text-warning" : "text-destructive";
+
+  function explainHealthScore() {
+    const weakest = [...healthFactors].sort((a, b) => a.value - b.value)[0]!;
+    toast.info(`Workshop health is ${healthScore}/100 (${healthStatus})`, {
+      description: `${healthFactors.map((f) => `${f.label} ${f.value}%`).join(" · ")}. Weakest factor: ${weakest.label}.`,
+    });
+  }
+
+  function improveHealthScore() {
+    const weakest = [...healthFactors].sort((a, b) => a.value - b.value)[0]!;
+    let suggestion: string;
+    if (weakest.kind === "completion") {
+      const next = activities.find((a) => a.status !== "complete");
+      suggestion = next ? `Close out "${next.name}" to raise completion.` : "All activities are complete.";
+    } else if (weakest.kind === "participation") {
+      const offline = people.filter((p) => p.presence === "offline").length;
+      suggestion =
+        offline > 0
+          ? `${offline} participant${offline === 1 ? "" : "s"} offline — consider a nudge to re-engage them.`
+          : "Participation is already strong.";
+    } else if (weakest.kind === "voting") {
+      const unvoted = artifacts.filter((a) => a.votes === 0).length;
+      suggestion =
+        unvoted > 0
+          ? `${unvoted} artifact${unvoted === 1 ? "" : "s"} have zero votes — prompt participants to vote.`
+          : "All artifacts already have votes.";
+    } else {
+      const pending = approvals.filter((a) => a.type === weakest.approvalType && a.decision === "pending").length;
+      suggestion =
+        pending > 0
+          ? `${pending} ${weakest.approvalType} item${pending === 1 ? "" : "s"} awaiting approval — visit Pending Approvals.`
+          : `${weakest.approvalType} approvals are already caught up.`;
+    }
+    toast.success("Suggested next step", { description: suggestion });
+  }
+
   return (
     <div className="grid-backdrop min-h-[calc(100vh-3.5rem)]">
       <div className="mx-auto max-w-[1500px] space-y-4 p-3 md:p-5">
         {/* 1.9 Workshop header */}
-        <section className="console-panel overflow-hidden" data-build="mock">
+        <section className="console-panel overflow-hidden" data-build="live">
           <div className="flex flex-col gap-4 p-4 md:flex-row md:items-start md:justify-between md:p-5">
             <div className="min-w-0">
-              <p className="label-caps">Workshop WS-003</p>
+              <div className="flex items-center gap-2">
+                <p className="label-caps">Workshop WS-003</p>
+                <BuildBadge state="live" />
+              </div>
               <h1 className="mt-1 text-xl font-semibold md:text-2xl">{workshop.name}</h1>
               <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{workshop.objective}</p>
               <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-xs">
@@ -96,7 +233,7 @@ function WorkshopDashboard() {
                 </div>
                 <div className="flex gap-1.5">
                   <dt className="text-muted-foreground">Participants</dt>
-                  <dd className="font-medium">{participants.length}</dd>
+                  <dd className="font-medium">{people.length}</dd>
                 </div>
               </dl>
               <div className="mt-3 flex flex-wrap gap-1.5">
@@ -114,26 +251,54 @@ function WorkshopDashboard() {
             <div className="flex shrink-0 flex-wrap gap-2">
               {canEdit && (
                 <>
-                  <Button variant="secondary" size="sm" onClick={() => toast.info("Workshop editor opens here")}>
+                  <Button variant="secondary" size="sm" onClick={openEdit}>
                     <Pencil className="size-3.5" /> Edit Workshop
                   </Button>
-                  <Button variant="secondary" size="sm" onClick={() => toast.info("Workshop settings")}>
-                    <Settings2 className="size-3.5" /> Settings
-                  </Button>
-                  <Button size="sm" onClick={() => toast.success("Invitation sent")}>
-                    <UserPlus className="size-3.5" /> Invite Participant
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="secondary" size="sm">
+                        <Settings2 className="size-3.5" /> Settings
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {settableStages.map((stage) => (
+                        <DropdownMenuItem key={stage} onClick={() => setWorkshopStatus(stage)}>
+                          {stage === workshop.status && <Check className="size-3.5" />}
+                          {stage}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button asChild size="sm">
+                    <a href="#participants">
+                      <UserPlus className="size-3.5" /> Invite Participant
+                    </a>
                   </Button>
                 </>
               )}
               {canEdit && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground"
-                  onClick={() => toast.warning("Archiving requires administrator confirmation")}
-                >
-                  <Archive className="size-3.5" /> Archive
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground">
+                      <Archive className="size-3.5" /> Archive
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Archive this workshop?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This moves the workshop to the Archived lifecycle stage. Participants will no longer see it
+                        as active. This can be reversed later from Settings, but requires administrator access.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => setWorkshopStatus("Archived")}>
+                        Archive workshop
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
             </div>
           </div>
@@ -159,6 +324,44 @@ function WorkshopDashboard() {
             })}
           </div>
         </section>
+
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent>
+            <form onSubmit={saveEdit}>
+              <DialogHeader>
+                <DialogTitle>Edit workshop</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-4">
+                <div className="space-y-1.5">
+                  <p className="label-caps">Name</p>
+                  <Input
+                    value={editForm.name}
+                    onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                    maxLength={120}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="label-caps">Objective</p>
+                  <Textarea
+                    rows={3}
+                    value={editForm.objective}
+                    onChange={(e) => setEditForm((f) => ({ ...f, objective: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="label-caps">Tags (comma separated)</p>
+                  <Input
+                    value={editForm.tags}
+                    onChange={(e) => setEditForm((f) => ({ ...f, tags: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="submit">Save changes</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
@@ -327,15 +530,32 @@ function WorkshopDashboard() {
           {/* Right rail */}
           <div className="space-y-4">
             {/* 1.20 Workshop health */}
-            <section className="console-panel" data-build="mock">
-              <PanelHeading title="Workshop Health" build="mock" action={<Gauge className="size-4 text-primary" />} />
+            <section className="console-panel" data-build="live">
+              <PanelHeading
+                title="Workshop Health"
+                hint="Computed from live completion, participation, and approval data"
+                build="live"
+                action={<Gauge className="size-4 text-primary" />}
+              />
               <div className="p-4">
                 <div className="flex items-end gap-2">
-                  <span className="font-display text-4xl font-semibold text-primary">{workshop.healthScore}</span>
+                  <span className={cn("font-display text-4xl font-semibold", healthStatusColor)}>{healthScore}</span>
                   <span className="pb-1.5 text-sm text-muted-foreground">/ 100</span>
                 </div>
-                <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-success">Healthy</p>
-                <Progress value={workshop.healthScore} className="mt-3 h-1.5" />
+                <p className={cn("mt-1 font-mono text-[11px] uppercase tracking-wider", healthStatusColor)}>
+                  {healthStatus}
+                </p>
+                <Progress value={healthScore} className="mt-3 h-1.5" />
+
+                <div className="mt-3 space-y-1.5">
+                  {healthFactors.map((f) => (
+                    <div key={f.label} className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="text-muted-foreground">{f.label}</span>
+                      <span className="font-mono">{f.value}%</span>
+                    </div>
+                  ))}
+                </div>
+
                 <div className="mt-4 space-y-2">
                   {[
                     { label: "Continue current activity", to: "/discovery/threats" },
@@ -352,9 +572,18 @@ function WorkshopDashboard() {
                     variant="ghost"
                     size="sm"
                     className="w-full justify-between text-muted-foreground"
-                    onClick={() => toast.success("Workshop summary queued for generation")}
+                    onClick={explainHealthScore}
                   >
-                    Generate workshop summary
+                    Explain score
+                    <ArrowRight className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-between text-muted-foreground"
+                    onClick={improveHealthScore}
+                  >
+                    Improve score
                     <ArrowRight className="size-3.5" />
                   </Button>
                 </div>
@@ -376,46 +605,60 @@ function WorkshopDashboard() {
 
 
             {/* 1.16 Participants */}
-            <section className="console-panel" data-build="mock">
-              <PanelHeading title="Participants" hint={`${participants.length} invited`} build="mock" />
-              <div className="max-h-64 divide-y divide-border overflow-y-auto">
-                {participants.map((p) => (
-                  <div key={p.id} className="flex items-center gap-2.5 px-4 py-2.5">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-elevated text-[10px] font-semibold">
-                      {p.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium">{p.name}</p>
-                      <p className="text-[11px] capitalize text-muted-foreground">{p.role}</p>
-                    </div>
-                    <span
-                      className={cn(
-                        "size-2 rounded-full",
-                        p.presence === "online" && "bg-success",
-                        p.presence === "idle" && "bg-warning",
-                        p.presence === "offline" && "bg-muted-foreground/40",
-                      )}
-                    />
-                  </div>
-                ))}
-              </div>
-            </section>
+            <ParticipantsPanel />
 
             {/* 1.15 Activity feed */}
-            <section className="console-panel" data-build="mock">
-              <PanelHeading title="Recent Activity" build="mock" />
+            <section className="console-panel" data-build="live">
+              <PanelHeading title="Recent Activity" hint="Live workshop events" build="live" />
               <div className="divide-y divide-border">
-                {activityFeed.map((f) => (
-                  <div key={f.id} className="px-4 py-2.5">
-                    <p className="text-xs leading-relaxed">
-                      <span className="font-medium text-primary">{f.actor}</span> {f.text}
-                    </p>
-                    <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{f.time}</p>
-                  </div>
-                ))}
+                {activityFeed.slice(0, 10).map((f) => {
+                  const body = (
+                    <div className="min-w-0">
+                      <p className="text-xs leading-relaxed">
+                        <span className="font-medium text-primary">{f.actor}</span> {f.text}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{f.time}</p>
+                    </div>
+                  );
+
+                  if (!f.link) {
+                    return (
+                      <div key={f.id} className="px-4 py-2.5">
+                        {body}
+                      </div>
+                    );
+                  }
+
+                  const rowClasses =
+                    "group flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:bg-elevated";
+                  const openIcon = (
+                    <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                  );
+
+                  if (f.link.kind === "approval") {
+                    return (
+                      <a key={f.id} href="#pending-reviews" className={rowClasses}>
+                        {body}
+                        {openIcon}
+                      </a>
+                    );
+                  }
+
+                  const searchParams = f.link.kind === "artifact" ? { artifact: f.link.artifactId } : {};
+
+                  return (
+                    <Link
+                      key={f.id}
+                      to="/discovery/$category"
+                      params={{ category: categoryMeta[f.link.category].slug }}
+                      search={searchParams}
+                      className={rowClasses}
+                    >
+                      {body}
+                      {openIcon}
+                    </Link>
+                  );
+                })}
               </div>
             </section>
 

@@ -53,18 +53,6 @@ export interface Participant {
   presence: "online" | "idle" | "offline";
 }
 
-export const workshop = {
-  id: "ws-003",
-  name: "Digital Transformation Strategy Workshop",
-  status: "Active" as const,
-  objective: "Identify strategic priorities for the next three years.",
-  facilitator: "Jane Smith",
-  createdAt: "02 Jun 2026",
-  tags: ["Digital", "Three-Year Horizon", "Executive Sponsored"],
-  healthScore: 84,
-  votesPerParticipant: 20,
-};
-
 export const lifecycleStates = [
   "Draft",
   "Configured",
@@ -73,7 +61,31 @@ export const lifecycleStates = [
   "Reporting",
   "Completed",
   "Archived",
-];
+] as const;
+
+export type WorkshopStatus = (typeof lifecycleStates)[number];
+
+export interface WorkshopRecord {
+  id: string;
+  name: string;
+  status: WorkshopStatus;
+  objective: string;
+  facilitator: string;
+  createdAt: string;
+  tags: string[];
+  votesPerParticipant: number;
+}
+
+export const workshop: WorkshopRecord = {
+  id: "ws-003",
+  name: "Digital Transformation Strategy Workshop",
+  status: "Active",
+  objective: "Identify strategic priorities for the next three years.",
+  facilitator: "Jane Smith",
+  createdAt: "02 Jun 2026",
+  tags: ["Digital", "Three-Year Horizon", "Executive Sponsored"],
+  votesPerParticipant: 20,
+};
 
 export const activities: ActivityRow[] = [
   { id: "a1", stage: "strengths", name: "Strength Discovery", status: "complete", owner: "Jane", dueDate: "15 Jun" },
@@ -254,12 +266,43 @@ export const emergingRisks = [
   "Two executive reviewers have not accessed the workshop this week",
 ];
 
-export const activityFeed = [
-  { id: "f1", actor: "John", text: 'created artifact "Strong Customer Loyalty"', time: "8 min ago" },
+export type ActivityLink =
+  | { kind: "artifact"; artifactId: string; category: SwotCategory }
+  | { kind: "category"; category: SwotCategory }
+  | { kind: "approval" };
+
+export interface ActivityFeedItem {
+  id: string;
+  actor: string;
+  text: string;
+  time: string;
+  link?: ActivityLink;
+}
+
+export const activityFeed: ActivityFeedItem[] = [
+  {
+    id: "f1",
+    actor: "John",
+    text: 'created artifact "Strong Customer Loyalty"',
+    time: "8 min ago",
+    link: { kind: "artifact", artifactId: "s1", category: "strength" },
+  },
   { id: "f2", actor: "AI Assistant", text: "generated 6 themes from 86 artifacts", time: "42 min ago" },
-  { id: "f3", actor: "Sarah", text: 'approved theme "Digital Enablement"', time: "2 hours ago" },
+  {
+    id: "f3",
+    actor: "Sarah",
+    text: 'approved theme "Data as a Strategic Asset"',
+    time: "2 hours ago",
+    link: { kind: "approval" },
+  },
   { id: "f4", actor: "System", text: "published report Executive Summary v1.0", time: "Yesterday" },
-  { id: "f5", actor: "Alex", text: "merged 2 duplicate artifacts in Opportunity Discovery", time: "Yesterday" },
+  {
+    id: "f5",
+    actor: "Alex",
+    text: "merged 2 duplicate artifacts in Opportunity Discovery",
+    time: "Yesterday",
+    link: { kind: "category", category: "opportunity" },
+  },
 ];
 
 export type ApprovalType = "Themes" | "Insights" | "Recommendations";

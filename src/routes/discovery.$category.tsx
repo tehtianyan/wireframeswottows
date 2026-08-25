@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,10 @@ import {
 } from "@/lib/workshop-data";
 
 export const Route = createFileRoute("/discovery/$category")({
+  validateSearch: (search: Record<string, unknown>): { artifact?: string } => {
+    const artifact = search["artifact"];
+    return typeof artifact === "string" ? { artifact } : {};
+  },
   loader: ({ params }) => {
     const category = slugToCategory[params.category];
     if (!category) throw notFound();
@@ -63,6 +67,7 @@ export const Route = createFileRoute("/discovery/$category")({
 
 function DiscoveryWorkspace() {
   const { category } = Route.useLoaderData();
+  const { artifact: artifactParam } = Route.useSearch();
   const meta = categoryMeta[category];
   const {
     artifacts,
@@ -87,6 +92,12 @@ function DiscoveryWorkspace() {
   const [selected, setSelected] = useState<Artifact | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [locked, setLocked] = useState(false);
+
+  useEffect(() => {
+    if (!artifactParam) return;
+    const target = artifacts.find((a) => a.id === artifactParam);
+    if (target) setSelected(target);
+  }, [artifactParam, artifacts]);
 
   const scoped = artifacts.filter((a) => a.category === category);
   const allTags = useMemo(

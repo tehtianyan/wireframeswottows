@@ -202,6 +202,15 @@
   --shadow-console: 0 1px 2px 0 oklch(0 0 0 / 5%), 0 12px 30px -22px oklch(0 0 0 / 30%);
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
+#pending-reviews,
+#participants {
+  scroll-margin-top: 4.5rem;
+}
+
 /* Build-status overlay: green = functional, red = mock-only presentation. */
 html[data-build-status="on"] [data-build="live"] {
   outline: 1.5px solid var(--success);

@@ -67,7 +67,7 @@ export function ApprovalQueuePanel() {
   }
 
   return (
-    <section className="console-panel" data-build="live">
+    <section id="pending-reviews" className="console-panel" data-build="live">
       <PanelHeading
         build="live"
         title="Pending Approvals"
