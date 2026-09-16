@@ -22,6 +22,10 @@ func mustPool(r *http.Request, w http.ResponseWriter) *pgxpool.Pool {
 }
 
 func writeAuthzErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, authz.ErrInsufficientRole) {
+		response.Fail(w, response.CodeForbidden, "your role in this workshop does not allow this action")
+		return
+	}
 	if errors.Is(err, authz.ErrForbidden) {
 		response.Fail(w, response.CodeForbidden, "you do not have access to this workshop")
 		return

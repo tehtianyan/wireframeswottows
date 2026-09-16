@@ -17,6 +17,12 @@ import (
 var ErrForbidden = errors.New("forbidden")
 var ErrNotFound = errors.New("not found")
 
+// ErrInsufficientRole is distinct from ErrForbidden: the caller IS a member of
+// the workshop, but their role does not carry this authority. Both are 403 to
+// the client, but conflating them produces a misleading message ("you do not
+// have access to this workshop") for someone who plainly does have access.
+var ErrInsufficientRole = errors.New("insufficient role")
+
 // WorkshopRole returns the caller's role in the given workshop, or
 // ErrForbidden if they are not a member.
 func WorkshopRole(ctx context.Context, pool *pgxpool.Pool, userID, workshopID string) (string, error) {
@@ -66,7 +72,7 @@ func RequireWorkshopRole(ctx context.Context, pool *pgxpool.Pool, userID, worksh
 			return role, nil
 		}
 	}
-	return "", ErrForbidden
+	return role, ErrInsufficientRole
 }
 
 // WorkshopIDForActivity resolves the owning workshop for an activity, factor,
