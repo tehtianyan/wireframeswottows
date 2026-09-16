@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PrioritizationRouteImport } from './routes/prioritization'
 import { Route as DiscoveryCategoryRouteImport } from './routes/discovery.$category'
+import { Route as WWorkshopIdStageStageKeyRouteImport } from './routes/w.$workshopId.stage.$stageKey'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,58 @@ const DiscoveryCategoryRoute = DiscoveryCategoryRouteImport.update({
   path: '/discovery/$category',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WWorkshopIdStageStageKeyRoute =
+  WWorkshopIdStageStageKeyRouteImport.update({
+    id: '/w/$workshopId/stage/$stageKey',
+    path: '/w/$workshopId/stage/$stageKey',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/prioritization': typeof PrioritizationRoute
   '/discovery/$category': typeof DiscoveryCategoryRoute
+  '/w/$workshopId/stage/$stageKey': typeof WWorkshopIdStageStageKeyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/prioritization': typeof PrioritizationRoute
   '/discovery/$category': typeof DiscoveryCategoryRoute
+  '/w/$workshopId/stage/$stageKey': typeof WWorkshopIdStageStageKeyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/prioritization': typeof PrioritizationRoute
   '/discovery/$category': typeof DiscoveryCategoryRoute
+  '/w/$workshopId/stage/$stageKey': typeof WWorkshopIdStageStageKeyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/prioritization' | '/discovery/$category'
+  fullPaths:
+    | '/'
+    | '/prioritization'
+    | '/discovery/$category'
+    | '/w/$workshopId/stage/$stageKey'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/prioritization' | '/discovery/$category'
-  id: '__root__' | '/' | '/prioritization' | '/discovery/$category'
+  to:
+    | '/'
+    | '/prioritization'
+    | '/discovery/$category'
+    | '/w/$workshopId/stage/$stageKey'
+  id:
+    | '__root__'
+    | '/'
+    | '/prioritization'
+    | '/discovery/$category'
+    | '/w/$workshopId/stage/$stageKey'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PrioritizationRoute: typeof PrioritizationRoute
   DiscoveryCategoryRoute: typeof DiscoveryCategoryRoute
+  WWorkshopIdStageStageKeyRoute: typeof WWorkshopIdStageStageKeyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +106,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DiscoveryCategoryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/w/$workshopId/stage/$stageKey': {
+      id: '/w/$workshopId/stage/$stageKey'
+      path: '/w/$workshopId/stage/$stageKey'
+      fullPath: '/w/$workshopId/stage/$stageKey'
+      preLoaderRoute: typeof WWorkshopIdStageStageKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +120,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PrioritizationRoute: PrioritizationRoute,
   DiscoveryCategoryRoute: DiscoveryCategoryRoute,
+  WWorkshopIdStageStageKeyRoute: WWorkshopIdStageStageKeyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
