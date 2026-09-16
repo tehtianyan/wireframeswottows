@@ -148,7 +148,7 @@ function WorkshopDashboard() {
     ? Math.round((artifacts.filter((a) => a.votes > 0).length / artifacts.length) * 100)
     : 100;
   const participationRate = people.length
-    ? Math.round((people.filter((p) => p.presence !== "offline").length / people.length) * 100)
+    ? Math.round((people.filter((p) => p.status === "active").length / people.length) * 100)
     : 100;
 
   const healthFactors = [
@@ -188,10 +188,10 @@ function WorkshopDashboard() {
       const next = activities.find((a) => a.status !== "complete");
       suggestion = next ? `Close out "${next.name}" to raise completion.` : "All activities are complete.";
     } else if (weakest.kind === "participation") {
-      const offline = people.filter((p) => p.presence === "offline").length;
+      const notJoined = people.filter((p) => p.status === "invited").length;
       suggestion =
-        offline > 0
-          ? `${offline} participant${offline === 1 ? "" : "s"} offline — consider a nudge to re-engage them.`
+        notJoined > 0
+          ? `${notJoined} participant${notJoined === 1 ? "" : "s"} invited but haven't joined — consider a nudge.`
           : "Participation is already strong.";
     } else if (weakest.kind === "voting") {
       const unvoted = artifacts.filter((a) => a.votes === 0).length;

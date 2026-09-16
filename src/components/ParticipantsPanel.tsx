@@ -28,20 +28,15 @@ import {
   type ParticipantRole,
 } from "@/lib/participants";
 
-const presenceDot: Record<string, string> = {
-  online: "bg-success",
-  idle: "bg-warning",
-  offline: "bg-muted-foreground/40",
-};
-
 const roleBadge: Record<ParticipantRole, string> = {
   facilitator: "border-primary/50 bg-primary/10 text-primary",
   analyst: "border-info/50 bg-info/10 text-info",
-  executive: "border-opportunity/50 bg-opportunity/10 text-opportunity",
+  executive_viewer: "border-opportunity/50 bg-opportunity/10 text-opportunity",
   participant: "border-border bg-elevated text-muted-foreground",
+  observer: "border-border bg-elevated text-muted-foreground",
 };
 
-const roleOptions: ParticipantRole[] = ["participant", "analyst", "facilitator", "executive"];
+const roleOptions: ParticipantRole[] = ["participant", "analyst", "facilitator", "executive_viewer", "observer"];
 
 export function ParticipantsPanel() {
   const { voteAllocation } = useWorkshop();
@@ -98,11 +93,10 @@ export function ParticipantsPanel() {
   });
 
   const stats = useMemo(() => {
-    const online = people.filter((p) => p.presence === "online").length;
-    const idle = people.filter((p) => p.presence === "idle").length;
+    const active = people.filter((p) => p.status === "active").length;
     const invited = people.filter((p) => p.status === "invited").length;
     const engaged = people.filter((p) => p.votes_used > 0).length;
-    return { online, idle, invited, engaged, offline: people.length - online - idle };
+    return { active, invited, engaged };
   }, [people]);
 
   const visible = useMemo(() => {
@@ -127,7 +121,7 @@ export function ParticipantsPanel() {
       <PanelHeading
         build="live"
         title="Participants"
-        hint={`${people.length} on the roster · ${stats.online} online`}
+        hint={`${people.length} on the roster · ${stats.active} active`}
         action={
           canManage ? (
             <Button variant="secondary" size="sm" onClick={() => setInviteOpen((v) => !v)}>
@@ -137,19 +131,20 @@ export function ParticipantsPanel() {
         }
       />
 
-      {/* presence distribution */}
+      {/* roster status distribution */}
       <div className="border-b border-border px-4 py-3">
         <div className="flex h-1.5 overflow-hidden rounded-full bg-elevated">
-          {(["online", "idle", "offline"] as const).map((k) => {
-            const count = k === "online" ? stats.online : k === "idle" ? stats.idle : stats.offline;
-            const pct = people.length ? (count / people.length) * 100 : 0;
-            return <span key={k} className={cn("h-full", presenceDot[k])} style={{ width: `${pct}%` }} />;
-          })}
+          <span
+            className="h-full bg-success"
+            style={{ width: `${people.length ? (stats.active / people.length) * 100 : 0}%` }}
+          />
+          <span
+            className="h-full bg-warning"
+            style={{ width: `${people.length ? (stats.invited / people.length) * 100 : 0}%` }}
+          />
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-          <span>{stats.online} online</span>
-          <span>{stats.idle} idle</span>
-          <span>{stats.offline} offline</span>
+          <span>{stats.active} active</span>
           <span>{stats.invited} pending invite</span>
           <span>{stats.engaged} voted</span>
         </div>
@@ -252,7 +247,7 @@ export function ParticipantsPanel() {
               <span
                 className={cn(
                   "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-card",
-                  presenceDot[p.presence],
+                  p.status === "active" ? "bg-success" : "bg-warning",
                 )}
               />
             </span>
@@ -297,7 +292,8 @@ export function ParticipantsPanel() {
                   {selected.name}
                 </SheetTitle>
                 <SheetDescription>
-                  {selected.email} · joined {selected.joined_at} · last active {selected.last_active}
+                  {selected.email}
+                  {selected.joined_at ? ` · joined ${new Date(selected.joined_at).toLocaleDateString()}` : " · invited, not yet joined"}
                 </SheetDescription>
               </SheetHeader>
 
@@ -330,10 +326,10 @@ export function ParticipantsPanel() {
                 </div>
 
                 <div>
-                  <p className="label-caps">Presence</p>
+                  <p className="label-caps">Status</p>
                   <p className="mt-1.5 flex items-center gap-2 text-xs capitalize">
-                    <span className={cn("size-2 rounded-full", presenceDot[selected.presence])} />
-                    {selected.presence} · status {selected.status}
+                    <span className={cn("size-2 rounded-full", selected.status === "active" ? "bg-success" : "bg-warning")} />
+                    {selected.status}
                   </p>
                 </div>
 
