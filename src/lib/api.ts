@@ -47,12 +47,30 @@ export function apiGet<T>(path: string): Promise<T> {
   return request<T>(path);
 }
 
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method: "POST" };
+// Built imperatively rather than with a spread: `exactOptionalPropertyTypes`
+// rejects an explicit `body: undefined` on RequestInit.
+function withBody(method: string, body?: unknown): RequestInit {
+  const init: RequestInit = { method };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
   }
-  return request<T>(path, init);
+  return init;
+}
+
+export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, withBody("POST", body));
+}
+
+export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, withBody("PATCH", body));
+}
+
+export function apiPut<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, withBody("PUT", body));
+}
+
+export function apiDelete<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "DELETE" });
 }
 
 // ---- Types matching the Go JSON shapes ----
@@ -108,6 +126,43 @@ export interface Workshop {
 
 export interface WorkshopDetail extends Workshop {
   methodology: Methodology;
+  /** The caller's own workshop role. Go re-checks every action regardless. */
+  my_role: WorkshopRole;
+}
+
+export type WorkshopRole = "facilitator" | "participant" | "analyst" | "executive_viewer" | "observer";
+
+/** Mirrors `reviewerRoles` in pkg/handlers/factors.go. */
+export const REVIEWER_ROLES: WorkshopRole[] = ["facilitator", "analyst"];
+/** Mirrors `votingRoles` in pkg/handlers/votes.go. */
+export const VOTING_ROLES: WorkshopRole[] = ["facilitator", "participant", "analyst"];
+
+export const canReview = (role: WorkshopRole) => REVIEWER_ROLES.includes(role);
+export const canVote = (role: WorkshopRole) => VOTING_ROLES.includes(role);
+
+/** The governance lifecycle every object type shares (App Spec §8). */
+export type FactorState = "draft" | "submitted" | "approved" | "rejected";
+
+export interface MethodologySummary {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  version: string;
+  category_count: number;
+  stage_count: number;
+}
+
+export interface VoteAllocation {
+  factor_id: string;
+  vote_value: number;
+}
+
+export interface VoteSummary {
+  budget: number;
+  used: number;
+  remaining: number;
+  allocations: VoteAllocation[];
 }
 
 export interface Activity {
@@ -124,17 +179,59 @@ export interface Factor {
   title: string;
   description: string | null;
   created_by: string | null;
-  state: string;
+  state: FactorState;
   votes: number;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
   created_at: string;
 }
+
+export interface Workspace {
+  id: string;
+  name: string;
+  role: string;
+  can_create_workshops: boolean;
+}
+
+export const methodologiesApi = {
+  list: () => apiGet<MethodologySummary[]>("/methodologies"),
+};
+
+export const workspacesApi = {
+  list: () => apiGet<Workspace[]>("/workspaces"),
+};
 
 export const workshopsApi = {
   list: () => apiGet<Workshop[]>("/workshops"),
   get: (id: string) => apiGet<WorkshopDetail>(`/workshops/${id}`),
   activities: (id: string) => apiGet<Activity[]>(`/workshops/${id}/activities`),
-  factors: (id: string, categoryKey?: string) =>
-    apiGet<Factor[]>(`/workshops/${id}/factors${categoryKey ? `?category=${categoryKey}` : ""}`),
+
+  create: (input: {
+    workspace_id: string;
+    name: string;
+    methodology_key: string;
+    description?: string;
+    objective?: string;
+  }) => apiPost<{ id: string; status: string }>("/workshops", input),
+
+  factors: (id: string, filters?: { category?: string; state?: FactorState }) => {
+    const qs = new URLSearchParams();
+    if (filters?.category) qs.set("category", filters.category);
+    if (filters?.state) qs.set("state", filters.state);
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return apiGet<Factor[]>(`/workshops/${id}/factors${suffix}`);
+  },
   createFactor: (id: string, input: { category_key: string; title: string; description?: string }) =>
     apiPost<{ id: string }>(`/workshops/${id}/factors`, input),
+  updateFactor: (id: string, factorId: string, input: { title?: string; description?: string }) =>
+    apiPatch<{ id: string }>(`/workshops/${id}/factors/${factorId}`, input),
+  deleteFactor: (id: string, factorId: string) =>
+    apiDelete<{ id: string }>(`/workshops/${id}/factors/${factorId}`),
+  reviewFactor: (id: string, factorId: string, input: { action: "approve" | "reject"; note?: string }) =>
+    apiPost<{ id: string; state: FactorState }>(`/workshops/${id}/factors/${factorId}/review`, input),
+
+  votes: (id: string) => apiGet<VoteSummary>(`/workshops/${id}/votes`),
+  setVote: (id: string, factorId: string, value: number) =>
+    apiPut<VoteSummary>(`/workshops/${id}/factors/${factorId}/vote`, { value }),
 };

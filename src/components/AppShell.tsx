@@ -35,7 +35,7 @@ import { roleLabels, type Role } from "@/lib/workshop-data";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/" },
-  { label: "Workshops", icon: Layers, to: "/" },
+  { label: "Workshops", icon: Layers, to: "/w" },
   { label: "Analysis", icon: Compass, to: "/discovery/strengths" },
   { label: "Reports", icon: FileText, to: "/prioritization" },
   { label: "Knowledge", icon: Database, to: "/" },

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ChevronDown, ClipboardCheck, PenLine } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BuildBadge } from "@/components/workshop-ui";
 import type { Activity, FactorCategory, MethodologyStage, WorkshopDetail } from "@/lib/api";
@@ -14,6 +15,7 @@ export function StageShell({
   category,
   guidance,
   aiPanel,
+  reviewMode = false,
   children,
 }: {
   workshop: WorkshopDetail;
@@ -21,6 +23,7 @@ export function StageShell({
   category?: FactorCategory;
   guidance?: string;
   aiPanel?: ReactNode;
+  reviewMode?: boolean;
   children: ReactNode;
 }) {
   const [guidanceOpen, setGuidanceOpen] = useState(true);
@@ -50,7 +53,40 @@ export function StageShell({
                 <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{workshop.objective}</p>
               )}
             </div>
+
+            {/* Review Mode is available on every workspace per the wireframe
+                spec, so it belongs to the shell rather than to any one stage. */}
+            <Link
+              to="/w/$workshopId/stage/$stageKey"
+              params={{ workshopId: workshop.id, stageKey: stage.key }}
+              search={reviewMode ? {} : { mode: "review" as const }}
+              className="inline-flex shrink-0 items-center gap-1.5 self-start rounded border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {reviewMode ? <PenLine className="size-3.5" /> : <ClipboardCheck className="size-3.5" />}
+              {reviewMode ? "Back to stage" : "Review mode"}
+            </Link>
           </div>
+
+          {/* Stage navigation, built from methodology config — the order and
+              the names are whatever the methodology declares. */}
+          <nav className="mt-4 flex flex-wrap gap-1.5" aria-label="Methodology stages">
+            {workshop.methodology.stages.map((s) => (
+              <Link
+                key={s.key}
+                to="/w/$workshopId/stage/$stageKey"
+                params={{ workshopId: workshop.id, stageKey: s.key }}
+                search={{}}
+                className={cn(
+                  "rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
+                  s.key === stage.key
+                    ? "border-foreground/30 bg-foreground/10 text-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {s.sequence_number}. {s.name}
+              </Link>
+            ))}
+          </nav>
 
           {guidance && (
             <div className="mt-4 rounded-md border border-border bg-elevated">
