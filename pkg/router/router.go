@@ -1,0 +1,37 @@
+// Package router builds the full /api/v1 route table in one place, shared
+// by the Vercel entrypoint (api/v1/[...path].go) and local dev.
+package router
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"swot-tows/pkg/handlers"
+)
+
+func New() http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
+
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/health", handlers.Health)
+
+		r.Route("/workshops", func(r chi.Router) {
+			r.Get("/", handlers.ListWorkshops)
+			r.Post("/", handlers.CreateWorkshop)
+			r.Get("/{id}", handlers.GetWorkshop)
+			r.Post("/{id}/configure", handlers.TransitionWorkshop("configured"))
+			r.Post("/{id}/start", handlers.TransitionWorkshop("active"))
+			r.Post("/{id}/analysis", handlers.TransitionWorkshop("analysis"))
+			r.Post("/{id}/reporting", handlers.TransitionWorkshop("reporting"))
+			r.Post("/{id}/complete", handlers.CompleteWorkshop)
+			r.Get("/{id}/activities", handlers.ListActivities)
+			r.Get("/{id}/factors", handlers.ListFactors)
+			r.Post("/{id}/factors", handlers.CreateFactor)
+		})
+	})
+
+	return r
+}
