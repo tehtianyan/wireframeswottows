@@ -18,6 +18,11 @@ func New() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", handlers.Health)
 
+		// The catalogue the creation wizard picks from — active methodologies
+		// only, so activating one is a config change, not a release.
+		r.Get("/methodologies", handlers.ListMethodologies)
+		r.Get("/workspaces", handlers.ListWorkspaces)
+
 		r.Route("/workshops", func(r chi.Router) {
 			r.Get("/", handlers.ListWorkshops)
 			r.Post("/", handlers.CreateWorkshop)
@@ -30,6 +35,12 @@ func New() http.Handler {
 			r.Get("/{id}/activities", handlers.ListActivities)
 			r.Get("/{id}/factors", handlers.ListFactors)
 			r.Post("/{id}/factors", handlers.CreateFactor)
+			r.Patch("/{id}/factors/{factorId}", handlers.UpdateFactor)
+			r.Delete("/{id}/factors/{factorId}", handlers.DeleteFactor)
+			r.Post("/{id}/factors/{factorId}/review", handlers.ReviewFactor)
+
+			r.Get("/{id}/votes", handlers.GetVotes)
+			r.Put("/{id}/factors/{factorId}/vote", handlers.SetVote)
 		})
 	})
 

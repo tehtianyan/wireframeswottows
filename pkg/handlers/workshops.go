@@ -34,6 +34,9 @@ type Workshop struct {
 type WorkshopDetail struct {
 	Workshop
 	Methodology *methodology.Methodology `json:"methodology"`
+	// The caller's own role, so the UI can hide controls it would be
+	// refused anyway. Go still enforces every one of them server-side.
+	MyRole string `json:"my_role"`
 }
 
 // forward-only lifecycle per App Spec §8.7
@@ -93,7 +96,8 @@ func GetWorkshop(w http.ResponseWriter, r *http.Request) {
 	user := httpctx.UserFromContext(r2.Context())
 	id := chi.URLParam(r2, "id")
 
-	if _, err := authz.RequireWorkshopRole(r2.Context(), mustPool(r2, w), user.ID, id); err != nil {
+	myRole, err := authz.RequireWorkshopRole(r2.Context(), mustPool(r2, w), user.ID, id)
+	if err != nil {
 		writeAuthzErr(w, err)
 		return
 	}
@@ -101,7 +105,7 @@ func GetWorkshop(w http.ResponseWriter, r *http.Request) {
 	pool, _ := db.Pool(r2.Context())
 	var wk Workshop
 	var createdAt time.Time
-	err := pool.QueryRow(r2.Context(), `
+	err = pool.QueryRow(r2.Context(), `
 		select id, workspace_id, methodology_id, name, description, objective,
 		       facilitator_id, status, votes_per_participant, created_at
 		from public.workshops where id = $1`, id,
@@ -119,7 +123,7 @@ func GetWorkshop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.OK(w, WorkshopDetail{Workshop: wk, Methodology: m})
+	response.OK(w, WorkshopDetail{Workshop: wk, Methodology: m, MyRole: myRole})
 }
 
 type createWorkshopBody struct {
@@ -151,8 +155,11 @@ func CreateWorkshop(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, response.CodeValidationError, "Workshop name is required.")
 		return
 	}
+	// No default methodology. The engine must not privilege one methodology
+	// over another — the caller says which one it wants.
 	if body.MethodologyKey == "" {
-		body.MethodologyKey = "swot-tows"
+		response.Fail(w, response.CodeValidationError, "A methodology must be selected.")
+		return
 	}
 
 	role, err := authz.WorkspaceRole(r2.Context(), pool, user.ID, body.WorkspaceID)
@@ -169,12 +176,30 @@ func CreateWorkshop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	m, err := methodology.Load(r2.Context(), pool, methodologyID)
+	if err != nil {
+		response.Fail(w, response.CodeServerError, err.Error())
+		return
+	}
+
+	// The vote budget is the methodology's, taken from its prioritize stage.
+	// A methodology with no prioritize stage gets 0 and simply has no voting.
+	votesPerParticipant := 0
+	for _, s := range m.Stages {
+		if s.StageType != "prioritize" {
+			continue
+		}
+		if n, ok := s.Config["votes_per_participant"].(float64); ok && n > 0 {
+			votesPerParticipant = int(n)
+		}
+	}
+
 	var id string
 	err = pool.QueryRow(r2.Context(), `
-		insert into public.workshops (workspace_id, methodology_id, name, description, objective, facilitator_id, created_by, status)
-		values ($1, $2, $3, $4, $5, $6, $6, 'draft')
+		insert into public.workshops (workspace_id, methodology_id, name, description, objective, facilitator_id, created_by, status, votes_per_participant)
+		values ($1, $2, $3, $4, $5, $6, $6, 'draft', $7)
 		returning id`,
-		body.WorkspaceID, methodologyID, body.Name, body.Description, body.Objective, user.ID,
+		body.WorkspaceID, methodologyID, body.Name, body.Description, body.Objective, user.ID, votesPerParticipant,
 	).Scan(&id)
 	if err != nil {
 		response.Fail(w, response.CodeServerError, err.Error())
@@ -189,7 +214,22 @@ func CreateWorkshop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	audit.Record(r2.Context(), pool, user.ID, "workshop.created", "workshop", id, "", "draft", nil)
+	// Seed one activity per configured stage. This is what makes a new
+	// methodology's workshop run end to end without any code: a PESTLE
+	// workshop gets PESTLE's six capture stages here, in its own order.
+	for _, s := range m.Stages {
+		if _, err := pool.Exec(r2.Context(), `
+			insert into public.activities (workshop_id, stage_id, title, sequence_number, status)
+			values ($1, $2, $3, $4, 'not_started')`,
+			id, s.ID, s.Name, s.SequenceNumber); err != nil {
+			response.Fail(w, response.CodeServerError, err.Error())
+			return
+		}
+	}
+
+	audit.Record(r2.Context(), pool, user.ID, "workshop.created", "workshop", id, "", "draft", map[string]interface{}{
+		"methodology_key": m.Key, "stages_seeded": len(m.Stages),
+	})
 	response.Created(w, map[string]string{"id": id, "status": "draft"})
 }
 
