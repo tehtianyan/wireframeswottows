@@ -15,7 +15,7 @@ to a requirement rather than an opinion.
 Organised by build phase. Run a phase's suites once that phase lands; later phases are
 listed with their cases withheld so the document stays a single source of truth.
 
-**Phases 0, 1 and 2 are testable now.** Phases 3 and 4 are not yet built.
+**Phases 0-3 are testable now.** Phase 4 is not yet built.
 
 ---
 
@@ -277,9 +277,58 @@ sarah.chen (A) for this phase; dana.whitfield (P) is used only to prove the rest
 
 # Phase 3 — AI Strategy Assistant
 
-**Not yet built — do not test.** Requires an Anthropic API key. Will cover
-`AS §12`–`§13`: AI suggestions, duplicate detection, and the rule that AI output is
-always human-reviewed and never self-approving (`AS §12.19`).
+The assistant appears as a panel beside every stage. Which actions it offers comes from
+methodology configuration, so the list differs per stage and per methodology.
+
+> **The governance rules are the point of this phase, not the quality of the suggestions.**
+> AI must never approve anything, never add anything without a human accepting it, and never
+> be required in order to continue. Any case where AI content reaches an approved state
+> without a person approving it is a **Critical** defect.
+
+## 3.1 Availability and configuration
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| AI-01 | F | Open any Discovery stage | An **AI assistant** panel appears beside the main content | `WF §2.21` |
+| AI-02 | F | Read the action list on *Strength Discovery* | Includes "Generate Artifact Suggestions" and "Detect Duplicates" | `AS §13` |
+| AI-03 | F | Open *Weakness*, *Opportunity* and *Threat* Discovery | The **same** actions are offered on all four — capture prompts apply per stage type, not per stage | `CL` |
+| AI-04 | F | Open *Theme Analysis* | Offers "Generate Themes"; does **not** offer the capture-only actions | `AS §13` |
+| AI-05 | F | Open *TOWS Matrix* and *Recommendations* | Each offers its own generation action | `AS §13` |
+| AI-06 | F | Read the panel header | Shows remaining requests this hour | `AS §12.21` |
+| AI-07 | F | Open devtools and inspect `/api/v1/workshops/{id}/ai` | Returns function keys and names only — **no prompt text**. Searching the response for "You are the AI" finds nothing | `AS §12`, `CL` |
+
+## 3.2 Generating and reviewing suggestions
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| AI-10 | F | Click "Generate Artifact Suggestions" | Suggestions appear, each badged **AI generated** with a confidence score | `AS §12.19` |
+| AI-11 | F | Check the workshop's factor list | **Nothing was added.** Suggestions are proposals until accepted | `AS §12.19` |
+| AI-12 | F | Click **Add for review** on one suggestion | It becomes a real factor badged **In review** — *not* Approved | `AS §12.19` |
+| AI-13 | F | Open the Review board | The accepted item is waiting there like any human-created one | `AS §12.19` |
+| AI-14 | F | Click **Dismiss all** | Suggestions clear; nothing is added | `AS §12.22` |
+| AI-15 | F | Generate suggestions, then try to accept the same output twice | Refused — an output is reviewed once | `AS §12.20` |
+| AI-16 | P | Open a stage as a participant and generate suggestions | Panel visible, but **Add for review** is unavailable — participants cannot convert AI output into workshop content | `AS §3.17` |
+| AI-17 | F | Run "Generate Themes" on Theme Analysis and accept one | Theme is created citing the factors the AI referenced, as real evidence rows | `AS §12` (traceability) |
+| AI-18 | F | Ask the developer to check the accepted item in the database | `generated_by = 'ai'` and `source_ai_output_id` points at the AI output | `AS §12.20` |
+
+## 3.3 Limits, failure and the "you can always continue" rule
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| AI-20 | P | Have the developer set your hourly usage to 20, then generate | Refused with a clear message saying you can continue without AI. **No provider call is made** | `AS §12.21` |
+| AI-21 | F | Confirm your own limit | Facilitators and analysts get 100/hour, everyone else 20 | `AS §12.21` |
+| AI-22 | F | Have the developer temporarily unset `ANTHROPIC_API_KEY` and reload | The AI panel **does not appear at all** — no buttons that cannot work | `AS §12.22` |
+| AI-23 | F | With AI unavailable, complete a full stage by hand | Everything works normally. AI is never required | `AS §12.22` |
+| AI-24 | F | Have the developer force a provider failure | Message reads exactly: "AI could not complete this request. Please try again or continue manually." and the workshop is unchanged | `AS §12.22` |
+| AI-25 | F | After any AI use, have the developer check `ai_sessions` and `audit_events` | A session row per request (including failures) and an `ai.*` audit row per action | `AS §12.20`, `§12.32` |
+
+## 3.4 Genericity — Phase 3
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| GEN-30 | F | Activate PESTLE, open a PESTLE capture stage | The AI panel offers the same capture actions — PESTLE inherits them from stage type with no PESTLE-specific prompt rows | `CL` |
+| GEN-31 | F | Generate suggestions there | Suggestions are about that PESTLE category, and the assistant refers to the **PESTLE** methodology by name, not SWOT | `CL` |
+| GEN-32 | F | Accept one | Becomes a PESTLE factor through the identical path | `CL` |
 
 # Phase 4 — Reporting and export
 

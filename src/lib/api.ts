@@ -274,6 +274,75 @@ export const objectsApi = {
     apiPost<{ id: string; state: FactorState }>(`/workshops/${workshopId}/${route}/${objectId}/review`, input),
 };
 
+// ---- AI Strategy Assistant (Phase 3) ----
+//
+// Prompt templates are deliberately absent from every type here: they live on
+// the server and the API never returns them.
+
+export interface AIFunction {
+  function_key: string;
+  name: string;
+  /** Empty for functions available anywhere in the workshop. */
+  stage_type: string;
+}
+
+export interface AIStatus {
+  configured: boolean;
+  limit_per_hour: number;
+  used_this_hour: number;
+  functions: AIFunction[];
+}
+
+export type AIReviewStatus = "pending" | "accepted" | "edited" | "rejected";
+
+export interface AIOutput {
+  id: string;
+  session_id: string;
+  output_type: string;
+  content: Record<string, unknown>;
+  human_review_status: AIReviewStatus;
+  prompt_version: string | null;
+  stage_key: string | null;
+  created_at: string;
+  converted_object_type: string | null;
+  converted_object_id: string | null;
+}
+
+export interface AIExecuteResult {
+  session_id: string;
+  output_id: string;
+  output_type: string;
+  content: Record<string, unknown>;
+  human_review_status: AIReviewStatus;
+}
+
+/** Pulls the suggestion list out of an output, whatever key it is under. */
+export function aiSuggestions(content: Record<string, unknown>): Record<string, unknown>[] {
+  for (const v of Object.values(content ?? {})) {
+    if (Array.isArray(v)) return v as Record<string, unknown>[];
+  }
+  return [];
+}
+
+export const aiApi = {
+  status: (workshopId: string, stageKey?: string) =>
+    apiGet<AIStatus>(`/workshops/${workshopId}/ai${stageKey ? `?stage_key=${stageKey}` : ""}`),
+  execute: (workshopId: string, input: { stage_key: string; function_key: string }) =>
+    apiPost<AIExecuteResult>(`/workshops/${workshopId}/ai/execute`, input),
+  outputs: (workshopId: string, filters?: { status?: AIReviewStatus; stage_key?: string }) => {
+    const qs = new URLSearchParams();
+    if (filters?.status) qs.set("status", filters.status);
+    if (filters?.stage_key) qs.set("stage_key", filters.stage_key);
+    return apiGet<AIOutput[]>(`/workshops/${workshopId}/ai/outputs${qs.toString() ? `?${qs}` : ""}`);
+  },
+  review: (
+    workshopId: string,
+    outputId: string,
+    input: { action: "accept" | "reject"; index?: number; stage_key?: string; overrides?: WriteObjectInput },
+  ) => apiPost<{ id: string; human_review_status: AIReviewStatus; converted_object_id?: string }>(
+    `/workshops/${workshopId}/ai/outputs/${outputId}/review`, input),
+};
+
 export const methodologiesApi = {
   list: () => apiGet<MethodologySummary[]>("/methodologies"),
 };

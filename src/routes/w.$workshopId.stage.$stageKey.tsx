@@ -7,6 +7,7 @@ import { PrioritizationGrid } from "@/components/methodology/PrioritizationGrid"
 import { ReviewBoard } from "@/components/methodology/ReviewBoard";
 import { EvidenceBoard } from "@/components/methodology/EvidenceBoard";
 import { RelationshipMatrix } from "@/components/methodology/RelationshipMatrix";
+import { AiActionPanel } from "@/components/methodology/AiActionPanel";
 import { workshopsApi } from "@/lib/api";
 
 // Search params are the stage's own view mode. `validateSearch` must return a
@@ -94,7 +95,13 @@ function StagePage() {
         return <p className="p-6 text-sm text-destructive">This capture stage has no factor category configured.</p>;
       }
       return (
-        <StageShell workshop={workshop} stage={stage} category={category} guidance={category.guidance_text}>
+        <StageShell
+          workshop={workshop}
+          stage={stage}
+          category={category}
+          guidance={category.guidance_text}
+          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+        >
           <CaptureCanvas workshopId={workshop.id} category={category} myRole={workshop.my_role} />
         </StageShell>
       );
@@ -106,6 +113,7 @@ function StagePage() {
           workshop={workshop}
           stage={stage}
           guidance="Spend your votes on the factors that matter most to the objective. Votes are visible to the facilitator in aggregate, and you can move them until the stage closes."
+          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
         >
           <PrioritizationGrid
             workshopId={workshop.id}
@@ -122,14 +130,24 @@ function StagePage() {
     case "interpret":
     case "recommend":
       return (
-        <StageShell workshop={workshop} stage={stage} {...guidanceFor(stage.stage_type)}>
+        <StageShell
+          workshop={workshop}
+          stage={stage}
+          {...guidanceFor(stage.stage_type)}
+          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+        >
           <EvidenceBoard workshop={workshop} stage={stage} />
         </StageShell>
       );
 
     case "relate":
       return (
-        <StageShell workshop={workshop} stage={stage} {...guidanceFor("relate")}>
+        <StageShell
+          workshop={workshop}
+          stage={stage}
+          {...guidanceFor("relate")}
+          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+        >
           <RelationshipMatrix workshop={workshop} stage={stage} />
         </StageShell>
       );
