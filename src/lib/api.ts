@@ -194,6 +194,86 @@ export interface Workspace {
   can_create_workshops: boolean;
 }
 
+// ---- Reviewable analysis objects (Phase 2) ----
+//
+// Syntheses, relationships, insights and recommendations share one wire shape
+// and one set of endpoints, driven by the server-side registry. The UI reads
+// field definitions from /object-kinds rather than hardcoding them.
+
+export type ObjectKindKey = "synthesis" | "factor_relationship" | "insight" | "recommendation";
+
+/** What a stage's objects may cite, read from methodology stage config. */
+export type CitableKind = "factor" | "synthesis" | "factor_relationship" | "insight";
+
+export interface ObjectField {
+  name: string;
+  label: string;
+  type: "text" | "textarea" | "enum" | "int";
+  required: boolean;
+  options?: string[];
+  help?: string;
+}
+
+export interface ObjectKind {
+  key: ObjectKindKey;
+  route: string;
+  label: string;
+  stage_type: string;
+  title_required: boolean;
+  description_label: string;
+  fields: ObjectField[];
+  evidence: { cites_kind: CitableKind }[];
+  pairing?: { pairs_kind: CitableKind };
+}
+
+export interface WorkObject {
+  id: string;
+  workshop_id: string;
+  kind: ObjectKindKey;
+  title: string | null;
+  description: string | null;
+  state: FactorState;
+  generated_by: "human" | "ai" | "hybrid";
+  confidence_score: number | null;
+  created_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  created_at: string;
+  fields: Record<string, unknown>;
+  evidence: Partial<Record<CitableKind, string[]>>;
+  source_id?: string;
+  target_id?: string;
+  relationship_type_id?: string;
+}
+
+export interface WriteObjectInput {
+  title?: string | null;
+  description?: string | null;
+  fields?: Record<string, unknown>;
+  evidence?: Partial<Record<CitableKind, string[]>>;
+  source_id?: string;
+  target_id?: string;
+  relationship_type_key?: string;
+}
+
+export const objectKindsApi = {
+  list: () => apiGet<ObjectKind[]>("/object-kinds"),
+};
+
+export const objectsApi = {
+  list: (workshopId: string, route: string, state?: FactorState) =>
+    apiGet<WorkObject[]>(`/workshops/${workshopId}/${route}${state ? `?state=${state}` : ""}`),
+  create: (workshopId: string, route: string, input: WriteObjectInput) =>
+    apiPost<{ id: string }>(`/workshops/${workshopId}/${route}`, input),
+  update: (workshopId: string, route: string, objectId: string, input: WriteObjectInput) =>
+    apiPatch<{ id: string }>(`/workshops/${workshopId}/${route}/${objectId}`, input),
+  remove: (workshopId: string, route: string, objectId: string) =>
+    apiDelete<{ id: string }>(`/workshops/${workshopId}/${route}/${objectId}`),
+  review: (workshopId: string, route: string, objectId: string, input: { action: "approve" | "reject"; note?: string }) =>
+    apiPost<{ id: string; state: FactorState }>(`/workshops/${workshopId}/${route}/${objectId}/review`, input),
+};
+
 export const methodologiesApi = {
   list: () => apiGet<MethodologySummary[]>("/methodologies"),
 };

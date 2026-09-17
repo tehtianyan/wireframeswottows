@@ -15,6 +15,8 @@ to a requirement rather than an opinion.
 Organised by build phase. Run a phase's suites once that phase lands; later phases are
 listed with their cases withheld so the document stays a single source of truth.
 
+**Phases 0, 1 and 2 are testable now.** Phases 3 and 4 are not yet built.
+
 ---
 
 ## How to run
@@ -189,10 +191,89 @@ Deactivate it again afterwards.
 
 # Phase 2 — Synthesis, relationships, insights, recommendations
 
-**Not yet built — do not test.** Theme Analysis (`WF §4`), TOWS Matrix (`WF §5`,
-`AS §6.9`), Insight Generation (`WF §6`) and Recommendation Workspace (`WF §7`).
-Opening these stages today shows an explicit "coming in a later phase" panel; that is
-expected behaviour, not a defect.
+Four stages complete the chain `Factor → Theme → Relationship → Insight → Recommendation`.
+All four are **analyst/facilitator work**: participants capture and vote, but shaping
+factors into themes and insights is restricted (`AS §3.17`). Sign in as jane.smith (F) or
+sarah.chen (A) for this phase; dana.whitfield (P) is used only to prove the restriction.
+
+> **Traceability is the point of this phase.** Every object must cite the evidence beneath
+> it, and the API refuses citations that break the chain. A case where unsupported evidence
+> is accepted is a **Critical** defect.
+
+## 2.1 Theme Analysis (synthesize)
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| THM-01 | F | Open WS-DT → stage 6 *Theme Analysis* | Board lists existing themes; **Add theme** available | `WF §4`, `AS §6.7` |
+| THM-02 | F | Click **Add theme** | Form shows title, a description field, and a picker listing **all captured factors** across all four categories | `WF §4` |
+| THM-03 | F | Create a theme citing 2+ factors | Theme appears badged **In review**, listing its cited factors under "Evidence" | `AS §6.7` |
+| THM-04 | F | Reload | Theme and its citations persist | — |
+| THM-05 | F | Edit the theme and change which factors it cites | Evidence list updates to match | `WF §4` |
+| THM-06 | F | Check the factor picker | Rejected factors are **not** offered — a theme cannot rest on rejected evidence | `AS §6.7` |
+| THM-07 | A | Approve a theme | State becomes **Approved**; attributed to you | `AS §12.19` |
+| THM-08 | P | Open Theme Analysis as a participant | View-only notice; no Add/edit/approve controls | `AS §3.17` |
+| THM-09 | P | Force a theme creation via the API | `403 FORBIDDEN` | `AS §11.5` |
+
+## 2.2 TOWS Matrix (relate)
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| TWS-01 | F | Open WS-DT → stage 7 *TOWS Matrix* | **Four** cells: SO — Leverage, ST — Defend, WO — Improve, WT — Mitigate, each with its guidance and an × of two category names | `AS §6.9`, `WF §5` |
+| TWS-02 | F | Click **Pair factors** in the SO cell | Source dropdown offers **only Strengths**; target offers **only Opportunities** | `AS §6.9` |
+| TWS-03 | F | Create an SO relationship with a narrative and strategic option | Appears in the SO cell showing `source → target` | `AS §6.9` |
+| TWS-04 | F | Open the WO cell | Source offers **only Weaknesses** — the same factor lists differ per cell because the methodology says so | `AS §6.9` |
+| TWS-05 | F | Via the API, post a weakness as the source of an **SO** relationship | Refused: "The source factor's category is not valid for SO — Leverage." The rule comes from config, not code | `AS §6.9` |
+| TWS-06 | F | Via the API, pair a factor with itself | Refused — a relationship joins two different factors | `AS §6.9` |
+| TWS-07 | A | Approve a relationship | Same governance lifecycle as every other object | `AS §12.19` |
+| TWS-08 | F | Check a cell whose categories have no captured factors | Explains both categories need factors first; does not offer an empty dropdown | `WF §5` |
+
+## 2.3 Insight Generation (interpret)
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| INS-01 | F | Open WS-DT → stage 8 *Insight Generation* | Board with **Add insight** | `AS §6.10`, `WF §6` |
+| INS-02 | F | Open the form | Two pickers: supporting **themes** and supporting **relationships** — the two things SWOT-TOWS insights may cite | `AS §6.10` |
+| INS-03 | F | Create an insight citing at least one theme and one relationship | Saves; Evidence lists both | `AS §6.10` |
+| INS-04 | F | Read the "Strategic significance" field | Present, per the insight's own field definition | `AS §6.10` |
+| INS-05 | F | Before any theme exists (use a fresh workshop) | Board explains there is nothing to build on and hides **Add** | `WF §6` |
+| INS-06 | F | Approve an insight, then try to edit it | Refused — a decided object is frozen so an approval refers to text somebody approved | `AS §8` |
+| INS-07 | F | Approve an insight, then try to delete it | Refused — reject it instead, keeping the decision on the record | `AS §8` |
+
+## 2.4 Recommendation Workspace (recommend)
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| REC-01 | F | Open WS-DT → stage 9 *Recommendations* | Board with **Add recommendation** | `AS §6.12`, `WF §7` |
+| REC-02 | F | Open the form | Fields: priority (critical/high/medium/low), expected benefits, risks, impact, feasibility — and a picker of **insights only** | `AS §6.12` |
+| REC-03 | F | Create a recommendation citing an insight | Saves; priority and scores display on the card | `AS §6.12` |
+| REC-04 | F | Via the API, post a recommendation citing a **theme** | Refused — a recommendation cites insights, not themes | `AS §6.12` |
+| REC-05 | F | Follow one recommendation back through its insight to its themes to its factors | Every link is present — the full chain is traceable | `CL` (Traceability First) |
+
+## 2.5 Cross-cutting Phase 2 rules
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| CHN-01 | F | Via the API, cite evidence belonging to **another** workshop | Refused: "does not belong to this workshop" | `AS §11.5` |
+| CHN-02 | F | Via the API, have a theme cite an insight | Refused — citation direction is fixed by the registry | `CL` |
+| CHN-03 | F | Reject an object without a reason | Refused for every kind, exactly as for factors | `AS §4.11` |
+| CHN-04 | P | Attempt to approve an insight | `403`, message says your **role** does not allow it (not that you lack workshop access) | `AS §11.5` |
+| CHN-05 | F | Delete a theme that an insight cites, then reopen the insight | Insight still loads; the missing citation reads "(no longer available)" rather than crashing | — |
+| CHN-06 | F | Check `GET /api/v1/object-kinds` in devtools | Returns field definitions for all four kinds — the UI builds its forms from this, not from hardcoded screens | `CL` |
+
+## 2.6 Genericity — Phase 2
+
+> Same rules as §1.5. Activate PESTLE, run these, deactivate it afterwards.
+> PESTLE deliberately has **no relate stage** and its insights cite **only themes**.
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| GEN-20 | F | Create a PESTLE workshop and open its stage list | Includes *Driver Analysis* (synthesize) and *Implications* (interpret). **No TOWS matrix, no relate stage at all** | `CL` |
+| GEN-21 | F | Open *Driver Analysis* | Same board as SWOT-TOWS Theme Analysis, offering PESTLE's six categories of factors | `CL` |
+| GEN-22 | F | Group two PESTLE factors into a driver | Works through the identical endpoint | `CL` |
+| GEN-23 | F | Open *Implications* and read the pickers | **One** picker (themes). No relationships picker, because PESTLE's config does not cite them | `CL` |
+| GEN-24 | F | Create and approve a PESTLE insight | Same governance lifecycle | `CL` |
+| GEN-25 | F | Via the API, try to create a relationship in the PESTLE workshop | Refused: "Unknown relationship type for this workshop's methodology" | `CL` |
+| GEN-26 | F | Confirm no SWOT/TOWS vocabulary appears anywhere in the PESTLE workshop | None | `CL` |
 
 # Phase 3 — AI Strategy Assistant
 
