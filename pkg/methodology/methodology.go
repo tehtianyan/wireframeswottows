@@ -109,7 +109,16 @@ func LoadForWorkshop(ctx context.Context, pool *pgxpool.Pool, workshopID string)
 }
 
 func Load(ctx context.Context, pool *pgxpool.Pool, methodologyID string) (*Methodology, error) {
-	m := &Methodology{}
+	// Initialised rather than left nil: a nil slice marshals to JSON `null`,
+	// and the client reads these as arrays. A methodology with no relationship
+	// types (PESTLE has none) would otherwise crash the matrix on
+	// `relationship_types.length`.
+	m := &Methodology{
+		FactorCategories:  []FactorCategory{},
+		Stages:            []Stage{},
+		RelationshipTypes: []RelationshipType{},
+		AIPrompts:         []AIPrompt{},
+	}
 	err := pool.QueryRow(ctx,
 		`select id, key, name from public.methodologies where id = $1`, methodologyID,
 	).Scan(&m.ID, &m.Key, &m.Name)

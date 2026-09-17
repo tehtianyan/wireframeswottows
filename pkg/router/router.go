@@ -22,6 +22,9 @@ func New() http.Handler {
 		// only, so activating one is a config change, not a release.
 		r.Get("/methodologies", handlers.ListMethodologies)
 		r.Get("/workspaces", handlers.ListWorkspaces)
+		// Field definitions per object kind, so the UI builds its forms from
+		// the registry instead of hardcoding what a recommendation looks like.
+		r.Get("/object-kinds", handlers.ListObjectKinds)
 
 		r.Route("/workshops", func(r chi.Router) {
 			r.Get("/", handlers.ListWorkshops)
@@ -41,6 +44,15 @@ func New() http.Handler {
 
 			r.Get("/{id}/votes", handlers.GetVotes)
 			r.Put("/{id}/factors/{factorId}/vote", handlers.SetVote)
+
+			// Every other reviewable object kind — syntheses, relationships,
+			// insights, recommendations — shares one generic handler set
+			// dispatched on {kind}. See pkg/objects for the registry.
+			r.Get("/{id}/{kind}", handlers.ListObjects)
+			r.Post("/{id}/{kind}", handlers.CreateObject)
+			r.Patch("/{id}/{kind}/{objectId}", handlers.UpdateObject)
+			r.Delete("/{id}/{kind}/{objectId}", handlers.DeleteObject)
+			r.Post("/{id}/{kind}/{objectId}/review", handlers.ReviewObject)
 		})
 	})
 
