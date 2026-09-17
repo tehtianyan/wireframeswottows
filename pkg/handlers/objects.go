@@ -265,31 +265,59 @@ func CreateObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	title := trimPtr(body.Title)
-	if kind.TitleRequired && (title == nil || *title == "") {
-		response.Fail(w, response.CodeValidationError, "Title is required.")
-		return
-	}
-	if title != nil && len([]rune(*title)) > 200 {
-		response.Fail(w, response.CodeValidationError, "Title must be 200 characters or fewer.")
-		return
-	}
-
-	fieldVals, msg := coerceFields(kind, body.Fields)
+	id, msg, err := insertObject(r2.Context(), pool, kind, workshopID, user.ID, &body, "human", nil)
 	if msg != "" {
 		response.Fail(w, response.CodeValidationError, msg)
 		return
 	}
-	if msg := validateEvidence(kind, body.Evidence); msg != "" {
-		response.Fail(w, response.CodeValidationError, msg)
+	if err != nil {
+		response.Fail(w, response.CodeServerError, err.Error())
 		return
 	}
 
+	audit.Record(r2.Context(), pool, user.ID, kind.Key+".created", kind.Key, id, "", "submitted",
+		map[string]interface{}{"workshop_id": workshopID})
+	response.Created(w, map[string]string{"id": id})
+}
+
+// insertObject is the single path by which any analysis object is created.
+//
+// AI-accepted suggestions go through here too, with generatedBy "ai", so an
+// AI suggestion cannot bypass the validation a human's input gets: the same
+// pairing rules, the same evidence-belongs-to-this-workshop check, the same
+// "submitted" starting state. App Spec §12.19 — AI output is never final and
+// never self-approving.
+//
+// Returns (id, userFacingValidationMessage, internalError).
+func insertObject(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
+	workshopID, userID string, body *writeObjectBody, generatedBy string, sourceAIOutputID *string,
+) (string, string, error) {
+
+	title := trimPtr(body.Title)
+	if kind.TitleRequired && (title == nil || *title == "") {
+		return "", "Title is required.", nil
+	}
+	if title != nil && len([]rune(*title)) > 200 {
+		return "", "Title must be 200 characters or fewer.", nil
+	}
+
+	fieldVals, msg := coerceFields(kind, body.Fields)
+	if msg != "" {
+		return "", msg, nil
+	}
+	if msg := validateEvidence(kind, body.Evidence); msg != "" {
+		return "", msg, nil
+	}
+
 	cols := []string{"workshop_id", "title", "created_by", "state", "generated_by"}
-	args := []interface{}{workshopID, title, user.ID, "submitted", "human"}
+	args := []interface{}{workshopID, title, userID, "submitted", generatedBy}
 	if kind.HasDescription {
 		cols = append(cols, "description")
 		args = append(args, trimPtr(body.Description))
+	}
+	if sourceAIOutputID != nil {
+		cols = append(cols, "source_ai_output_id")
+		args = append(args, *sourceAIOutputID)
 	}
 	for _, f := range kind.Fields {
 		if v, present := fieldVals[f.Name]; present {
@@ -299,37 +327,32 @@ func CreateObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if kind.Pairing != nil {
-		srcID, tgtID, typeID, msg := resolvePairing(r2.Context(), pool, kind, workshopID, &body)
+		srcID, tgtID, typeID, msg := resolvePairing(ctx, pool, kind, workshopID, body)
 		if msg != "" {
-			response.Fail(w, response.CodeValidationError, msg)
-			return
+			return "", msg, nil
 		}
 		cols = append(cols, kind.Pairing.SourceCol, kind.Pairing.TargetCol, kind.Pairing.TypeCol)
 		args = append(args, srcID, tgtID, typeID)
 	}
+
 	placeholders := make([]string, len(args))
 	for i := range args {
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 	}
 
 	var id string
-	err := pool.QueryRow(r2.Context(), fmt.Sprintf(
+	err := pool.QueryRow(ctx, fmt.Sprintf(
 		`insert into public.%s (%s) values (%s) returning id`,
 		kind.Table, strings.Join(cols, ", "), strings.Join(placeholders, ", ")),
 		args...).Scan(&id)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
-		return
+		return "", "", err
 	}
 
-	if err := replaceEvidence(r2.Context(), pool, kind, id, workshopID, body.Evidence); err != nil {
-		response.Fail(w, response.CodeValidationError, err.Error())
-		return
+	if err := replaceEvidence(ctx, pool, kind, id, workshopID, body.Evidence); err != nil {
+		return "", err.Error(), nil
 	}
-
-	audit.Record(r2.Context(), pool, user.ID, kind.Key+".created", kind.Key, id, "", "submitted",
-		map[string]interface{}{"workshop_id": workshopID})
-	response.Created(w, map[string]string{"id": id})
+	return id, "", nil
 }
 
 // UpdateObject — PATCH /workshops/{id}/{kind}/{objectId}

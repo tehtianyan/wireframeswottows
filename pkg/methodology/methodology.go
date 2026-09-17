@@ -41,12 +41,17 @@ type RelationshipType struct {
 }
 
 type AIPrompt struct {
-	ID             string  `json:"id"`
-	FunctionKey    string  `json:"function_key"`
-	StageID        *string `json:"stage_id"`
-	Name           string  `json:"name"`
-	PromptTemplate string  `json:"prompt_template"`
-	PromptVersion  string  `json:"prompt_version"`
+	ID          string  `json:"id"`
+	FunctionKey string  `json:"function_key"`
+	StageID     *string `json:"stage_id"`
+	// StageType applies a prompt to every stage of that type, so one
+	// `capture` prompt serves all four SWOT discovery stages and all six of
+	// PESTLE's. Empty means the function is available workshop-wide.
+	StageType      string `json:"stage_type"`
+	Name           string `json:"name"`
+	PromptTemplate string `json:"prompt_template"`
+	OutputSchema   string `json:"output_schema"`
+	PromptVersion  string `json:"prompt_version"`
 }
 
 type Methodology struct {
@@ -179,8 +184,9 @@ func Load(ctx context.Context, pool *pgxpool.Pool, methodologyID string) (*Metho
 	}
 
 	promptRows, err := pool.Query(ctx,
-		`select id, function_key, stage_id::text, name, prompt_template, prompt_version
-		 from public.methodology_ai_prompts where methodology_id = $1`,
+		`select id, function_key, stage_id::text, coalesce(stage_type, ''), name,
+		        prompt_template, coalesce(output_schema::text, ''), coalesce(prompt_version, '')
+		 from public.methodology_ai_prompts where methodology_id = $1 order by function_key`,
 		methodologyID)
 	if err != nil {
 		return nil, fmt.Errorf("loading ai prompts: %w", err)
@@ -189,7 +195,8 @@ func Load(ctx context.Context, pool *pgxpool.Pool, methodologyID string) (*Metho
 	for promptRows.Next() {
 		var p AIPrompt
 		var stageID *string
-		if err := promptRows.Scan(&p.ID, &p.FunctionKey, &stageID, &p.Name, &p.PromptTemplate, &p.PromptVersion); err != nil {
+		if err := promptRows.Scan(&p.ID, &p.FunctionKey, &stageID, &p.StageType, &p.Name,
+			&p.PromptTemplate, &p.OutputSchema, &p.PromptVersion); err != nil {
 			return nil, err
 		}
 		p.StageID = stageID

@@ -32,6 +32,12 @@ func TestRoutePrecedence(t *testing.T) {
 		{"POST", "/api/v1/workshops/abc/factors/f1/review", "/api/v1/workshops/{id}/factors/{factorId}/review"},
 		{"PUT", "/api/v1/workshops/abc/factors/f1/vote", "/api/v1/workshops/{id}/factors/{factorId}/vote"},
 
+		// "ai" must not be swallowed by the {kind} wildcard.
+		{"GET", "/api/v1/workshops/abc/ai", "/api/v1/workshops/{id}/ai"},
+		{"POST", "/api/v1/workshops/abc/ai/execute", "/api/v1/workshops/{id}/ai/execute"},
+		{"GET", "/api/v1/workshops/abc/ai/outputs", "/api/v1/workshops/{id}/ai/outputs"},
+		{"POST", "/api/v1/workshops/abc/ai/outputs/o1/review", "/api/v1/workshops/{id}/ai/outputs/{outputId}/review"},
+
 		// The generic object routes.
 		{"GET", "/api/v1/workshops/abc/syntheses", "/api/v1/workshops/{id}/{kind}"},
 		{"POST", "/api/v1/workshops/abc/insights", "/api/v1/workshops/{id}/{kind}"},

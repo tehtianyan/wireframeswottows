@@ -45,6 +45,13 @@ func New() http.Handler {
 			r.Get("/{id}/votes", handlers.GetVotes)
 			r.Put("/{id}/factors/{factorId}/vote", handlers.SetVote)
 
+			// AI Strategy Assistant. Registered before the {kind} wildcard so
+			// "ai" is never mistaken for an object route.
+			r.Get("/{id}/ai", handlers.GetAIStatus)
+			r.Post("/{id}/ai/execute", handlers.ExecuteAI)
+			r.Get("/{id}/ai/outputs", handlers.ListAIOutputs)
+			r.Post("/{id}/ai/outputs/{outputId}/review", handlers.ReviewAIOutput)
+
 			// Every other reviewable object kind — syntheses, relationships,
 			// insights, recommendations — shares one generic handler set
 			// dispatched on {kind}. See pkg/objects for the registry.
