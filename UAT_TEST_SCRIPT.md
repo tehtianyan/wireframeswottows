@@ -493,13 +493,27 @@ lets a workshop reach **Completed** (`AS §8.30`).
 
 ## Out of scope for this release
 
-Marketplace, AI Consulting Team, Knowledge Graph analytics, Enterprise Integration Packs,
-Industry Solution Packs, the separate Executive Dashboard (`WF §10`), Administration
-screens, and Notifications Center. Do not raise defects against these.
+Do not raise defects against these — they were never built, by decision:
 
-The dashboard at `/` is still the **earlier prototype screen running on in-memory demo
-data** and is not part of this script — use `TEST_SCRIPT.md` for it. Live, API-backed
-workshop functionality starts at `/w`.
+- Marketplace, AI Consulting Team, Knowledge Graph analytics, Enterprise Integration Packs,
+  Industry Solution Packs.
+- **PPTX and DOCX export.** App Spec §14.29 explicitly permits deferring these while "PDF
+  and web report views are working well". PDF and HTML export are in scope and tested in
+  §4.4.
+- **Report comments and sharing links.** §14.14 requires both, but neither has a table or
+  an endpoint anywhere in the specification, so there is nothing to build against.
+- **Report analytics** (§14.28) and **WebSocket realtime collaboration**.
+
+Two corrections to earlier versions of this document, which said otherwise:
+
+- The **Executive Dashboard, Administration screens and Notifications are now built** and
+  are tested in §5.2–5.4. An earlier version listed them as out of scope. Please do raise
+  defects against them.
+- The dashboard at `/` is **no longer a mock screen**. It ran on static in-memory arrays
+  until 2026-09-18; it is now backed by the real API, along with everything else. The old
+  `/discovery/$category` and `/prioritization` screens have been deleted — if you have a
+  bookmark to either, a 404 is correct behaviour, not a defect. `TEST_SCRIPT.md` covers the
+  retired prototype and is now historical only.
 
 ---
 
