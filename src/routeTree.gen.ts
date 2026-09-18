@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as ExecutiveRouteImport } from './routes/executive'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as WIndexRouteImport } from './routes/w.index'
 import { Route as WNewRouteImport } from './routes/w.new'
@@ -25,6 +26,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExecutiveRoute = ExecutiveRouteImport.update({
+  id: '/executive',
+  path: '/executive',
   getParentRoute: () => rootRouteImport,
 } as any)
 const KnowledgeRoute = KnowledgeRouteImport.update({
@@ -57,6 +63,7 @@ const WWorkshopIdStageStageKeyRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/executive': typeof ExecutiveRoute
   '/knowledge': typeof KnowledgeRoute
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/executive': typeof ExecutiveRoute
   '/knowledge': typeof KnowledgeRoute
   '/w/new': typeof WNewRoute
   '/w': typeof WIndexRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/executive': typeof ExecutiveRoute
   '/knowledge': typeof KnowledgeRoute
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/executive'
     | '/knowledge'
     | '/w/new'
     | '/w/'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/executive'
     | '/knowledge'
     | '/w/new'
     | '/w'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/executive'
     | '/knowledge'
     | '/w/new'
     | '/w/'
@@ -115,6 +127,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  ExecutiveRoute: typeof ExecutiveRoute
   KnowledgeRoute: typeof KnowledgeRoute
   WNewRoute: typeof WNewRoute
   WIndexRoute: typeof WIndexRoute
@@ -136,6 +149,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/executive': {
+      id: '/executive'
+      path: '/executive'
+      fullPath: '/executive'
+      preLoaderRoute: typeof ExecutiveRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/knowledge': {
@@ -179,6 +199,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  ExecutiveRoute: ExecutiveRoute,
   KnowledgeRoute: KnowledgeRoute,
   WNewRoute: WNewRoute,
   WIndexRoute: WIndexRoute,

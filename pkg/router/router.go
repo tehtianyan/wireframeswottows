@@ -29,6 +29,9 @@ func New() http.Handler {
 		// "What needs me today?" across every workshop the caller belongs to.
 		r.Get("/dashboard", handlers.GetDashboard)
 
+		// Executive Dashboard — cross-workshop, read-only, approved output only.
+		r.Get("/executive", handlers.GetExecutiveBrief)
+
 		// Knowledge Workspace — organizational memory across workshops.
 		r.Get("/knowledge/search", handlers.SearchKnowledge)
 		r.Get("/knowledge/related", handlers.RelatedKnowledge)

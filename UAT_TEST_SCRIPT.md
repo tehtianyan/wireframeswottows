@@ -15,7 +15,18 @@ to a requirement rather than an opinion.
 Organised by build phase. Run a phase's suites once that phase lands; later phases are
 listed with their cases withheld so the document stays a single source of truth.
 
-**Phases 0-4 are testable now.** The build is feature-complete against the initial-release scope.
+**Phases 0-5 are testable now.**
+
+Before starting, consider running the automated suites — they cover roughly 126 API-level
+checks in a couple of minutes and will catch anything broken at the API before you spend
+time clicking:
+
+```bash
+npx vercel@59.5.0 dev      # in one terminal
+node tests/run-all.js      # in another
+```
+
+This script covers what those cannot: that the screens are usable, legible and honest.
 
 ---
 
@@ -401,6 +412,82 @@ lets a workshop reach **Completed** (`AS §8.30`).
 | GEN-43 | F | Look for a strategy matrix | **Absent.** PESTLE defines no relationship types, so there is no matrix to render | `CL` |
 | GEN-44 | F | Search the report for SWOT vocabulary | None — no "SWOT", "TOWS", "strength" or "weakness" anywhere, including colour tokens | `CL` |
 | GEN-45 | F | Publish it and export the HTML | Both work identically, and the file names PESTLE's own sections | `CL` |
+
+---
+
+# Phase 5 — Knowledge, executive view, administration
+
+## 5.1 Knowledge Workspace
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| KNW-01 | F | Open **Knowledge** in the nav | Search box, type filter, and everything from workshops you belong to | `AS §2.12`, `§6.15` |
+| KNW-02 | F | Search a word you know appears in a factor | Matching items only, each showing its type and workshop | `AS §11.26` |
+| KNW-03 | F | Filter by type | Only that type is listed | `AS §11.26` |
+| KNW-04 | F | Click a recommendation in the results | Right panel shows its **evidence chain**: insights, then themes, then factors | `AS §14.15` |
+| KNW-05 | F | Click a factor | Explains it rests on nothing else — it is captured, not derived | — |
+| KNW-06 | F | Select an insight that shares a theme with another | "Shares evidence with" lists the sibling | `AS §11.26` |
+| KNW-07 | **A** | Select an **approved** insight and click **Promote to knowledge** | Added as a **candidate**; appears in the library panel | `AS §8.31` |
+| KNW-08 | F | As a **facilitator**, try to promote | Refused. Curation is the analyst's job (`AS §3.23` denies Curate to the Facilitator; `§3.9` defines the Knowledge Analyst). **Not a bug** | `AS §3.23` |
+| KNW-09 | A | Try to promote an item that is still **In review** | Refused — only approved output becomes organizational knowledge | `AS §8.31` |
+| KNW-10 | A | Publish a candidate | Moves to Published in the library | `AS §8.31` |
+| KNW-11 | F | Toggle **Promoted only** | Only items in the library are listed | — |
+| KNW-12 | F | Ask the developer to remove your workspace membership, then search | **Nothing is returned.** Scoping is in the query, not a filter. Restore membership afterwards | `AS §12.24` |
+
+## 5.2 Notifications
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| NTF-01 | P | Create a factor, then have a facilitator reject it with a reason | Your bell shows an unread count; the notification names the rejection and carries the reason | `AS §8.32` |
+| NTF-02 | F | As the **reviewer**, check your own bell | **No notification** for your own action | `AS §8.32` |
+| NTF-03 | P | Click the notification | Opens the workshop and marks it read; the unread count drops | `AS §11.27` |
+| NTF-04 | P | Click **Mark all read** | Count clears | `AS §11.27` |
+| NTF-05 | P | Dismiss a notification | It disappears and stays gone after reload | `AS §11.27` |
+| NTF-06 | F | Publish a report | **Every** workshop member is notified — this is one of the few things that concerns everyone | `AS §8.32` |
+
+## 5.3 Executive Dashboard
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| EXE-01 | **E** | Open **Executive** | A briefing view: themes, recommendations, risks, insights, portfolio | `WF §10.7` |
+| EXE-02 | F | Create an insight but do **not** approve it, then reload | It does **not** appear. Executives see only reviewed conclusions | `WF §10.6` |
+| EXE-03 | F | Approve it and reload | It appears, with a count of how much evidence supports it | `WF §10.11` |
+| EXE-04 | F | Approve recommendations of mixed priority | A **critical** one ranks above a **high** one — not alphabetical | `WF §10.12` |
+| EXE-05 | F | Read the Trend panel with only one workshop | Says there is not enough history to call a direction. **This is correct** — a trend arrow from one workshop would be fabricated | `WF §10.15` |
+| EXE-06 | F | Leave a workshop untouched for two weeks (or ask the developer to backdate it) | An alert appears under "What should concern me" | `WF §10.14` |
+| EXE-07 | E | Look for editing controls | There are none. The dashboard is read-only by design | `WF §10.4` |
+| EXE-08 | E | Try to create anything via the API as an executive viewer | `403 FORBIDDEN` | `AS §11.5` |
+
+## 5.4 Administration
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| ADM-01 | F | Open **Administration** as an ordinary user | A plain "restricted" explanation, not an empty screen or an error | `AS §11.29` |
+| ADM-02 | — | Have the developer set your `global_role` to `platform_admin`, reload | User list appears with platform role, workshop count and status | `AS §11.29` |
+| ADM-03 | Admin | Change another user's platform role | Saves and persists | `AS §11.29` |
+| ADM-04 | Admin | Disable another user, then re-enable | Both directions work (the spec names only "Disable"; re-enabling was added deliberately) | `AS §11.29` |
+| ADM-05 | Admin | Try to disable **your own** account | Refused | — |
+| ADM-06 | Admin | As the only admin, try to demote yourself to `user` | Refused — it would leave the platform with no administrator | — |
+| ADM-07 | Admin | Read the audit trail | Real events with actor and timestamp, newest first | `AS §11.28` |
+
+## 5.5 Workspace access revocation
+
+> This was a **real gap** found by the automated scoping suite: removing someone from a
+> workspace did not revoke their access to workshops inside it, because only workshop
+> membership was checked. Worth re-testing by hand after any authorization change.
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| REV-20 | F | Have the developer remove your **workspace** membership while leaving workshop membership | You lose access to the workshop entirely — dashboard empty, workshop returns `403` | `AS §11.5` |
+| REV-21 | F | Restore membership | Access returns | `AS §11.5` |
+
+## 5.6 Mobile and responsive
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| MOB-01 | F | Resize to ≤767px | Sidebar becomes a bottom bar with five short labels, none clipped or wrapped | `WF §10.32` |
+| MOB-02 | F | Open Executive, Knowledge and Administration at phone width | Each stacks to one column; nothing scrolls sideways except the admin table | `WF §8.35` |
+| MOB-03 | F | Open a workshop stage at tablet width (768px) | Usable; the AI panel moves below the content rather than squeezing it | `WF §2.34` |
 
 ---
 

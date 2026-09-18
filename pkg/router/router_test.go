@@ -40,6 +40,8 @@ func TestRoutePrecedence(t *testing.T) {
 
 		{"GET", "/api/v1/dashboard", "/api/v1/dashboard"},
 
+		{"GET", "/api/v1/executive", "/api/v1/executive"},
+
 		// Knowledge, notifications and administration.
 		{"GET", "/api/v1/knowledge/search", "/api/v1/knowledge/search"},
 		{"GET", "/api/v1/knowledge/trace", "/api/v1/knowledge/trace"},

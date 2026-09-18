@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { BookMarked, ChevronLeft, LayoutDashboard, Layers, Moon, Shield, SignalHigh, Sun } from "lucide-react";
+import { BookMarked, ChevronLeft, Gauge, LayoutDashboard, Layers, Moon, Shield, SignalHigh, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   DropdownMenu,
@@ -21,11 +21,14 @@ import { supabase } from "@/integrations/supabase/client";
 // Every destination here exists. Administration shows a plain "restricted"
 // message to non-admins rather than being hidden, so people can tell the
 // difference between "you cannot" and "there is nothing here".
+// `short` is what the mobile bottom bar uses: five items at 375px cannot
+// carry "Administration" without wrapping or clipping.
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, to: "/" },
-  { label: "Workshops", icon: Layers, to: "/w" },
-  { label: "Knowledge", icon: BookMarked, to: "/knowledge" },
-  { label: "Administration", icon: Shield, to: "/admin" },
+  { label: "Dashboard", short: "Home", icon: LayoutDashboard, to: "/" },
+  { label: "Workshops", short: "Work", icon: Layers, to: "/w" },
+  { label: "Executive", short: "Exec", icon: Gauge, to: "/executive" },
+  { label: "Knowledge", short: "Know", icon: BookMarked, to: "/knowledge" },
+  { label: "Administration", short: "Admin", icon: Shield, to: "/admin" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -39,13 +42,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
   const initials = (email ?? "?").slice(0, 2).toUpperCase();
 
-  const activeLabel = pathname.startsWith("/knowledge")
-    ? "Knowledge"
-    : pathname.startsWith("/admin")
-      ? "Administration"
-      : pathname.startsWith("/w")
-        ? "Workshops"
-        : "Dashboard";
+  const activeLabel = pathname.startsWith("/executive")
+    ? "Executive"
+    : pathname.startsWith("/knowledge")
+      ? "Knowledge"
+      : pathname.startsWith("/admin")
+        ? "Administration"
+        : pathname.startsWith("/w")
+          ? "Workshops"
+          : "Dashboard";
 
   return (
     <div className="min-h-screen bg-background">
@@ -70,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           aria-label="Toggle build status highlighting"
           title={
             showBuildStatus
-              ? "Build status ON — green outline = functional, red dashed = mock UI"
+              ? "Build status ON — green outline marks panels backed by the real API"
               : "Build status OFF"
           }
         >
@@ -172,12 +177,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.label}
             to={item.to}
             className={cn(
-              "flex flex-col items-center gap-0.5 rounded-md px-3 py-1 text-[10px]",
+              "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-md px-1 py-1 text-[10px]",
               item.label === activeLabel ? "text-primary" : "text-muted-foreground",
             )}
           >
-            <item.icon className="size-4" />
-            {item.label}
+            <item.icon className="size-4 shrink-0" />
+            <span className="truncate">{item.short}</span>
           </Link>
         ))}
       </nav>

@@ -658,6 +658,59 @@ export const adminApi = {
   },
 };
 
+// ---- Executive Dashboard (wireframe §10) ----
+
+export interface ExecItem {
+  id: string;
+  title: string;
+  body: string;
+  workshop_id: string;
+  workshop_name: string;
+  extra?: string;
+  evidence_count: number;
+  promoted: boolean;
+  created_at: string;
+}
+
+export interface ExecPortfolio {
+  id: string;
+  name: string;
+  status: string;
+  stages_complete: number;
+  stages_total: number;
+  recommendations: number;
+}
+
+export interface ExecAlert {
+  severity: "attention" | "watch";
+  title: string;
+  detail: string;
+}
+
+export interface ExecTrend {
+  period: string;
+  count: number;
+}
+
+export interface ExecutiveBrief {
+  workshops: number;
+  themes: ExecItem[];
+  insights: ExecItem[];
+  recommendations: ExecItem[];
+  risks: ExecItem[];
+  alerts: ExecAlert[];
+  portfolio: ExecPortfolio[];
+  trend: ExecTrend[];
+  /** Set when there is not enough history to claim a direction. */
+  trend_note: string;
+  published_reports: number;
+  knowledge_assets: number;
+}
+
+export const executiveApi = {
+  brief: () => apiGet<ExecutiveBrief>("/executive"),
+};
+
 export const methodologiesApi = {
   list: () => apiGet<MethodologySummary[]>("/methodologies"),
 };
