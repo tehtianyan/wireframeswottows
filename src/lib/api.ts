@@ -540,6 +540,124 @@ export function describeActivity(e: ActivityEvent): string {
   return `${readable[verb ?? ""] ?? verb ?? "changed"} ${label}`;
 }
 
+// ---- Knowledge Workspace, notifications, administration (Phase 5) ----
+
+export interface KnowledgeHit {
+  object_kind: string;
+  object_id: string;
+  title: string;
+  snippet: string;
+  state: string;
+  workshop_id: string;
+  workshop_name: string;
+  created_at: string;
+  promoted: boolean;
+  knowledge_id: string | null;
+}
+
+export interface TraceNode {
+  object_kind: string;
+  object_id: string;
+  title: string;
+  state: string;
+}
+
+export interface TraceResult {
+  root: TraceNode;
+  levels: Record<string, TraceNode[]>;
+}
+
+export interface KnowledgeAsset {
+  id: string;
+  workspace_id: string;
+  object_kind: string;
+  object_id: string;
+  title: string;
+  summary: string | null;
+  state: "candidate" | "published" | "archived";
+  tags: string[];
+  workshop_name: string | null;
+  promoted_at: string;
+  published_at: string | null;
+}
+
+export interface KnowledgeSearchFilters {
+  q?: string;
+  object_type?: string;
+  workshop_id?: string;
+  date_from?: string;
+  date_to?: string;
+  promoted?: boolean;
+}
+
+export const knowledgeApi = {
+  search: (f: KnowledgeSearchFilters) => {
+    const qs = new URLSearchParams();
+    if (f.q) qs.set("q", f.q);
+    if (f.object_type) qs.set("object_type", f.object_type);
+    if (f.workshop_id) qs.set("workshop_id", f.workshop_id);
+    if (f.date_from) qs.set("date_from", f.date_from);
+    if (f.date_to) qs.set("date_to", f.date_to);
+    if (f.promoted) qs.set("promoted", "true");
+    return apiGet<KnowledgeHit[]>(`/knowledge/search${qs.toString() ? `?${qs}` : ""}`);
+  },
+  trace: (objectType: string, objectId: string) =>
+    apiGet<TraceResult>(`/knowledge/trace?object_type=${objectType}&object_id=${objectId}`),
+  related: (objectType: string, objectId: string) =>
+    apiGet<TraceNode[]>(`/knowledge/related?object_type=${objectType}&object_id=${objectId}`),
+  assets: (state?: string) =>
+    apiGet<KnowledgeAsset[]>(`/knowledge/assets${state ? `?state=${state}` : ""}`),
+  promote: (input: { object_kind: string; object_id: string; summary?: string; tags?: string[] }) =>
+    apiPost<{ id: string; state: string }>("/knowledge/assets", input),
+  publish: (assetId: string) =>
+    apiPost<{ id: string; state: string }>(`/knowledge/assets/${assetId}/publish`),
+  remove: (assetId: string) => apiDelete<{ id: string }>(`/knowledge/assets/${assetId}`),
+};
+
+export interface Notification {
+  id: string;
+  notification_type: string;
+  title: string;
+  body: string | null;
+  object_type: string | null;
+  object_id: string | null;
+  workshop_id: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export const notificationsApi = {
+  list: (unreadOnly?: boolean) =>
+    apiGet<Notification[]>(`/notifications${unreadOnly ? "?unread=true" : ""}`),
+  markRead: (id: string) => apiPost<{ id: string }>(`/notifications/${id}/read`),
+  markAllRead: () => apiPost<{ marked: number }>("/notifications/read-all"),
+  remove: (id: string) => apiDelete<{ id: string }>(`/notifications/${id}`),
+};
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  display_name: string | null;
+  global_role: "user" | "admin" | "platform_admin";
+  status: "active" | "disabled";
+  workshop_count: number;
+  created_at: string;
+}
+
+export const adminApi = {
+  users: () => apiGet<AdminUser[]>("/admin/users"),
+  setRole: (userId: string, global_role: string) =>
+    apiPut<{ id: string; global_role: string }>(`/admin/users/${userId}/role`, { global_role }),
+  setStatus: (userId: string, status: "active" | "disabled") =>
+    apiPost<{ id: string; status: string }>(`/admin/users/${userId}/status`, { status }),
+  auditEvents: (filters?: { object_type?: string; actor_id?: string }) => {
+    const qs = new URLSearchParams();
+    if (filters?.object_type) qs.set("object_type", filters.object_type);
+    if (filters?.actor_id) qs.set("actor_id", filters.actor_id);
+    return apiGet<ActivityEvent[]>(`/audit-events${qs.toString() ? `?${qs}` : ""}`);
+  },
+};
+
 export const methodologiesApi = {
   list: () => apiGet<MethodologySummary[]>("/methodologies"),
 };

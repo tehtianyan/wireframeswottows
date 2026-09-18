@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ChevronLeft, LayoutDashboard, Layers, Moon, Settings, SignalHigh, Sun } from "lucide-react";
+import { BookMarked, ChevronLeft, LayoutDashboard, Layers, Moon, Shield, SignalHigh, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   DropdownMenu,
@@ -12,16 +12,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GlobalSearch } from "@/components/GlobalSearch";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useUiPrefs } from "@/lib/ui-prefs";
 import { supabase } from "@/integrations/supabase/client";
 
 
 
-// Only destinations that exist. Knowledge and Administration are Phase 5 and
-// deliberately absent rather than pointing at "/" and pretending.
+// Every destination here exists. Administration shows a plain "restricted"
+// message to non-admins rather than being hidden, so people can tell the
+// difference between "you cannot" and "there is nothing here".
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/" },
   { label: "Workshops", icon: Layers, to: "/w" },
+  { label: "Knowledge", icon: BookMarked, to: "/knowledge" },
+  { label: "Administration", icon: Shield, to: "/admin" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -35,7 +39,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
   const initials = (email ?? "?").slice(0, 2).toUpperCase();
 
-  const activeLabel = pathname.startsWith("/w") ? "Workshops" : "Dashboard";
+  const activeLabel = pathname.startsWith("/knowledge")
+    ? "Knowledge"
+    : pathname.startsWith("/admin")
+      ? "Administration"
+      : pathname.startsWith("/w")
+        ? "Workshops"
+        : "Dashboard";
 
   return (
     <div className="min-h-screen bg-background">
@@ -66,6 +76,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           <SignalHigh className="size-4" />
         </Button>
+
+        <NotificationBell />
 
         <Button
           variant="ghost"
@@ -141,13 +153,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="print:hidden flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-elevated/60 px-4 py-2 text-[11px] text-muted-foreground">
               <span className="label-caps">Build status</span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-0 w-4 border-t-2 border-success" /> Functional — real
-                interactions and state
+                <span className="h-0 w-4 border-t-2 border-success" /> Functional — real data,
+                real permissions
               </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="h-0 w-4 border-t-2 border-dashed border-destructive" /> Mock UI — no
-                backend behind it
-              </span>
+              {/* The "mock UI" half of this legend was removed along with the
+                  mock screens: nothing in the app is mock any more, so a
+                  legend entry for it described something that did not exist. */}
             </div>
           )}
           {children}
@@ -156,7 +167,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <nav className="print:hidden sticky bottom-0 z-30 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-2 py-1.5 md:hidden">
-        {navItems.slice(0, 4).map((item) => (
+        {navItems.map((item) => (
           <Link
             key={item.label}
             to={item.to}
@@ -169,10 +180,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             {item.label}
           </Link>
         ))}
-        <button className="flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] text-muted-foreground">
-          <Settings className="size-4" />
-          More
-        </button>
       </nav>
     </div>
   );

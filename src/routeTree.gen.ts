@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as WIndexRouteImport } from './routes/w.index'
 import { Route as WNewRouteImport } from './routes/w.new'
 import { Route as WWorkshopIdIndexRouteImport } from './routes/w.$workshopId.index'
@@ -18,6 +20,16 @@ import { Route as WWorkshopIdStageStageKeyRouteImport } from './routes/w.$worksh
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KnowledgeRoute = KnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WIndexRoute = WIndexRouteImport.update({
@@ -44,6 +56,8 @@ const WWorkshopIdStageStageKeyRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/knowledge': typeof KnowledgeRoute
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
   '/w/$workshopId/': typeof WWorkshopIdIndexRoute
@@ -51,6 +65,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/knowledge': typeof KnowledgeRoute
   '/w/new': typeof WNewRoute
   '/w': typeof WIndexRoute
   '/w/$workshopId': typeof WWorkshopIdIndexRoute
@@ -59,6 +75,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/knowledge': typeof KnowledgeRoute
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
   '/w/$workshopId/': typeof WWorkshopIdIndexRoute
@@ -68,16 +86,26 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
+    | '/knowledge'
     | '/w/new'
     | '/w/'
     | '/w/$workshopId/'
     | '/w/$workshopId/stage/$stageKey'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/w/new' | '/w' | '/w/$workshopId' | '/w/$workshopId/stage/$stageKey'
+    | '/'
+    | '/admin'
+    | '/knowledge'
+    | '/w/new'
+    | '/w'
+    | '/w/$workshopId'
+    | '/w/$workshopId/stage/$stageKey'
   id:
     | '__root__'
     | '/'
+    | '/admin'
+    | '/knowledge'
     | '/w/new'
     | '/w/'
     | '/w/$workshopId/'
@@ -86,6 +114,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
+  KnowledgeRoute: typeof KnowledgeRoute
   WNewRoute: typeof WNewRoute
   WIndexRoute: typeof WIndexRoute
   WWorkshopIdIndexRoute: typeof WWorkshopIdIndexRoute
@@ -99,6 +129,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/knowledge': {
+      id: '/knowledge'
+      path: '/knowledge'
+      fullPath: '/knowledge'
+      preLoaderRoute: typeof KnowledgeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/w/': {
@@ -134,6 +178,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
+  KnowledgeRoute: KnowledgeRoute,
   WNewRoute: WNewRoute,
   WIndexRoute: WIndexRoute,
   WWorkshopIdIndexRoute: WWorkshopIdIndexRoute,
