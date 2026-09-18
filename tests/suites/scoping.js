@@ -40,9 +40,25 @@ runSuite("scoping", async ({ baseUrl, results: r, c }) => {
     r.ok(assetsAfter.success && assetsAfter.data.length === 0,
       "knowledge assets are scoped the same way", assetsAfter.data?.length);
 
+    // Every surface that lists cross-workshop data, not just search. Each of
+    // these was a separate leak: they filtered by workshop_members alone, so a
+    // stale membership row kept working after workspace access was revoked.
     const dash = await api("GET", "/dashboard");
     r.ok(dash.success && dash.data.workshops.length === 0,
       "the dashboard is scoped too", dash.data?.workshops?.length);
+    r.ok(dash.success && dash.data.recent_activity.length === 0,
+      "and so is its activity feed", dash.data?.recent_activity?.length);
+
+    const list = await api("GET", "/workshops");
+    r.ok(list.success && list.data.length === 0,
+      "the workshops list is scoped", list.data?.length);
+
+    const exec = await api("GET", "/executive");
+    r.ok(exec.success && exec.data.workshops === 0 && exec.data.themes.length === 0,
+      "the executive brief is scoped", `${exec.data?.workshops} workshops`);
+    r.ok(exec.success && exec.data.published_reports === 0 && exec.data.alerts.length === 0,
+      "including its counts and alerts — a count leaks less than content, but still leaks",
+      `${exec.data?.published_reports} reports, ${exec.data?.alerts?.length} alerts`);
   } finally {
     if (savedMemberships) {
       for (const m of savedMemberships) {

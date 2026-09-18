@@ -65,6 +65,8 @@ func ListWorkshops(w http.ResponseWriter, r *http.Request) {
 		       w.facilitator_id, w.status, w.votes_per_participant, w.created_at
 		from public.workshops w
 		join public.workshop_members wm on wm.workshop_id = w.id
+		join public.workspace_members wsm
+		     on wsm.workspace_id = w.workspace_id and wsm.user_id = wm.user_id
 		where wm.user_id = $1
 		order by w.created_at desc`, user.ID)
 	if err != nil {

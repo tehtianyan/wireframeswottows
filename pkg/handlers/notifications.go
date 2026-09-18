@@ -100,8 +100,16 @@ func NotifyReviewDecision(ctx context.Context, pool *pgxpool.Pool, actorID, kind
 func NotifyWorkshop(ctx context.Context, pool *pgxpool.Pool, actorID, notificationType,
 	title, body, objectType, objectID, workshopID string) {
 
-	rows, err := pool.Query(ctx,
-		`select user_id::text from public.workshop_members where workshop_id = $1`, workshopID)
+	// Scoped to people who still have workspace access. Notifying someone who
+	// has lost it would tell them a workshop they can no longer open is still
+	// moving.
+	rows, err := pool.Query(ctx, `
+		select wm.user_id::text
+		from public.workshop_members wm
+		join public.workshops w on w.id = wm.workshop_id
+		join public.workspace_members wsm
+		     on wsm.workspace_id = w.workspace_id and wsm.user_id = wm.user_id
+		where wm.workshop_id = $1`, workshopID)
 	if err != nil {
 		return
 	}

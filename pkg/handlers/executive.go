@@ -209,6 +209,7 @@ func GetExecutiveBrief(w http.ResponseWriter, r *http.Request) {
 		select count(*) from public.reports rp
 		join public.workshops w on w.id = rp.workshop_id
 		join public.workshop_members wm on wm.workshop_id = w.id and wm.user_id = $1
+		join public.workspace_members wsm on wsm.workspace_id = w.workspace_id and wsm.user_id = $1
 		where rp.state = 'published'`, user.ID).Scan(&out.PublishedReports)
 
 	pool.QueryRow(r2.Context(), `
@@ -293,11 +294,13 @@ func executiveAlerts(r *http.Request, pool *pgxpool.Pool, userID string) []ExecA
 		  select count(*) n from public.insights o
 		  join public.workshops w on w.id = o.workshop_id
 		  join public.workshop_members wm on wm.workshop_id = w.id and wm.user_id = $1
+		  join public.workspace_members wsm on wsm.workspace_id = w.workspace_id and wsm.user_id = $1
 		  where o.state = 'submitted'
 		  union all
 		  select count(*) from public.recommendations o
 		  join public.workshops w on w.id = o.workshop_id
 		  join public.workshop_members wm on wm.workshop_id = w.id and wm.user_id = $1
+		  join public.workspace_members wsm on wsm.workspace_id = w.workspace_id and wsm.user_id = $1
 		  where o.state = 'submitted'
 		) x`, userID).Scan(&backlog)
 	if backlog > 5 {
@@ -310,9 +313,19 @@ func executiveAlerts(r *http.Request, pool *pgxpool.Pool, userID string) []ExecA
 
 	// A published report citing something later rejected is exactly the sort
 	// of thing a leader should know before quoting it.
+	// Scoped explicitly. report_stale_citations is a security_invoker view,
+	// but that gives NO protection here: Go connects as `postgres`, which
+	// bypasses RLS entirely (by design — Go is the trust boundary). Any Go
+	// query against a view must therefore do its own scoping, or it reports
+	// on workspaces the caller cannot see.
 	var stale int
-	pool.QueryRow(r.Context(),
-		`select count(distinct report_id) from public.report_stale_citations`).Scan(&stale)
+	pool.QueryRow(r.Context(), `
+		select count(distinct sc.report_id)
+		from public.report_stale_citations sc
+		join public.workshops w on w.id = sc.workshop_id
+		join public.workshop_members wm on wm.workshop_id = w.id and wm.user_id = $1
+		join public.workspace_members wsm on wsm.workspace_id = w.workspace_id and wsm.user_id = $1`,
+		userID).Scan(&stale)
 	if stale > 0 {
 		alerts = append(alerts, ExecAlert{
 			Severity: "attention",

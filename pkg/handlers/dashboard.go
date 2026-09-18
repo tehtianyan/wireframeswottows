@@ -174,7 +174,12 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
 		from public.audit_events a
 		left join public.profiles p on p.id = a.actor_id
 		where a.metadata->>'workshop_id' in (
-		  select workshop_id::text from public.workshop_members where user_id = $1
+		  select wm.workshop_id::text
+		  from public.workshop_members wm
+		  join public.workshops w on w.id = wm.workshop_id
+		  join public.workspace_members wsm
+		       on wsm.workspace_id = w.workspace_id and wsm.user_id = wm.user_id
+		  where wm.user_id = $1
 		)
 		order by a.created_at desc limit 20`, user.ID)
 	if err == nil {
