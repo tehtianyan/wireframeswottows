@@ -314,12 +314,22 @@ func CompleteWorkshop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// These three checks were comparing against state = 'review', a value the
+	// Phase 2 migration removed when it unified the governance vocabulary onto
+	// draft|submitted|approved|rejected|archived. They could therefore never
+	// match, and the §8.30 gate silently stopped checking for unapproved
+	// content — masked only because no report could be published yet. Phase 4
+	// removes that mask, so this has to be right now.
+	//
+	// `state <> 'approved'` is the correct test: it catches draft and
+	// submitted, while archived and rejected content is deliberately excluded
+	// from the count below by not blocking on it.
 	var incompleteActivities, unapprovedSyntheses, unapprovedInsights, unapprovedRecs, publishedReports int
 	pool.QueryRow(r2.Context(), `select count(*) from public.activities where workshop_id = $1 and status <> 'completed'`, id).Scan(&incompleteActivities)
-	pool.QueryRow(r2.Context(), `select count(*) from public.syntheses where workshop_id = $1 and state = 'review'`, id).Scan(&unapprovedSyntheses)
-	pool.QueryRow(r2.Context(), `select count(*) from public.insights where workshop_id = $1 and state = 'review'`, id).Scan(&unapprovedInsights)
-	pool.QueryRow(r2.Context(), `select count(*) from public.recommendations where workshop_id = $1 and state = 'review'`, id).Scan(&unapprovedRecs)
-	pool.QueryRow(r2.Context(), `select count(*) from public.reports where workshop_id = $1 and status = 'published'`, id).Scan(&publishedReports)
+	pool.QueryRow(r2.Context(), `select count(*) from public.syntheses where workshop_id = $1 and state in ('draft','submitted')`, id).Scan(&unapprovedSyntheses)
+	pool.QueryRow(r2.Context(), `select count(*) from public.insights where workshop_id = $1 and state in ('draft','submitted')`, id).Scan(&unapprovedInsights)
+	pool.QueryRow(r2.Context(), `select count(*) from public.recommendations where workshop_id = $1 and state in ('draft','submitted')`, id).Scan(&unapprovedRecs)
+	pool.QueryRow(r2.Context(), `select count(*) from public.reports where workshop_id = $1 and state = 'published'`, id).Scan(&publishedReports)
 
 	if incompleteActivities > 0 || unapprovedSyntheses > 0 || unapprovedInsights > 0 || unapprovedRecs > 0 || publishedReports == 0 {
 		response.Fail(w, response.CodeInvalidStateTransition,
