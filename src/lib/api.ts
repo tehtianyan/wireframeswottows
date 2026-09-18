@@ -343,6 +343,110 @@ export const aiApi = {
     `/workshops/${workshopId}/ai/outputs/${outputId}/review`, input),
 };
 
+// ---- Reporting (Phase 4) ----
+
+export type ReportState = "draft" | "submitted" | "approved" | "published" | "rejected" | "archived";
+
+export type SectionType =
+  | "narrative" | "bullet_list" | "table" | "object_list"
+  | "category_matrix" | "pair_matrix" | "evidence_chain" | "appendix";
+
+export interface ReportTypeOption {
+  key: string;
+  name: string;
+  description: string;
+  default: boolean;
+  section_count: number;
+  can_generate: boolean;
+  /** Why it cannot be generated yet (App Spec §14.12). */
+  missing: string[];
+}
+
+export interface ReportSectionItem {
+  id: string;
+  kind: CitableKind;
+  title: string;
+  body?: string;
+  state: string;
+  included: boolean;
+  fields?: Record<string, unknown>;
+}
+
+export interface ReportSectionGroup {
+  key: string;
+  name: string;
+  color_token?: string;
+  source_name?: string;
+  target_name?: string;
+  items: ReportSectionItem[];
+}
+
+export interface ReportEvidenceChain {
+  root: ReportSectionItem;
+  supports: Record<string, ReportSectionItem[]>;
+}
+
+export interface ReportSection {
+  id: string;
+  section_key: string;
+  name: string;
+  section_type: SectionType;
+  sort_order: number;
+  included: boolean;
+  selectable: boolean;
+  body: string | null;
+  generated_by: "human" | "ai" | "hybrid";
+  source: Record<string, unknown>;
+  groups?: ReportSectionGroup[];
+  items?: ReportSectionItem[];
+  chains?: ReportEvidenceChain[];
+}
+
+export interface Report {
+  id: string;
+  workshop_id: string;
+  title: string;
+  report_type: string;
+  state: ReportState;
+  version: string;
+  root_id: string;
+  created_at: string;
+  published_at: string | null;
+  review_note: string | null;
+}
+
+export interface ReportDetail extends Report {
+  sections: ReportSection[];
+  /** True when content came from the publish-time snapshot, not live data. */
+  from_snapshot: boolean;
+}
+
+export const reportsApi = {
+  types: (workshopId: string) => apiGet<ReportTypeOption[]>(`/workshops/${workshopId}/report-types`),
+  list: (workshopId: string) => apiGet<Report[]>(`/workshops/${workshopId}/reports`),
+  get: (workshopId: string, reportId: string) =>
+    apiGet<ReportDetail>(`/workshops/${workshopId}/reports/${reportId}`),
+  create: (workshopId: string, input: { report_type: string; title?: string }) =>
+    apiPost<{ id: string; state: ReportState }>(`/workshops/${workshopId}/reports`, input),
+  updateSections: (workshopId: string, reportId: string,
+    sections: { id: string; sort_order: number; included: boolean }[]) =>
+    apiPut<{ id: string }>(`/workshops/${workshopId}/reports/${reportId}/sections`, { sections }),
+  updateSection: (workshopId: string, reportId: string, sectionId: string, body: string | null) =>
+    apiPatch<{ id: string; generated_by: string }>(
+      `/workshops/${workshopId}/reports/${reportId}/sections/${sectionId}`, { body }),
+  review: (workshopId: string, reportId: string, input: { action: "submit" | "approve" | "reject"; note?: string }) =>
+    apiPost<{ id: string; state: ReportState }>(`/workshops/${workshopId}/reports/${reportId}/review`, input),
+  publish: (workshopId: string, reportId: string) =>
+    apiPost<{ id: string; state: ReportState; version: string }>(
+      `/workshops/${workshopId}/reports/${reportId}/publish`),
+  newVersion: (workshopId: string, reportId: string, bump: "minor" | "major") =>
+    apiPost<{ id: string; version: string }>(
+      `/workshops/${workshopId}/reports/${reportId}/versions`, { bump }),
+  /** Server-rendered, self-contained HTML — the second export format. */
+  exportHtmlUrl: (workshopId: string, reportId: string) =>
+    `/api/v1/workshops/${workshopId}/reports/${reportId}/export.html`,
+};
+
 export const methodologiesApi = {
   list: () => apiGet<MethodologySummary[]>("/methodologies"),
 };

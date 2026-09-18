@@ -8,6 +8,7 @@ import { ReviewBoard } from "@/components/methodology/ReviewBoard";
 import { EvidenceBoard } from "@/components/methodology/EvidenceBoard";
 import { RelationshipMatrix } from "@/components/methodology/RelationshipMatrix";
 import { AiActionPanel } from "@/components/methodology/AiActionPanel";
+import { ReportBuilder } from "@/components/methodology/ReportBuilder";
 import { workshopsApi } from "@/lib/api";
 
 // Search params are the stage's own view mode. `validateSearch` must return a
@@ -27,6 +28,8 @@ const GUIDANCE: Record<string, string> = {
     "State what the analysis means. An insight must cite the themes or relationships that support it — an insight with no evidence is an opinion.",
   recommend:
     "Turn insights into things to do. Each recommendation cites the insights behind it, so a reader can follow any action back to the evidence.",
+  report:
+    "Assemble the workshop into a report. Sections come from the methodology, and you can reorder or exclude them. Publishing freezes the content so the report stays true to what was approved at the time.",
 };
 
 // Returns `{}` rather than `{ guidance: undefined }`, which
@@ -137,6 +140,18 @@ function StagePage() {
           aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
         >
           <EvidenceBoard workshop={workshop} stage={stage} />
+        </StageShell>
+      );
+
+    case "report":
+      return (
+        <StageShell
+          workshop={workshop}
+          stage={stage}
+          {...guidanceFor("report")}
+          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+        >
+          <ReportBuilder workshop={workshop} stage={stage} />
         </StageShell>
       );
 

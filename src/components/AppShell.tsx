@@ -60,7 +60,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-sidebar/95 px-3 backdrop-blur md:px-4">
+      <header className="print:hidden sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-sidebar/95 px-3 backdrop-blur md:px-4">
         <Link to="/" className="flex items-center gap-2">
           <span className="grid size-8 place-items-center rounded-md bg-primary font-display text-sm font-bold text-primary-foreground">
             ST
@@ -155,7 +155,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex">
         <nav
           className={cn(
-            "sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-2 transition-all md:flex",
+            "print:hidden sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-2 transition-all md:flex",
             collapsed ? "w-14" : "w-52",
           )}
         >
@@ -186,7 +186,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <main className="min-w-0 flex-1">
           {showBuildStatus && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-elevated/60 px-4 py-2 text-[11px] text-muted-foreground">
+            <div className="print:hidden flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-elevated/60 px-4 py-2 text-[11px] text-muted-foreground">
               <span className="label-caps">Build status</span>
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-0 w-4 border-t-2 border-success" /> Functional — real
@@ -203,7 +203,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       </div>
 
-      <nav className="sticky bottom-0 z-30 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-2 py-1.5 md:hidden">
+      <nav className="print:hidden sticky bottom-0 z-30 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-2 py-1.5 md:hidden">
         {navItems.slice(0, 4).map((item) => (
           <Link
             key={item.label}

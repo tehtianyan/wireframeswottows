@@ -42,6 +42,12 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-category-1: var(--category-1);
+  --color-category-2: var(--category-2);
+  --color-category-3: var(--category-3);
+  --color-category-4: var(--category-4);
+  --color-category-5: var(--category-5);
+  --color-category-6: var(--category-6);
   --color-strength: var(--strength);
   --color-weakness: var(--weakness);
   --color-opportunity: var(--opportunity);
@@ -88,6 +94,15 @@
   --warning-foreground: oklch(0.21 0.03 258);
   --info: oklch(0.68 0.14 250);
   --info-foreground: oklch(0.97 0.01 250);
+  /* Methodology-neutral category hues. A methodology whose categories are
+     not SWOT's four (PESTLE has six) uses these rather than borrowing a
+     token named after someone else's concept. */
+  --category-1: oklch(0.72 0.14 258);
+  --category-2: oklch(0.74 0.14 196);
+  --category-3: oklch(0.75 0.15 134);
+  --category-4: oklch(0.79 0.14 88);
+  --category-5: oklch(0.72 0.15 42);
+  --category-6: oklch(0.70 0.15 330);
   --strength: oklch(0.72 0.15 158);
   --weakness: oklch(0.68 0.16 30);
   --opportunity: oklch(0.72 0.13 232);
@@ -174,6 +189,12 @@
   --warning-foreground: oklch(0.99 0.005 250);
   --info: oklch(0.55 0.14 250);
   --info-foreground: oklch(0.99 0.005 250);
+  --category-1: oklch(0.50 0.14 258);
+  --category-2: oklch(0.50 0.13 196);
+  --category-3: oklch(0.48 0.14 134);
+  --category-4: oklch(0.55 0.13 88);
+  --category-5: oklch(0.52 0.15 42);
+  --category-6: oklch(0.50 0.15 330);
   --strength: oklch(0.52 0.14 158);
   --weakness: oklch(0.55 0.16 30);
   --opportunity: oklch(0.54 0.13 232);
@@ -220,4 +241,60 @@ html[data-build-status="on"] [data-build="live"] {
 html[data-build-status="on"] [data-build="mock"] {
   outline: 1.5px dashed var(--destructive);
   outline-offset: 1px;
+}
+
+/* ============================================================
+   Print — the HTML-to-PDF path.
+   The browser's own engine does the conversion, so text stays vector and
+   selectable. Colour is handled by swapping to the existing .light palette
+   on beforeprint (see usePrintTheme), which also disables `dark:` variant
+   utilities; those key off an ancestor class and would otherwise still fire
+   on white paper. That leaves only page geometry to do here.
+   ============================================================ */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm;
+  }
+
+  html, body {
+    background: #fff !important;
+    /* Let content flow across pages rather than being clipped to a viewport. */
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* The console texture is decorative and wastes toner. */
+  .grid-backdrop {
+    background-image: none !important;
+    min-height: 0 !important;
+  }
+
+  .console-panel {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  /* A report section should not be split across a page break mid-way. */
+  .report-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .report-cover {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .report-document {
+    max-width: none !important;
+  }
+
+  /* Links print as plain text; a URL in a PDF of an internal app is noise. */
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
 }

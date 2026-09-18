@@ -15,7 +15,7 @@ to a requirement rather than an opinion.
 Organised by build phase. Run a phase's suites once that phase lands; later phases are
 listed with their cases withheld so the document stays a single source of truth.
 
-**Phases 0-3 are testable now.** Phase 4 is not yet built.
+**Phases 0-4 are testable now.** The build is feature-complete against the initial-release scope.
 
 ---
 
@@ -332,7 +332,75 @@ methodology configuration, so the list differs per stage and per methodology.
 
 # Phase 4 — Reporting and export
 
-**Not yet built — do not test.** `WF §8`, `AS §6.13`.
+The Report Builder is the last stage of the journey, and publishing a report is what finally
+lets a workshop reach **Completed** (`AS §8.30`).
+
+## 4.1 Creating a report
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| RPT-01 | F | Open WS-DT → stage 10 *Reporting* with nothing approved | Report types are listed but **Create is disabled**, each explaining what it still needs | `AS §14.12` |
+| RPT-02 | F | Read the report type list | Three types: Executive Summary, Factor Analysis, Recommendation — from methodology config, not code | `AS §14.4`-`§14.8`, `CL` |
+| RPT-03 | F | Approve at least one theme, insight and recommendation, then reload | Executive Summary becomes creatable | `AS §14.12` |
+| RPT-04 | F | Create the Executive Summary report | Opens at **v1.0**, state **draft**, with its nine configured sections | `AS §6.13` |
+| RPT-05 | P | Open Reporting as a participant | Read-only; no create, edit or publish controls | `AS §14.25` |
+
+## 4.2 The report content
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| RPT-10 | F | Inspect the Factor Overview section | Four groups, one per SWOT category, each in its own colour | `AS §14.22` |
+| RPT-11 | F | Inspect the Strategy Matrix section | Four cells — SO / ST / WO / WT — each labelled with its source × target categories | `AS §14.6` |
+| RPT-12 | F | Inspect the Evidence Chain section | Each recommendation shows the insights, themes and factors beneath it | `AS §14.15` |
+| RPT-13 | F | Inspect the recommendation table | Columns: Recommendation, Priority, Expected benefit, Risk | `AS §14.23` |
+| RPT-14 | F | Check a section the AI drafted | Badged **AI generated**; after you edit it, badged **AI draft, edited** | `AS §14.13` |
+| RPT-15 | F | Edit a narrative section and save | Text persists and the badge changes to reflect human editing | `AS §14.13` |
+| RPT-16 | F | Use the up/down arrows on a section | Order changes and survives a reload | `AS §14.13` |
+| RPT-17 | F | Click **Exclude** on a section | It greys out, and disappears entirely in Preview | `AS §14.13` |
+| RPT-18 | F | Click **Preview** | Only included sections show, and the editing controls disappear | `WF §8.23` |
+
+## 4.3 Review, publish, and immutability
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| RPT-20 | F | Try to publish a draft | Refused — a report must be approved first | `AS §8.25` |
+| RPT-21 | F | Submit for review, then sign in as an analyst and approve | Analysts may approve | `AS §14.25` |
+| RPT-22 | A | As the analyst, try to **publish** | Refused — publishing is facilitator-only | `AS §14.25`, `WF §8.36` |
+| RPT-23 | F | Publish as the facilitator | State becomes **published**, tagged "frozen at publication" | `AS §8.25` |
+| RPT-24 | F | Try to edit a published section | Refused — create a new version instead | `AS §14.24` |
+| RPT-25 | F | **Reject one of the insights the report cites**, then reopen the report | The published report is **unchanged** — it renders from the snapshot taken at publication | `AS §14.24` |
+| RPT-26 | F | Click **New version** | A **v1.1** draft appears, inheriting the sections including edited narrative text | `AS §14.24` |
+| RPT-27 | F | Try to create a second new version while v1.1 is open | Refused — only one unpublished version at a time | `AS §14.24` |
+
+## 4.4 Export — PDF and HTML
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| EXP-01 | F | Click **Download PDF** | The browser print dialog opens showing the report | `AS §14.16` |
+| EXP-02 | F | Inspect the print preview | **Light background**, no sidebar, no header, no build-status bar | — |
+| EXP-03 | F | Check the print preview page breaks | Sections are not split mid-block; the cover is its own page | `AS §14.17` |
+| EXP-04 | F | Save as PDF and open it | Text is **selectable**, not a bitmap | — |
+| EXP-05 | F | Click **HTML** | A `.html` file downloads | `AS §14.16` |
+| EXP-06 | F | Open the downloaded HTML with no network | Renders fully — it is self-contained, with no external requests | `AS §14.16` |
+| EXP-07 | F | Read the report's Contents list | Sections are listed. **Known gap:** no page numbers — browser print cannot resolve them. Not a defect | `AS §14.17` |
+
+## 4.5 Closing the journey
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| CMP-01 | F | With unapproved content still present, move the workshop to Reporting and try to Complete | **Refused.** (This check was silently broken before Phase 4 and is now fixed) | `AS §8.30` |
+| CMP-02 | F | Approve everything, publish a report, then Complete | The workshop reaches **Completed** — the first time this is possible | `AS §8.30` |
+
+## 4.6 Genericity — Phase 4
+
+| ID | Role | Steps | Expected result | Spec Ref |
+| --- | --- | --- | --- | --- |
+| GEN-40 | F | Activate PESTLE, create a PESTLE workshop and open its Reporting stage | One report type, **Driver Scan** — PESTLE's own, not SWOT-TOWS's three | `CL` |
+| GEN-41 | F | Read what it requires | Only an approved theme. No recommendation is demanded, because PESTLE has no recommend stage | `CL` |
+| GEN-42 | F | Create and open it | The **same** category-matrix renderer produces **six** groups, not four | `CL` |
+| GEN-43 | F | Look for a strategy matrix | **Absent.** PESTLE defines no relationship types, so there is no matrix to render | `CL` |
+| GEN-44 | F | Search the report for SWOT vocabulary | None — no "SWOT", "TOWS", "strength" or "weakness" anywhere, including colour tokens | `CL` |
+| GEN-45 | F | Publish it and export the HTML | Both work identically, and the file names PESTLE's own sections | `CL` |
 
 ---
 
