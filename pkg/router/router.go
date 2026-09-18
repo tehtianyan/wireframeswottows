@@ -26,6 +26,9 @@ func New() http.Handler {
 		// the registry instead of hardcoding what a recommendation looks like.
 		r.Get("/object-kinds", handlers.ListObjectKinds)
 
+		// "What needs me today?" across every workshop the caller belongs to.
+		r.Get("/dashboard", handlers.GetDashboard)
+
 		r.Route("/workshops", func(r chi.Router) {
 			r.Get("/", handlers.ListWorkshops)
 			r.Post("/", handlers.CreateWorkshop)
@@ -54,6 +57,7 @@ func New() http.Handler {
 
 			// Reporting. Registered before the {kind} wildcard, like the AI
 			// routes, so "reports" is never taken for an object route.
+			r.Get("/{id}/summary", handlers.GetWorkshopSummary)
 			r.Get("/{id}/report-types", handlers.ListReportTypes)
 			r.Get("/{id}/reports", handlers.ListReports)
 			r.Post("/{id}/reports", handlers.CreateReport)

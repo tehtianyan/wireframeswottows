@@ -38,6 +38,9 @@ func TestRoutePrecedence(t *testing.T) {
 		{"GET", "/api/v1/workshops/abc/ai/outputs", "/api/v1/workshops/{id}/ai/outputs"},
 		{"POST", "/api/v1/workshops/abc/ai/outputs/o1/review", "/api/v1/workshops/{id}/ai/outputs/{outputId}/review"},
 
+		{"GET", "/api/v1/dashboard", "/api/v1/dashboard"},
+		{"GET", "/api/v1/workshops/abc/summary", "/api/v1/workshops/{id}/summary"},
+
 		// Reporting must not be swallowed by the {kind} wildcard either.
 		{"GET", "/api/v1/workshops/abc/report-types", "/api/v1/workshops/{id}/report-types"},
 		{"GET", "/api/v1/workshops/abc/reports", "/api/v1/workshops/{id}/reports"},
