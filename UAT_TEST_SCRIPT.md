@@ -321,6 +321,7 @@ methodology configuration, so the list differs per stage and per methodology.
 | AI-16 | P | Open a stage as a participant and generate suggestions | Panel visible, but **Add for review** is unavailable — participants cannot convert AI output into workshop content | `AS §3.17` |
 | AI-17 | F | Run "Generate Themes" on Theme Analysis and accept one | Theme is created citing the factors the AI referenced, as real evidence rows | `AS §12` (traceability) |
 | AI-18 | F | Ask the developer to check the accepted item in the database | `generated_by = 'ai'` and `source_ai_output_id` points at the AI output | `AS §12.20` |
+| AI-19 | F | Click **Edit** on a suggestion, change the title, then **Add with changes** | Created with your text, badged **Added (edited) — awaiting review**, and recorded as `edited` rather than `accepted` | `AS §12.19` |
 
 ## 3.3 Limits, failure and the "you can always continue" rule
 
