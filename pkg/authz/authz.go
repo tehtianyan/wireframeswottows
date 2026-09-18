@@ -25,10 +25,25 @@ var ErrInsufficientRole = errors.New("insufficient role")
 
 // WorkshopRole returns the caller's role in the given workshop, or
 // ErrForbidden if they are not a member.
+//
+// This enforces the FIRST TWO levels of App Spec §11.5's check —
+// workspace membership, then workshop membership — by joining through to
+// workspace_members rather than trusting the workshop_members row alone.
+//
+// That join is load-bearing, not defensive tidiness. Without it, removing
+// someone from a workspace did not revoke their access to the workshops
+// inside it: their stale workshop_members row kept working indefinitely.
+// CLAUDE.md claimed the 3-level check was enforced while level 1 never was;
+// the scoping test now proves it is.
 func WorkshopRole(ctx context.Context, pool *pgxpool.Pool, userID, workshopID string) (string, error) {
 	var role string
-	err := pool.QueryRow(ctx,
-		`select role from public.workshop_members where workshop_id = $1 and user_id = $2`,
+	err := pool.QueryRow(ctx, `
+		select wm.role
+		from public.workshop_members wm
+		join public.workshops w on w.id = wm.workshop_id
+		join public.workspace_members wsm
+		     on wsm.workspace_id = w.workspace_id and wsm.user_id = wm.user_id
+		where wm.workshop_id = $1 and wm.user_id = $2`,
 		workshopID, userID,
 	).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {

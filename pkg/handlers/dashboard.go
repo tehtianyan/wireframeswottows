@@ -105,10 +105,15 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Joined through workspace_members as well as workshop_members, matching
+	// authz.WorkshopRole. Listing a workshop the caller can no longer open
+	// would be a smaller leak than granting access, but it is still a leak.
 	rows, err := pool.Query(r2.Context(), `
 		select w.id, w.name, w.status, m.name, wm.role
 		from public.workshops w
 		join public.workshop_members wm on wm.workshop_id = w.id and wm.user_id = $1
+		join public.workspace_members wsm
+		     on wsm.workspace_id = w.workspace_id and wsm.user_id = $1
 		join public.methodologies m on m.id = w.methodology_id
 		order by w.updated_at desc nulls last, w.created_at desc`, user.ID)
 	if err != nil {
