@@ -10,8 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PrioritizationRouteImport } from './routes/prioritization'
-import { Route as DiscoveryCategoryRouteImport } from './routes/discovery.$category'
 import { Route as WIndexRouteImport } from './routes/w.index'
 import { Route as WNewRouteImport } from './routes/w.new'
 import { Route as WWorkshopIdIndexRouteImport } from './routes/w.$workshopId.index'
@@ -20,16 +18,6 @@ import { Route as WWorkshopIdStageStageKeyRouteImport } from './routes/w.$worksh
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrioritizationRoute = PrioritizationRouteImport.update({
-  id: '/prioritization',
-  path: '/prioritization',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DiscoveryCategoryRoute = DiscoveryCategoryRouteImport.update({
-  id: '/discovery/$category',
-  path: '/discovery/$category',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WIndexRoute = WIndexRouteImport.update({
@@ -56,8 +44,6 @@ const WWorkshopIdStageStageKeyRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/prioritization': typeof PrioritizationRoute
-  '/discovery/$category': typeof DiscoveryCategoryRoute
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
   '/w/$workshopId/': typeof WWorkshopIdIndexRoute
@@ -65,8 +51,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/prioritization': typeof PrioritizationRoute
-  '/discovery/$category': typeof DiscoveryCategoryRoute
   '/w/new': typeof WNewRoute
   '/w': typeof WIndexRoute
   '/w/$workshopId': typeof WWorkshopIdIndexRoute
@@ -75,8 +59,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/prioritization': typeof PrioritizationRoute
-  '/discovery/$category': typeof DiscoveryCategoryRoute
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
   '/w/$workshopId/': typeof WWorkshopIdIndexRoute
@@ -86,26 +68,16 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/prioritization'
-    | '/discovery/$category'
     | '/w/new'
     | '/w/'
     | '/w/$workshopId/'
     | '/w/$workshopId/stage/$stageKey'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
-    | '/prioritization'
-    | '/discovery/$category'
-    | '/w/new'
-    | '/w'
-    | '/w/$workshopId'
-    | '/w/$workshopId/stage/$stageKey'
+    '/' | '/w/new' | '/w' | '/w/$workshopId' | '/w/$workshopId/stage/$stageKey'
   id:
     | '__root__'
     | '/'
-    | '/prioritization'
-    | '/discovery/$category'
     | '/w/new'
     | '/w/'
     | '/w/$workshopId/'
@@ -114,8 +86,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  PrioritizationRoute: typeof PrioritizationRoute
-  DiscoveryCategoryRoute: typeof DiscoveryCategoryRoute
   WNewRoute: typeof WNewRoute
   WIndexRoute: typeof WIndexRoute
   WWorkshopIdIndexRoute: typeof WWorkshopIdIndexRoute
@@ -129,20 +99,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/prioritization': {
-      id: '/prioritization'
-      path: '/prioritization'
-      fullPath: '/prioritization'
-      preLoaderRoute: typeof PrioritizationRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/discovery/$category': {
-      id: '/discovery/$category'
-      path: '/discovery/$category'
-      fullPath: '/discovery/$category'
-      preLoaderRoute: typeof DiscoveryCategoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/w/': {
@@ -178,8 +134,6 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  PrioritizationRoute: PrioritizationRoute,
-  DiscoveryCategoryRoute: DiscoveryCategoryRoute,
   WNewRoute: WNewRoute,
   WIndexRoute: WIndexRoute,
   WWorkshopIdIndexRoute: WWorkshopIdIndexRoute,

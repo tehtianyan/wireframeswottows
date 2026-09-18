@@ -1,149 +1,105 @@
-import { useNavigate } from "@tanstack/react-router";
-import { Compass, FileText, Lightbulb, Search, Sparkles, User } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Layers, Search, Workflow } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useWorkshop } from "@/lib/workshop-store";
-import {
-  categoryMeta,
-  insights,
-  participants,
-  roleLabels,
-  themes,
-} from "@/lib/workshop-data";
+import { dashboardApi, workshopsApi } from "@/lib/api";
 
-type ResultGroup = "Artifacts" | "Themes & insights" | "Screens" | "Participants";
+// Global search over the caller's real workshops and their stages.
+//
+// This previously searched a set of static in-memory arrays and
+// navigated to the mock /discovery and /prioritization screens — so it could
+// return results for artifacts that did not exist and route to pages that
+// were no longer the real path. It now searches what the API actually
+// returns, and every result goes to a live route.
 
-interface SearchResult {
+type Result = {
   id: string;
-  group: ResultGroup;
   label: string;
   detail: string;
-  to?: string;
-  icon: typeof Search;
-}
+  kind: "workshop" | "stage";
+  workshopId: string;
+  stageKey?: string;
+};
 
 export function GlobalSearch() {
-  const { artifacts } = useWorkshop();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Computed at render time (not module scope) so it doesn't depend on
-  // cross-chunk import evaluation order in the production SSR bundle.
-  const screens = useMemo<{ label: string; detail: string; to: string }[]>(
-    () => [
-      { label: "Workshop Dashboard", detail: "Progress, activities, intelligence", to: "/" },
-      ...(["strength", "weakness", "opportunity", "threat"] as const).map((c) => ({
-        label: categoryMeta[c].activity,
-        detail: "Discovery workspace",
-        to: `/discovery/${categoryMeta[c].slug}`,
-      })),
-      { label: "Prioritization", detail: "Voting, rankings, heat map", to: "/prioritization" },
-    ],
-    [],
-  );
+  // Reuses the dashboard query, so opening search costs no extra request on
+  // any page that has already loaded it.
+  const { data: dashboard } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => dashboardApi.get(),
+    staleTime: 30_000,
+  });
+
+  // Stage names need the methodology, which only the workshop detail carries.
+  // Fetched only once the user actually types.
+  const workshopIds = (dashboard?.workshops ?? []).map((w) => w.id);
+  const { data: details } = useQuery({
+    queryKey: ["search-stages", workshopIds],
+    queryFn: async () => Promise.all(workshopIds.map((id) => workshopsApi.get(id))),
+    enabled: query.trim().length > 1 && workshopIds.length > 0,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
     }
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  const results = useMemo<SearchResult[]>(() => {
+  const results = useMemo<Result[]>(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return [];
-    const out: SearchResult[] = [];
+    if (q.length < 2) return [];
+    const out: Result[] = [];
 
-    for (const a of artifacts) {
-      const hay = `${a.title} ${a.description} ${a.tags.join(" ")}`.toLowerCase();
-      if (hay.includes(q)) {
+    for (const w of dashboard?.workshops ?? []) {
+      if (w.name.toLowerCase().includes(q)) {
         out.push({
-          id: `a-${a.id}`,
-          group: "Artifacts",
-          label: a.title,
-          detail: `${categoryMeta[a.category].label} · ${a.votes} votes · ${a.author}`,
-          to: `/discovery/${categoryMeta[a.category].slug}`,
-          icon: FileText,
+          id: w.id, label: w.name, kind: "workshop", workshopId: w.id,
+          detail: `${w.methodology_name} · ${w.status}`,
         });
       }
     }
 
-    for (const t of themes) {
-      if (t.name.toLowerCase().includes(q)) {
-        out.push({
-          id: `t-${t.id}`,
-          group: "Themes & insights",
-          label: t.name,
-          detail: `Theme · ${t.artifactCount} artifacts · ${t.confidence}% confidence`,
-          to: "/",
-          icon: Sparkles,
-        });
+    for (const d of details ?? []) {
+      for (const s of d.methodology.stages) {
+        if (s.name.toLowerCase().includes(q) || s.key.toLowerCase().includes(q)) {
+          out.push({
+            id: `${d.id}:${s.key}`, label: s.name, kind: "stage",
+            workshopId: d.id, stageKey: s.key,
+            detail: `${d.name} · stage ${s.sequence_number}`,
+          });
+        }
       }
     }
-    for (const i of insights) {
-      const hay = `${i.title} ${i.supportingThemes.join(" ")}`.toLowerCase();
-      if (hay.includes(q)) {
-        out.push({
-          id: `i-${i.id}`,
-          group: "Themes & insights",
-          label: i.title,
-          detail: `Insight · ${i.significance} significance`,
-          to: "/",
-          icon: Lightbulb,
-        });
-      }
-    }
+    return out.slice(0, 8);
+  }, [query, dashboard, details]);
 
-    for (const s of screens) {
-      if (`${s.label} ${s.detail}`.toLowerCase().includes(q)) {
-        out.push({
-          id: `s-${s.to}-${s.label}`,
-          group: "Screens",
-          label: s.label,
-          detail: s.detail,
-          to: s.to,
-          icon: Compass,
-        });
-      }
-    }
-
-    for (const p of participants) {
-      if (`${p.name} ${roleLabels[p.role]}`.toLowerCase().includes(q)) {
-        out.push({
-          id: `p-${p.id}`,
-          group: "Participants",
-          label: p.name,
-          detail: `${roleLabels[p.role]} · ${p.presence}`,
-          icon: User,
-        });
-      }
-    }
-
-    return out.slice(0, 24);
-  }, [query, artifacts, screens]);
-
-  const grouped = useMemo(() => {
-    const order: ResultGroup[] = ["Artifacts", "Themes & insights", "Screens", "Participants"];
-    return order
-      .map((g) => ({ group: g, items: results.filter((r) => r.group === g) }))
-      .filter((g) => g.items.length > 0);
-  }, [results]);
-
-  function select(r: SearchResult) {
-    if (r.to) {
-      navigate({ to: r.to });
-      setOpen(false);
-      setQuery("");
+  function select(r: Result) {
+    setOpen(false);
+    setQuery("");
+    if (r.kind === "stage" && r.stageKey) {
+      navigate({
+        to: "/w/$workshopId/stage/$stageKey",
+        params: { workshopId: r.workshopId, stageKey: r.stageKey },
+        search: {},
+      });
+    } else {
+      navigate({ to: "/w/$workshopId", params: { workshopId: r.workshopId } });
     }
   }
 
   return (
     <div ref={wrapRef} className="relative ml-auto w-full max-w-sm" data-build="live">
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={query}
         onChange={(e) => {
@@ -155,43 +111,41 @@ export function GlobalSearch() {
           if (e.key === "Escape") setOpen(false);
           if (e.key === "Enter" && results[0]) select(results[0]);
         }}
-        placeholder="Search workshops, artifacts, themes, insights…"
-        className="h-9 border-border bg-elevated pl-8 text-sm placeholder:text-muted-foreground/70"
+        placeholder="Search workshops and stages…"
+        className="h-9 pl-8 text-xs"
         aria-label="Global search"
       />
 
-      {open && query.trim() && (
-        <div className="absolute left-0 right-0 top-11 z-50 max-h-[70vh] overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-lg">
-          {grouped.length === 0 && (
-            <p className="px-3 py-4 text-center text-xs text-muted-foreground">
-              No matches for “{query.trim()}”
-            </p>
-          )}
-          {grouped.map((g) => (
-            <div key={g.group} className="py-1">
-              <p className="label-caps px-2.5 py-1 text-[10px] text-muted-foreground">{g.group}</p>
-              {g.items.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => select(r)}
-                  disabled={!r.to}
-                  className={cn(
-                    "flex w-full items-start gap-2 rounded-sm px-2.5 py-1.5 text-left",
-                    r.to ? "hover:bg-elevated" : "cursor-default opacity-80",
-                  )}
-                >
-                  <r.icon className="mt-0.5 size-3.5 shrink-0 text-primary" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-xs font-medium">{r.label}</span>
-                    <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                      {r.detail}
+      {open && query.trim().length > 1 && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-md border border-border bg-popover shadow-lg">
+          {results.length === 0 ? (
+            <p className="px-3 py-2.5 text-xs text-muted-foreground">No matches.</p>
+          ) : (
+            <ul>
+              {results.map((r) => (
+                <li key={r.id}>
+                  <button
+                    onClick={() => select(r)}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-elevated",
+                    )}
+                  >
+                    {r.kind === "workshop" ? (
+                      <Layers className="size-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <Workflow className="size-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-medium">{r.label}</span>
+                      <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                        {r.detail}
+                      </span>
                     </span>
-                  </span>
-                </button>
+                  </button>
+                </li>
               ))}
-            </div>
-          ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

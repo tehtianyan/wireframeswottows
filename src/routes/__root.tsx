@@ -14,7 +14,6 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppShell } from "@/components/AppShell";
 import { AuthGate } from "@/components/AuthGate";
 import { Toaster } from "@/components/ui/sonner";
-import { WorkshopProvider } from "@/lib/workshop-store";
 import { UiPrefsProvider } from "@/lib/ui-prefs";
 
 
@@ -125,15 +124,13 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <UiPrefsProvider>
-        <WorkshopProvider>
-          <AuthGate>
-            <AppShell>
-              {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-              <Outlet />
-            </AppShell>
-          </AuthGate>
-          <Toaster position="top-right" />
-        </WorkshopProvider>
+        <AuthGate>
+          <AppShell>
+            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+            <Outlet />
+          </AppShell>
+        </AuthGate>
+        <Toaster position="top-right" />
       </UiPrefsProvider>
     </QueryClientProvider>
   );

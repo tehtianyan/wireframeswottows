@@ -447,6 +447,99 @@ export const reportsApi = {
     `/api/v1/workshops/${workshopId}/reports/${reportId}/export.html`,
 };
 
+// ---- Dashboard ----
+
+export interface KindCount {
+  kind: string;
+  label: string;
+  total: number;
+  approved: number;
+  awaiting_review: number;
+}
+
+export interface ActivityEvent {
+  action: string;
+  object_type: string;
+  actor_name: string;
+  new_state: string | null;
+  created_at: string;
+}
+
+export interface DashboardWorkshop {
+  id: string;
+  name: string;
+  status: string;
+  methodology_name: string;
+  my_role: WorkshopRole;
+  stages_total: number;
+  stages_complete: number;
+  counts: KindCount[];
+  awaiting_review: number;
+  first_stage_key: string;
+}
+
+export interface Dashboard {
+  workshops: DashboardWorkshop[];
+  awaiting_my_review: number;
+  recent_activity: ActivityEvent[];
+}
+
+export interface HealthSignal {
+  key: string;
+  label: string;
+  value: number;
+  target: number;
+  message: string;
+}
+
+export interface StageProgressItem {
+  key: string;
+  name: string;
+  stage_type: string;
+  sequence_number: number;
+  status: string;
+  item_count: number;
+}
+
+export interface CategoryCount {
+  key: string;
+  name: string;
+  color_token: string;
+  count: number;
+}
+
+export interface WorkshopSummary {
+  counts: KindCount[];
+  factors_by_category: CategoryCount[];
+  stages: StageProgressItem[];
+  awaiting_review: number;
+  participants: number;
+  health_score: number;
+  health_signals: HealthSignal[];
+  recent_activity: ActivityEvent[];
+}
+
+export const dashboardApi = {
+  get: () => apiGet<Dashboard>("/dashboard"),
+  workshopSummary: (workshopId: string) =>
+    apiGet<WorkshopSummary>(`/workshops/${workshopId}/summary`),
+};
+
+/** Turns an audit action into something a person can read. */
+export function describeActivity(e: ActivityEvent): string {
+  const [object, verb] = e.action.split(".");
+  const readable: Record<string, string> = {
+    created: "added", updated: "edited", deleted: "removed",
+    approved: "approved", rejected: "rejected", voted: "voted on",
+    published: "published", versioned: "created a new version of",
+    executed: "ran the assistant for", accepted: "accepted an AI suggestion for",
+    edited: "accepted an edited AI suggestion for", failed: "had an AI request fail for",
+    sections_updated: "reordered", section_edited: "edited a section of",
+  };
+  const label = (object ?? "item").replace(/_/g, " ");
+  return `${readable[verb ?? ""] ?? verb ?? "changed"} ${label}`;
+}
+
 export const methodologiesApi = {
   list: () => apiGet<MethodologySummary[]>("/methodologies"),
 };

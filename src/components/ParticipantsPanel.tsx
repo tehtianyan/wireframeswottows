@@ -15,7 +15,6 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
-import { useCan, useWorkshop } from "@/lib/workshop-store";
 import {
   activateParticipant,
   initials,
@@ -38,9 +37,16 @@ const roleBadge: Record<ParticipantRole, string> = {
 
 const roleOptions: ParticipantRole[] = ["participant", "analyst", "facilitator", "executive_viewer", "observer"];
 
-export function ParticipantsPanel() {
-  const { voteAllocation } = useWorkshop();
-  const canManage = useCan("invite");
+// Takes the caller's real, server-enforced role and the workshop's real vote
+// budget as props. It previously read both from the mock store, which meant a
+// header dropdown could appear to grant invite rights the server would refuse.
+export function ParticipantsPanel({
+  voteAllocation,
+  canManage,
+}: {
+  voteAllocation: number;
+  canManage: boolean;
+}) {
   const queryClient = useQueryClient();
 
   const { data: people = [], isLoading, isError } = useQuery(participantsQueryOptions);

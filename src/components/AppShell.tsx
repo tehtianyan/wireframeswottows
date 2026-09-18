@@ -1,62 +1,41 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import {
-  Bell,
-  ChevronLeft,
-  Compass,
-  Database,
-  LayoutDashboard,
-  Moon,
-  Settings,
-  Shield,
-  SignalHigh,
-  Sun,
-  FileText,
-  Layers,
-} from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { ChevronLeft, LayoutDashboard, Layers, Moon, Settings, SignalHigh, Sun } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GlobalSearch } from "@/components/GlobalSearch";
-import { useWorkshop } from "@/lib/workshop-store";
 import { useUiPrefs } from "@/lib/ui-prefs";
-import { roleLabels, type Role } from "@/lib/workshop-data";
+import { supabase } from "@/integrations/supabase/client";
 
 
 
+// Only destinations that exist. Knowledge and Administration are Phase 5 and
+// deliberately absent rather than pointing at "/" and pretending.
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/" },
   { label: "Workshops", icon: Layers, to: "/w" },
-  { label: "Analysis", icon: Compass, to: "/discovery/strengths" },
-  { label: "Reports", icon: FileText, to: "/prioritization" },
-  { label: "Knowledge", icon: Database, to: "/" },
-  { label: "Administration", icon: Shield, to: "/" },
-];
-
-const notifications = [
-  "Sarah requested approval on theme “Talent Resilience”",
-  "AI review completed for Insight Generation",
-  "Report published: Executive Summary v1.0",
-  "Ravi Menon accepted your workshop invitation",
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
-  const { role, setRole } = useWorkshop();
   const { theme, toggleTheme, showBuildStatus, toggleBuildStatus } = useUiPrefs();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  const activeLabel =
-    pathname === "/" ? "Dashboard" : pathname.startsWith("/discovery") ? "Analysis" : "Reports";
+  const [email, setEmail] = useState<string | null>(null);
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? null));
+  }, []);
+  const initials = (email ?? "?").slice(0, 2).toUpperCase();
+
+  const activeLabel = pathname.startsWith("/w") ? "Workshops" : "Dashboard";
 
   return (
     <div className="min-h-screen bg-background">
@@ -99,55 +78,28 @@ export function AppShell({ children }: { children: ReactNode }) {
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="relative shrink-0"
-              aria-label="Notifications"
-              data-build="mock"
-            >
-              <Bell className="size-4" />
-              <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-accent" />
-            </Button>
-          </DropdownMenuTrigger>
 
-          <DropdownMenuContent align="end" className="w-80">
-            <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {notifications.map((n) => (
-              <DropdownMenuItem key={n} className="whitespace-normal text-xs leading-relaxed">
-                {n}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
+        {/* No role switcher. Roles are real, per-workshop and enforced by the
+            server; a header dropdown that appeared to change them was telling
+            the user something untrue. The workshop pages show the caller's
+            actual role. */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="h-9 shrink-0 gap-2 px-2">
               <span className="grid size-6 place-items-center rounded-full bg-elevated text-[10px] font-semibold">
-                YO
+                {initials}
               </span>
-              <span className="hidden text-xs text-muted-foreground md:inline">{roleLabels[role]}</span>
+              <span className="hidden max-w-[140px] truncate text-xs text-muted-foreground md:inline">
+                {email ?? "Signed in"}
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Viewing as</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={role} onValueChange={(v) => setRole(v as Role)}>
-              {(Object.keys(roleLabels) as Role[]).map((r) => (
-                <DropdownMenuRadioItem key={r} value={r}>
-                  {roleLabels[r]}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
+            <DropdownMenuLabel className="truncate font-normal text-muted-foreground">
+              {email ?? "Signed in"}
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Settings</DropdownMenuItem>
-            <DropdownMenuItem>Help</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>Log out</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void supabase.auth.signOut()}>Log out</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
