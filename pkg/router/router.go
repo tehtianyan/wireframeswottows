@@ -52,6 +52,19 @@ func New() http.Handler {
 			r.Get("/{id}/ai/outputs", handlers.ListAIOutputs)
 			r.Post("/{id}/ai/outputs/{outputId}/review", handlers.ReviewAIOutput)
 
+			// Reporting. Registered before the {kind} wildcard, like the AI
+			// routes, so "reports" is never taken for an object route.
+			r.Get("/{id}/report-types", handlers.ListReportTypes)
+			r.Get("/{id}/reports", handlers.ListReports)
+			r.Post("/{id}/reports", handlers.CreateReport)
+			r.Get("/{id}/reports/{reportId}", handlers.GetReport)
+			r.Put("/{id}/reports/{reportId}/sections", handlers.UpdateReportSections)
+			r.Patch("/{id}/reports/{reportId}/sections/{sectionId}", handlers.UpdateReportSection)
+			r.Post("/{id}/reports/{reportId}/review", handlers.ReviewReport)
+			r.Post("/{id}/reports/{reportId}/publish", handlers.PublishReport)
+			r.Post("/{id}/reports/{reportId}/versions", handlers.CreateReportVersion)
+			r.Get("/{id}/reports/{reportId}/export.html", handlers.ExportReportHTML)
+
 			// Every other reviewable object kind — syntheses, relationships,
 			// insights, recommendations — shares one generic handler set
 			// dispatched on {kind}. See pkg/objects for the registry.

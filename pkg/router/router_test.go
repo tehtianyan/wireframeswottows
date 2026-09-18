@@ -38,6 +38,17 @@ func TestRoutePrecedence(t *testing.T) {
 		{"GET", "/api/v1/workshops/abc/ai/outputs", "/api/v1/workshops/{id}/ai/outputs"},
 		{"POST", "/api/v1/workshops/abc/ai/outputs/o1/review", "/api/v1/workshops/{id}/ai/outputs/{outputId}/review"},
 
+		// Reporting must not be swallowed by the {kind} wildcard either.
+		{"GET", "/api/v1/workshops/abc/report-types", "/api/v1/workshops/{id}/report-types"},
+		{"GET", "/api/v1/workshops/abc/reports", "/api/v1/workshops/{id}/reports"},
+		{"POST", "/api/v1/workshops/abc/reports", "/api/v1/workshops/{id}/reports"},
+		{"GET", "/api/v1/workshops/abc/reports/r1", "/api/v1/workshops/{id}/reports/{reportId}"},
+		{"PUT", "/api/v1/workshops/abc/reports/r1/sections", "/api/v1/workshops/{id}/reports/{reportId}/sections"},
+		{"PATCH", "/api/v1/workshops/abc/reports/r1/sections/s1", "/api/v1/workshops/{id}/reports/{reportId}/sections/{sectionId}"},
+		{"POST", "/api/v1/workshops/abc/reports/r1/publish", "/api/v1/workshops/{id}/reports/{reportId}/publish"},
+		{"POST", "/api/v1/workshops/abc/reports/r1/versions", "/api/v1/workshops/{id}/reports/{reportId}/versions"},
+		{"GET", "/api/v1/workshops/abc/reports/r1/export.html", "/api/v1/workshops/{id}/reports/{reportId}/export.html"},
+
 		// The generic object routes.
 		{"GET", "/api/v1/workshops/abc/syntheses", "/api/v1/workshops/{id}/{kind}"},
 		{"POST", "/api/v1/workshops/abc/insights", "/api/v1/workshops/{id}/{kind}"},
