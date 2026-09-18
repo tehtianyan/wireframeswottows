@@ -29,6 +29,27 @@ func New() http.Handler {
 		// "What needs me today?" across every workshop the caller belongs to.
 		r.Get("/dashboard", handlers.GetDashboard)
 
+		// Knowledge Workspace — organizational memory across workshops.
+		r.Get("/knowledge/search", handlers.SearchKnowledge)
+		r.Get("/knowledge/related", handlers.RelatedKnowledge)
+		r.Get("/knowledge/trace", handlers.TraceKnowledge)
+		r.Get("/knowledge/assets", handlers.ListKnowledgeAssets)
+		r.Post("/knowledge/assets", handlers.PromoteKnowledge)
+		r.Post("/knowledge/assets/{assetId}/publish", handlers.PublishKnowledge)
+		r.Delete("/knowledge/assets/{assetId}", handlers.RemoveKnowledge)
+
+		// Notifications — one recipient each; authorization is the recipient_id.
+		r.Get("/notifications", handlers.ListNotifications)
+		r.Post("/notifications/read-all", handlers.MarkAllNotificationsRead)
+		r.Post("/notifications/{notificationId}/read", handlers.MarkNotificationRead)
+		r.Delete("/notifications/{notificationId}", handlers.DeleteNotification)
+
+		// Administration — platform-wide, gated on profiles.global_role.
+		r.Get("/admin/users", handlers.ListAdminUsers)
+		r.Put("/admin/users/{userId}/role", handlers.UpdateUserRole)
+		r.Post("/admin/users/{userId}/status", handlers.SetUserStatus)
+		r.Get("/audit-events", handlers.ListAuditEvents)
+
 		r.Route("/workshops", func(r chi.Router) {
 			r.Get("/", handlers.ListWorkshops)
 			r.Post("/", handlers.CreateWorkshop)

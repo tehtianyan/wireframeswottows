@@ -39,6 +39,19 @@ func TestRoutePrecedence(t *testing.T) {
 		{"POST", "/api/v1/workshops/abc/ai/outputs/o1/review", "/api/v1/workshops/{id}/ai/outputs/{outputId}/review"},
 
 		{"GET", "/api/v1/dashboard", "/api/v1/dashboard"},
+
+		// Knowledge, notifications and administration.
+		{"GET", "/api/v1/knowledge/search", "/api/v1/knowledge/search"},
+		{"GET", "/api/v1/knowledge/trace", "/api/v1/knowledge/trace"},
+		{"GET", "/api/v1/knowledge/assets", "/api/v1/knowledge/assets"},
+		{"POST", "/api/v1/knowledge/assets", "/api/v1/knowledge/assets"},
+		{"POST", "/api/v1/knowledge/assets/a1/publish", "/api/v1/knowledge/assets/{assetId}/publish"},
+		{"GET", "/api/v1/notifications", "/api/v1/notifications"},
+		{"POST", "/api/v1/notifications/read-all", "/api/v1/notifications/read-all"},
+		{"POST", "/api/v1/notifications/n1/read", "/api/v1/notifications/{notificationId}/read"},
+		{"GET", "/api/v1/admin/users", "/api/v1/admin/users"},
+		{"PUT", "/api/v1/admin/users/u1/role", "/api/v1/admin/users/{userId}/role"},
+		{"GET", "/api/v1/audit-events", "/api/v1/audit-events"},
 		{"GET", "/api/v1/workshops/abc/summary", "/api/v1/workshops/{id}/summary"},
 
 		// Reporting must not be swallowed by the {kind} wildcard either.

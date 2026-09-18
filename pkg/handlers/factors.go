@@ -361,6 +361,14 @@ func ReviewFactor(w http.ResponseWriter, r *http.Request) {
 
 	audit.Record(r2.Context(), pool, user.ID, "factor."+body.Action+"d", "factor", factorID,
 		currentState, newState, map[string]interface{}{"workshop_id": workshopID})
+	// §8.32: a state transition generates an event. The person who should
+	// hear about it is the one whose work was decided on.
+	noteText := ""
+	if note != nil {
+		noteText = *note
+	}
+	NotifyReviewDecision(r2.Context(), pool, user.ID, "factor", "factor", factorID,
+		workshopID, newState, noteText)
 	response.OK(w, map[string]string{"id": factorID, "state": newState})
 }
 

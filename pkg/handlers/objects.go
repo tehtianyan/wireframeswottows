@@ -520,6 +520,12 @@ func ReviewObject(w http.ResponseWriter, r *http.Request) {
 
 	audit.Record(r2.Context(), pool, user.ID, kind.Key+"."+body.Action+"d", kind.Key, objectID,
 		currentState, newState, map[string]interface{}{"workshop_id": workshopID})
+	noteText := ""
+	if note != nil {
+		noteText = *note
+	}
+	NotifyReviewDecision(r2.Context(), pool, user.ID, kind.Label, kind.Key, objectID,
+		workshopID, newState, noteText)
 	response.OK(w, map[string]string{"id": objectID, "state": newState})
 }
 

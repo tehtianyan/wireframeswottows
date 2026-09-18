@@ -366,6 +366,11 @@ func PublishReport(w http.ResponseWriter, r *http.Request) {
 	audit.Record(r2.Context(), pool, user.ID, "report.published", "report", reportID, current, "published",
 		map[string]interface{}{"workshop_id": workshopID, "version": detail.Version,
 			"sections": len(detail.Sections)})
+	// One of the few things that genuinely concerns everyone in the workshop.
+	NotifyWorkshop(r2.Context(), pool, user.ID, "report.published",
+		detail.Title+" "+detail.Version+" was published",
+		"The report is now an organizational record and can no longer be edited.",
+		"report", reportID, workshopID)
 	response.OK(w, map[string]interface{}{
 		"id": reportID, "state": "published", "version": detail.Version,
 	})
