@@ -19,6 +19,7 @@ const withAI = process.argv.includes("--with-ai");
 
 const suites = [
   ["weights", "Platform — weights, and voting as one instance of them"],
+  ["methodologies", "Architecture — seven methodologies, configuration only"],
   ["objects", "Phase 2 — analysis objects and governance"],
   ["reporting", "Phase 4 — reports, versioning, export"],
   ["knowledge", "Phase 5 — knowledge, notifications, admin"],

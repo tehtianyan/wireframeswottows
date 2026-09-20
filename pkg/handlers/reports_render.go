@@ -285,7 +285,14 @@ func groupItemsByWeight(m *methodology.Methodology, items []SectionItem, key str
 			label = def.Label(v)
 		}
 		title := fmt.Sprintf("%s %s", name, strconv.FormatFloat(v, 'f', -1, 64))
-		if label != "" {
+		switch {
+		case label == "":
+			// No ordinal names configured: "Wave 2".
+		case strings.HasPrefix(strings.ToLower(label), strings.ToLower(name)):
+			// The label already names the weight — "Wave 2 — next" — so
+			// prefixing it again gives "Wave 2 — Wave 2 — next".
+			title = label
+		default:
 			title = fmt.Sprintf("%s — %s", title, label)
 		}
 		groups = append(groups, SectionGroup{

@@ -280,6 +280,34 @@ func CreateObject(w http.ResponseWriter, r *http.Request) {
 	response.Created(w, map[string]string{"id": id})
 }
 
+// requireStageForKind refuses an object whose kind the workshop's methodology
+// has no stage for.
+//
+// The registry says what an insight IS; the methodology says whether this
+// workshop interprets anything at all. Both have to agree before a row is
+// written, or a methodology's declared shape is advisory rather than enforced.
+func requireStageForKind(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
+	workshopID string) (string, error) {
+
+	var exists bool
+	err := pool.QueryRow(ctx, `
+		select exists (
+			select 1
+			from public.methodology_stages s
+			join public.workshops w on w.methodology_id = s.methodology_id
+			where w.id = $1 and s.stage_type = $2
+		)`, workshopID, kind.StageType).Scan(&exists)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return fmt.Sprintf(
+			"This workshop's methodology has no %s stage, so it cannot hold a %s.",
+			kind.StageType, strings.ToLower(kind.Label)), nil
+	}
+	return "", nil
+}
+
 // insertObject is the single path by which any analysis object is created.
 //
 // AI-accepted suggestions go through here too, with generatedBy "ai", so an
@@ -293,12 +321,38 @@ func insertObject(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
 	workshopID, userID string, body *writeObjectBody, generatedBy string, sourceAIOutputID *string,
 ) (string, string, error) {
 
+	// The workshop's methodology must actually have a stage that produces this
+	// kind. Without this check a methodology could accumulate objects no stage
+	// renders and no report shows: PESTLE deliberately ends at implications,
+	// and was nonetheless accepting recommendations.
+	//
+	// Relationships were already refused, but only because their type lookup
+	// fails for a methodology with no relationship types — a different
+	// mechanism that happened to cover one case out of four.
+	if msg, err := requireStageForKind(ctx, pool, kind, workshopID); err != nil {
+		return "", "", err
+	} else if msg != "" {
+		return "", msg, nil
+	}
+
 	title := trimPtr(body.Title)
 	if kind.TitleRequired && (title == nil || *title == "") {
 		return "", "Title is required.", nil
 	}
 	if title != nil && len([]rune(*title)) > 200 {
 		return "", "Title must be 200 characters or fewer.", nil
+	}
+
+	// description is NOT NULL for every kind that has one. Without this the
+	// caller gets a raw Postgres error with a SQLSTATE in it.
+	if kind.HasDescription {
+		if d := trimPtr(body.Description); d == nil {
+			label := kind.DescriptionLabel
+			if label == "" {
+				label = "Description"
+			}
+			return "", fmt.Sprintf("%s is required.", label), nil
+		}
 	}
 
 	fieldVals, msg := coerceFields(kind, body.Fields)
