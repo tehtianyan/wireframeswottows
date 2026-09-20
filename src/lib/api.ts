@@ -102,6 +102,90 @@ export interface MethodologyStage {
   config: Record<string, unknown>;
 }
 
+/**
+ * A weight a methodology attaches to an object on a scale it defines.
+ *
+ * Voting is one instance: an unbounded scale with a budget spread across
+ * objects. A maturity or likelihood rating is another: a bounded scale with
+ * one agreed value per object. Mirrors pkg/weights.Definition.
+ *
+ * NEVER assume a range here. `scale_max` of null means unbounded, and the
+ * bounds and step are whatever the methodology configured — 1-5, 0-100 in
+ * fives, -3..+3. Render from these numbers, never from a constant.
+ */
+export interface WeightDefinition {
+  id: string;
+  key: string;
+  name: string;
+  /** An object kind: "factor", "synthesis", "insight", "recommendation". */
+  applies_to: string;
+  scale_min: number;
+  scale_max: number | null;
+  scale_step: number;
+  /** Ordinal names covering every step, when the methodology supplies them. */
+  scale_labels?: string[];
+  constraint_type: "budget" | "single";
+  constraint_total?: number;
+  per_participant: boolean;
+  aggregate: "sum" | "mean" | "latest" | "min" | "max";
+  allowed_roles: WorkshopRole[];
+  guidance_text?: string;
+  sort_order: number;
+}
+
+export interface WeightValue {
+  weight_key: string;
+  object_kind: string;
+  object_id: string;
+  user_id?: string;
+  value: number;
+}
+
+export interface WeightAggregate {
+  weight_key: string;
+  object_id: string;
+  object_kind: string;
+  value: number;
+  label?: string;
+  voters: number;
+}
+
+export interface WeightsResponse {
+  definitions: WeightDefinition[];
+  /** The caller's own values, plus any that belong to the object itself. */
+  mine: WeightValue[];
+  totals: WeightAggregate[];
+  /** Used budget per budget-constrained weight key. */
+  spent: Record<string, number>;
+}
+
+/** What the caller's position is after setting one weight. */
+export interface WeightSummary {
+  weight_key: string;
+  used: number;
+  budget?: number;
+  remaining?: number;
+}
+
+/** The discrete values a bounded scale admits, in order. Empty when unbounded. */
+export function weightSteps(d: WeightDefinition): number[] {
+  if (d.scale_max === null) return [];
+  const out: number[] = [];
+  for (let v = d.scale_min; v <= d.scale_max + 1e-9; v += d.scale_step) {
+    // Rounded to the step's own precision so 0.1 steps do not accumulate
+    // binary floating-point drift down a long scale.
+    out.push(Number(v.toFixed(6)));
+  }
+  return out;
+}
+
+/** The ordinal name for a value, when the methodology named its steps. */
+export function weightLabel(d: WeightDefinition, value: number): string | undefined {
+  if (!d.scale_labels?.length) return undefined;
+  const i = Math.round((value - d.scale_min) / d.scale_step);
+  return d.scale_labels[i];
+}
+
 export interface Methodology {
   id: string;
   key: string;
@@ -109,6 +193,8 @@ export interface Methodology {
   factor_categories: FactorCategory[];
   stages: MethodologyStage[];
   relationship_types: RelationshipType[];
+  /** Absent on older responses; treat as no weights rather than crashing. */
+  weights?: WeightDefinition[];
 }
 
 export interface Workshop {
@@ -751,4 +837,26 @@ export const workshopsApi = {
   votes: (id: string) => apiGet<VoteSummary>(`/workshops/${id}/votes`),
   setVote: (id: string, factorId: string, value: number) =>
     apiPut<VoteSummary>(`/workshops/${id}/factors/${factorId}/vote`, { value }),
+
+  /** Every weight this methodology defines, plus the caller's values and the totals. */
+  weights: (id: string) => apiGet<WeightsResponse>(`/workshops/${id}/weights`),
+
+  /**
+   * Sets one weight on one object. `kindRoute` is the URL segment — "factors"
+   * for a factor, or an object kind's route such as "syntheses".
+   *
+   * A null value clears it. Zero does NOT clear, because zero is a legitimate
+   * value on any scale whose minimum is zero.
+   */
+  setWeight: (
+    id: string,
+    kindRoute: string,
+    objectId: string,
+    weightKey: string,
+    value: number | null,
+  ) =>
+    apiPut<WeightSummary>(
+      `/workshops/${id}/${kindRoute}/${objectId}/weights/${weightKey}`,
+      { value },
+    ),
 };

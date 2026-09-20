@@ -126,7 +126,8 @@ func citedKindKeys(stage *methodology.Stage) []string {
 func fetchFactorContext(ctx context.Context, pool *pgxpool.Pool, workshopID, categoryKey string) ([]map[string]interface{}, error) {
 	query := `
 		select f.id, mfc.key, f.title, coalesce(f.description, ''), f.state,
-		       coalesce((select sum(v.vote_value) from public.votes v where v.factor_id = f.id), 0)
+		       coalesce((select sum(w.value) from public.weights w
+		                 where w.object_id = f.id and w.weight_key = 'vote'), 0)::int
 		from public.factors f
 		join public.methodology_factor_categories mfc on mfc.id = f.factor_category_id
 		where f.workshop_id = $1 and f.state <> 'rejected'`

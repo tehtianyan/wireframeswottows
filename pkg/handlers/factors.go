@@ -67,7 +67,8 @@ func ListFactors(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		select f.id, f.workshop_id, mfc.key, f.title, f.description, f.created_by, f.state,
-		       coalesce((select sum(v.vote_value) from public.votes v where v.factor_id = f.id), 0) as votes,
+		       coalesce((select sum(w.value) from public.weights w
+		                 where w.object_id = f.id and w.weight_key = 'vote'), 0)::int as votes,
 		       f.reviewed_by, f.reviewed_at, f.review_note,
 		       f.created_at
 		from public.factors f

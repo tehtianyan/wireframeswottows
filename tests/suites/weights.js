@@ -93,6 +93,29 @@ runSuite("weights", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     s = await P("PUT", `/workshops/${WS}/factors/${f1.id}/weights/nonexistent`, { value: 1 });
     r.ok(!s.success, "an undefined weight key is refused", s.error?.message);
 
+    // Everything downstream that reads a vote count. Four separate readers
+    // still pointed at public.votes after the refactor and would have
+    // silently reported zero — the factor list, the AI context, the report
+    // renderer and the roster view. Nothing asserted any of them, which is
+    // exactly why they were missed.
+    r.section("everything that reports a vote count follows the refactor");
+    // The factor's own aggregate is 4 — what this participant last put on it.
+    // Their 9 is the total across both factors, which is a different number
+    // and the one the budget panel shows.
+    const listed = await P("GET", `/workshops/${WS}/factors`);
+    const f1Listed = listed.data?.find((f) => f.id === f1.id);
+    const f2Listed = listed.data?.find((f) => f.id === f2.id);
+    r.ok(f1Listed?.votes === 4 && f2Listed?.votes === 5,
+      "the factor list's vote counts read weights, not the retired votes table",
+      `${f1Listed?.votes} and ${f2Listed?.votes}`);
+
+    const roster = await c.query(
+      `select votes_used from public.workshop_roster
+       where workshop_id = $1 and email = $2`, [WS, ACCOUNTS.participant]);
+    r.ok(roster.rows[0]?.votes_used === 9,
+      "the roster view sums allocations across factors, so the Participants panel is right",
+      roster.rows[0]?.votes_used);
+
     await c.query(`delete from public.weights where workshop_id = $1`, [WS]);
 
     // ---- scales the engine must not assume --------------------------
