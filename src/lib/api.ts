@@ -18,6 +18,16 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Where the API lives. Empty in production and under `vercel dev`, so requests
+ * go to the same origin exactly as before.
+ *
+ * Set VITE_API_BASE (e.g. http://localhost:3001) to point the UI at a
+ * separately-run API — which is how the development database is tested without
+ * copying .env.dev over .env. See cmd/devserver.
+ */
+export const API_BASE: string = import.meta.env["VITE_API_BASE"] ?? "";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
@@ -34,7 +44,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     requestInit.body = init.body;
   }
 
-  const res = await fetch(`/api/v1${path}`, requestInit);
+  const res = await fetch(`${API_BASE}/api/v1${path}`, requestInit);
 
   const envelope: Envelope<T> = await res.json();
   if (!envelope.success) {
@@ -547,7 +557,7 @@ export const reportsApi = {
       `/workshops/${workshopId}/reports/${reportId}/versions`, { bump }),
   /** Server-rendered, self-contained HTML — the second export format. */
   exportHtmlUrl: (workshopId: string, reportId: string) =>
-    `/api/v1/workshops/${workshopId}/reports/${reportId}/export.html`,
+    `${API_BASE}/api/v1/workshops/${workshopId}/reports/${reportId}/export.html`,
 };
 
 // ---- Dashboard ----

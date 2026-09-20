@@ -53,10 +53,34 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + *port,
-		Handler:           router.New(),
+		Handler:           devCORS(router.New()),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Fatal(srv.ListenAndServe())
+}
+
+// devCORS lets the Vite dev server on another port call this one.
+//
+// It reflects the request's Origin, which is deliberately permissive and
+// deliberately confined to this binary: the deployed API is same-origin behind
+// vercel.json's rewrite and has no CORS handling at all. If this ever becomes
+// the deployment path, this function is a hole — which is why the package
+// comment says it must not.
+func devCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // loadEnv parses a dotenv file and sets each variable, overwriting whatever is
