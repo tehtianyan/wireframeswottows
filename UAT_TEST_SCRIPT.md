@@ -17,9 +17,8 @@ listed with their cases withheld so the document stays a single source of truth.
 
 **Phases 0-5 are testable now.**
 
-Before starting, consider running the automated suites — they cover roughly 126 API-level
-checks in a couple of minutes and will catch anything broken at the API before you spend
-time clicking:
+Before starting, consider running the automated suites — they cover 333 API-level checks in
+a few minutes and will catch anything broken at the API before you spend time clicking:
 
 ```bash
 npx vercel@59.5.0 dev      # in one terminal
@@ -27,6 +26,11 @@ node tests/run-all.js      # in another
 ```
 
 This script covers what those cannot: that the screens are usable, legible and honest.
+
+> **Several methodologies are now live.** The workshop picker offers eight, not one. This
+> script still runs on SWOT-TOWS throughout, and its §1.5, §2.6, §3.4 and §4.6 genericity
+> suites still use PESTLE — what changed is that nobody has to switch a methodology on
+> first. The per-methodology cases for the other six live in **`UAT_METHODOLOGIES.md`**.
 
 ---
 
@@ -152,7 +156,8 @@ wireframe spec it is a mode available on every workspace, not a separate stage.
 | ID | Role | Steps | Expected result | Spec Ref |
 | --- | --- | --- | --- | --- |
 | WIZ-01 | F | Click **New workshop** from `/w` | Three-step wizard: Methodology → Details → Confirm | `AS §6.4` |
-| WIZ-02 | F | Read step 1 | A methodology **picker**, not a fixed SWOT-TOWS form; each option shows its category and stage counts | `AS §6.4`, `CL` |
+| WIZ-02 | F | Read step 1 | A methodology **picker**, not a fixed SWOT-TOWS form. **Every configured methodology is listed**, each showing its own category and stage counts — SWOT-TOWS is one option among several, not the default with extras | `AS §6.4`, `CL` |
+| WIZ-02a | F | Count the options and compare them with §1.5's table | The counts match. A methodology missing from the picker is a defect; one present that §1.5 does not list means the table is stale — report it either way | `CL` |
 | WIZ-03 | F | Try **Next** without choosing a methodology | Disabled until a choice is made | `AS §6.4` |
 | WIZ-04 | F | On step 2, leave the name blank | **Next** disabled | `AS §2.16` |
 | WIZ-05 | F | Complete all steps and create | Lands on the new workshop's **stage 1**; a toast confirms creation | `AS §2.16` |
@@ -168,15 +173,33 @@ wireframe spec it is a mode available on every workspace, not a separate stage.
 > components (`CL` → Generic Methodology Engine). These cases test that claim directly.
 > A failure here is **Critical**: it means the engine has a methodology baked into it.
 
-PESTLE is seeded as a deliberately inactive proof methodology with **six** factor
-categories and a **six**-vote budget, both different from SWOT-TOWS. To run this suite,
-ask the developer to activate it:
-`update public.methodologies set is_active = true where key = 'pestle';`
-Deactivate it again afterwards.
+**Changed: the methodologies are live.** PESTLE used to be a hidden fixture you asked a
+developer to switch on and off. It is now a methodology anyone can pick, alongside the
+others, so there is no activation step and nothing to turn off afterwards. If an earlier
+copy of this script told you to run an `update ... set is_active` statement, ignore it.
+
+PESTLE has **six** factor categories and a **six**-vote budget, both different from
+SWOT-TOWS — which is what makes it worth testing. The methodologies you should expect in
+the picker:
+
+| Methodology | Categories | Notable |
+| --- | --- | --- |
+| SWOT-TOWS | 4 | the original; has a TOWS matrix |
+| PESTLE | 6 | rates impact and likelihood; **no** recommendations stage |
+| Porter's Five Forces | 5 | **no** prioritization stage; rates each force |
+| Capability Assessment | 6 | rates current *and* target maturity |
+| Operating Model | 6 | POLISM; rates pain severity |
+| Risk Assessment | 6 | rates likelihood and consequence, inherent and residual |
+| Business Model Assessment | 9 | nine canvas blocks; two fit tests instead of a TOWS matrix |
+| Transformation Planning | 6 | dependencies between any two initiatives; a wave roadmap |
+
+> Deeper per-methodology cases live in **`UAT_METHODOLOGIES.md`**. This suite stays focused
+> on PESTLE, because its job is to prove the *engine* is generic rather than to test each
+> methodology's content.
 
 | ID | Role | Steps | Expected result | Spec Ref |
 | --- | --- | --- | --- | --- |
-| GEN-01 | F | Open the creation wizard with PESTLE active | **PESTLE appears in the picker** alongside SWOT-TOWS, with no code deployment | `CL` |
+| GEN-01 | F | Open the creation wizard | **Every methodology in the table above appears**, with no code deployment between them | `CL` |
 | GEN-02 | F | Read PESTLE's summary in the picker | 6 factor categories, 7 stages | `CL` |
 | GEN-03 | F | Create a PESTLE workshop | Succeeds through the same wizard | `CL` |
 | GEN-04 | F | Open its overview | Stages read Political, Economic, Social, Technological, Legal, Environmental Discovery, then Prioritization | `CL` |
@@ -187,7 +210,7 @@ Deactivate it again afterwards.
 | GEN-09 | F | Open PESTLE's Prioritization stage | **Six** columns, and a budget of **6** votes — not 20 | `CL` |
 | GEN-10 | F | Spend all 6 votes, try a 7th | Refused at 6 — the budget came from PESTLE's config, not a constant | `CL` |
 | GEN-11 | F | Confirm no SWOT vocabulary leaks into the PESTLE workshop | No "Strength", "Weakness", "SWOT" or "TOWS" text anywhere in it | `CL` |
-| GEN-12 | F | Reopen WS-DT | Unchanged and unaffected by PESTLE being active | `CL` |
+| GEN-12 | F | Reopen WS-DT | Unchanged and unaffected by the other methodologies existing | `CL` |
 
 ## 1.6 Cross-cutting: authorization and audit
 
@@ -273,7 +296,7 @@ sarah.chen (A) for this phase; dana.whitfield (P) is used only to prove the rest
 
 ## 2.6 Genericity — Phase 2
 
-> Same rules as §1.5. Activate PESTLE, run these, deactivate it afterwards.
+> Same rules as §1.5. No activation step — the methodologies are live.
 > PESTLE deliberately has **no relate stage** and its insights cite **only themes**.
 
 | ID | Role | Steps | Expected result | Spec Ref |
@@ -338,7 +361,7 @@ methodology configuration, so the list differs per stage and per methodology.
 
 | ID | Role | Steps | Expected result | Spec Ref |
 | --- | --- | --- | --- | --- |
-| GEN-30 | F | Activate PESTLE, open a PESTLE capture stage | The AI panel offers the same capture actions — PESTLE inherits them from stage type with no PESTLE-specific prompt rows | `CL` |
+| GEN-30 | F | Open a PESTLE capture stage | The AI panel offers the same capture actions — PESTLE inherits them from stage type with no PESTLE-specific prompt rows | `CL` |
 | GEN-31 | F | Generate suggestions there | Suggestions are about that PESTLE category, and the assistant refers to the **PESTLE** methodology by name, not SWOT | `CL` |
 | GEN-32 | F | Accept one | Becomes a PESTLE factor through the identical path | `CL` |
 
@@ -407,7 +430,7 @@ lets a workshop reach **Completed** (`AS §8.30`).
 
 | ID | Role | Steps | Expected result | Spec Ref |
 | --- | --- | --- | --- | --- |
-| GEN-40 | F | Activate PESTLE, create a PESTLE workshop and open its Reporting stage | One report type, **Driver Scan** — PESTLE's own, not SWOT-TOWS's three | `CL` |
+| GEN-40 | F | Create a PESTLE workshop and open its Reporting stage | One report type, **Driver Scan** — PESTLE's own, not SWOT-TOWS's three | `CL` |
 | GEN-41 | F | Read what it requires | Only an approved theme. No recommendation is demanded, because PESTLE has no recommend stage | `CL` |
 | GEN-42 | F | Create and open it | The **same** category-matrix renderer produces **six** groups, not four | `CL` |
 | GEN-43 | F | Look for a strategy matrix | **Absent.** PESTLE defines no relationship types, so there is no matrix to render | `CL` |
@@ -505,7 +528,13 @@ Do not raise defects against these — they were never built, by decision:
   an endpoint anywhere in the specification, so there is nothing to build against.
 - **Report analytics** (§14.28) and **WebSocket realtime collaboration**.
 
-Two corrections to earlier versions of this document, which said otherwise:
+Three corrections to earlier versions of this document, which said otherwise:
+
+- **The methodologies are live and there is no activation step.** PESTLE used to be a
+  hidden fixture you asked a developer to switch on with an `update ... set is_active`
+  statement and off again afterwards. It, and six more, are now ordinary options in the
+  workshop picker. WIZ-02 has been re-baselined accordingly, and §1.5 carries the list of
+  what you should expect to see.
 
 - The **Executive Dashboard, Administration screens and Notifications are now built** and
   are tested in §5.2–5.4. An earlier version listed them as out of scope. Please do raise

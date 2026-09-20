@@ -17,6 +17,7 @@ import { runSuite, clients, token, client, ACCOUNTS } from "../lib/harness.js";
 runSuite("genericity (PESTLE)", async ({ baseUrl, results: r, c }) => {
   const { facilitator: F } = await clients(baseUrl, ["facilitator"]);
   let workshopId = null;
+  let wasActive = false;
 
   try {
     // A previous interrupted run can leave a probe workshop behind, which then
@@ -29,6 +30,10 @@ runSuite("genericity (PESTLE)", async ({ baseUrl, results: r, c }) => {
     await c.query("alter table public.report_sections enable trigger report_sections_frozen");
     await c.query("delete from public.workshops where name like '%genericity probe%'");
 
+    // Remember what it was, rather than assuming inactive. PESTLE may be live
+    // deliberately — the suite must leave the picker as it found it.
+    wasActive = (await c.query(
+      "select is_active from public.methodologies where key = 'pestle'")).rows[0]?.is_active ?? false;
     await c.query("update public.methodologies set is_active = true where key = 'pestle'");
 
     r.section("PESTLE appears from configuration alone");
@@ -140,7 +145,7 @@ runSuite("genericity (PESTLE)", async ({ baseUrl, results: r, c }) => {
       await c.query("alter table public.report_sections enable trigger report_sections_frozen");
       await c.query("delete from public.workshops where id = $1", [workshopId]);
     }
-    await c.query("update public.methodologies set is_active = false where key = 'pestle'");
-    r.note("probe workshop deleted; PESTLE deactivated again");
+    await c.query("update public.methodologies set is_active = $1 where key = 'pestle'", [wasActive]);
+    r.note(`probe workshop deleted; PESTLE restored to is_active = ${wasActive}`);
   }
 });

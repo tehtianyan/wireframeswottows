@@ -56,6 +56,14 @@ runSuite("methodologies", async ({ baseUrl, results: r, c }) => {
   const workspaceId = workspaces.data[0].id;
   const created = [];
 
+  // Whatever the picker looked like before this suite ran, it must look the
+  // same afterwards. These methodologies may be live deliberately, so
+  // "deactivate when finished" would silently turn a product feature off.
+  const before = new Map(
+    (await c.query("select key, is_active from public.methodologies")).rows
+      .map((row) => [row.key, row.is_active]),
+  );
+
   try {
     await clearProbes(c);
 
@@ -65,15 +73,17 @@ runSuite("methodologies", async ({ baseUrl, results: r, c }) => {
         const id = await driveOne(F, c, r, workspaceId, spec);
         if (id) created.push(id);
       } finally {
-        await c.query("update public.methodologies set is_active = false where key = $1", [spec.key]);
+        await c.query("update public.methodologies set is_active = $1 where key = $2",
+          [before.get(spec.key) ?? false, spec.key]);
       }
     }
   } finally {
     await clearProbes(c);
-    await c.query(
-      `update public.methodologies set is_active = false where key <> 'swot-tows'`,
-    );
-    r.note("probe workshops removed; every methodology deactivated again");
+    for (const [key, active] of before) {
+      await c.query("update public.methodologies set is_active = $1 where key = $2", [active, key]);
+    }
+    const live = [...before.entries()].filter(([, a]) => a).length;
+    r.note(`probe workshops removed; the picker restored to ${live} active methodolog${live === 1 ? "y" : "ies"}`);
   }
 });
 
