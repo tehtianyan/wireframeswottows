@@ -133,7 +133,14 @@ runSuite("knowledge", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     const F2 = client(baseUrl, await token(ACCOUNTS.facilitator));
 
     const users = await F2('GET', '/admin/users');
-    r.ok(users.success && users.data.length === 12, 'a platform admin lists users', users.data && users.data.length);
+    // Asserts the roster is returned and carries the accounts this suite signs
+    // in as — not a fixed count. It used to check `=== 12`, which was
+    // production's profile count and passed there by coincidence of seed size;
+    // it failed the moment the suites ran against a second database.
+    const listed = new Set((users.data || []).map((u) => u.email));
+    r.ok(users.success && Object.values(ACCOUNTS).every((email) => listed.has(email)),
+      'a platform admin lists users, including every demo account',
+      users.data && `${users.data.length} users`);
 
     const dana = (await c.query(`select id from public.profiles where email='dana.whitfield@example.com'`)).rows[0].id;
     const promote = await F2('PUT', `/admin/users/${dana}/role`, { global_role: 'admin' });

@@ -13,7 +13,19 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { createClient } from "@supabase/supabase-js";
 
-const ENV_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.env");
+// Which environment the suites run against. Defaults to .env (production's
+// values, and the local stack that uses them); set SWOT_ENV_FILE=.env.dev to
+// run everything against the development project instead.
+//
+//   SWOT_ENV_FILE=.env.dev node tests/run-all.js http://localhost:3001
+//
+// The alternative was swapping .env back and forth, which works right up until
+// the day it is left swapped.
+const ENV_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+  process.env.SWOT_ENV_FILE || ".env",
+);
 
 function env() {
   const raw = fs.readFileSync(ENV_PATH, "utf8");
