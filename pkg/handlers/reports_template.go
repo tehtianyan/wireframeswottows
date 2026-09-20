@@ -135,17 +135,33 @@ const reportHTMLTemplate = `<!doctype html>
 
   {{else if eq .SectionType "table"}}
     {{if .Items}}
-    <table>
-      <thead><tr><th>Recommendation</th><th>Priority</th><th>Expected benefit</th><th>Risk</th></tr></thead>
-      <tbody>
-      {{range .Items}}<tr>
-        <td><strong>{{.Title}}</strong>{{if .Body}}<br>{{.Body}}{{end}}</td>
-        <td>{{with index .Fields "priority"}}{{.}}{{end}}</td>
-        <td>{{with index .Fields "benefits"}}{{.}}{{end}}</td>
-        <td>{{with index .Fields "risks"}}{{.}}{{end}}</td>
-      </tr>{{end}}
-      </tbody>
-    </table>
+      {{if .WeightColumns}}
+      {{/* A rated table: columns are the weights the section declared, in
+           config order. No methodology vocabulary appears here. */}}
+      <table>
+        <thead><tr><th>Item</th>{{range .WeightColumns}}<th>{{.Name}}</th>{{end}}</tr></thead>
+        <tbody>
+        {{$cols := .WeightColumns}}
+        {{range .Items}}{{$item := .}}<tr>
+          <td><strong>{{.Title}}</strong>{{if .Body}}<br>{{.Body}}{{end}}</td>
+          {{range $cols}}<td>{{with index $item.Weights .Key}}{{.Value}}{{if .Label}}<br><span class="sub">{{.Label}}</span>{{end}}{{else}}&mdash;{{end}}</td>{{end}}
+        </tr>{{end}}
+        </tbody>
+      </table>
+      {{else}}
+      {{/* The recommendation table, whose columns App Spec 14.23 mandates. */}}
+      <table>
+        <thead><tr><th>Recommendation</th><th>Priority</th><th>Expected benefit</th><th>Risk</th></tr></thead>
+        <tbody>
+        {{range .Items}}<tr>
+          <td><strong>{{.Title}}</strong>{{if .Body}}<br>{{.Body}}{{end}}</td>
+          <td>{{with index .Fields "priority"}}{{.}}{{end}}</td>
+          <td>{{with index .Fields "benefits"}}{{.}}{{end}}</td>
+          <td>{{with index .Fields "risks"}}{{.}}{{end}}</td>
+        </tr>{{end}}
+        </tbody>
+      </table>
+      {{end}}
     {{else}}<p class="empty">Nothing approved to show.</p>{{end}}
 
   {{else if eq .SectionType "evidence_chain"}}

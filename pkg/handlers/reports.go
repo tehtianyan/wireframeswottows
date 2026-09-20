@@ -55,6 +55,15 @@ type ReportSummary struct {
 }
 
 // SectionItem is one rendered object inside a section.
+// WeightCell is one weight's rolled-up figure on one item, carrying its
+// display name and ordinal label so a report can render a column header and a
+// readable value without looking the definition up again.
+type WeightCell struct {
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+	Label string  `json:"label,omitempty"`
+}
+
 type SectionItem struct {
 	ID       string                 `json:"id"`
 	Kind     string                 `json:"kind"`
@@ -63,6 +72,9 @@ type SectionItem struct {
 	State    string                 `json:"state"`
 	Included bool                   `json:"included"`
 	Fields   map[string]interface{} `json:"fields,omitempty"`
+	// Weights a section asked for, keyed by weight key. Absent unless the
+	// section's source names them.
+	Weights map[string]WeightCell `json:"weights,omitempty"`
 }
 
 // SectionGroup is a labelled bucket — one factor category, or one
@@ -83,6 +95,14 @@ type EvidenceChain struct {
 	Supports map[string][]SectionItem `json:"supports"`
 }
 
+// WeightColumn names one weight a section shows, in the order its config
+// declared it — so a rated table's columns are ordered by the methodology
+// rather than by whatever order the rows happened to arrive in.
+type WeightColumn struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+}
+
 type ReportSection struct {
 	ID          string                 `json:"id"`
 	SectionKey  string                 `json:"section_key"`
@@ -90,6 +110,9 @@ type ReportSection struct {
 	SectionType string                 `json:"section_type"`
 	SortOrder   int                    `json:"sort_order"`
 	Included    bool                   `json:"included"`
+	// Empty unless the section's source named weights. When present, a table
+	// renders these as its columns instead of the recommendation columns.
+	WeightColumns []WeightColumn `json:"weight_columns,omitempty"`
 	Selectable  bool                   `json:"selectable"`
 	Body        *string                `json:"body"`
 	GeneratedBy string                 `json:"generated_by"`

@@ -13,12 +13,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"swot-tows/pkg/methodology"
 	"swot-tows/pkg/objects"
+	"swot-tows/pkg/weights"
 )
 
 // loadSections reads a report's section rows and resolves each one's content.
@@ -75,6 +77,8 @@ func resolveSection(ctx context.Context, pool *pgxpool.Pool, m *methodology.Meth
 
 	state, _ := s.Source["state"].(string)
 	groupBy, _ := s.Source["group_by"].(string)
+	weightKeys := stringList(s.Source["weights"])
+	orderBy, _ := s.Source["order_by"].(string)
 
 	switch s.SectionType {
 	case "category_matrix", "appendix":
@@ -105,7 +109,7 @@ func resolveSection(ctx context.Context, pool *pgxpool.Pool, m *methodology.Meth
 				return err
 			}
 			s.Groups = groups
-			return nil
+			break
 		}
 		items, err := listItems(ctx, pool, from, workshopID, state)
 		if err != nil {
@@ -113,7 +117,191 @@ func resolveSection(ctx context.Context, pool *pgxpool.Pool, m *methodology.Meth
 		}
 		s.Items = items
 	}
+
+	// Weights are attached after the content is resolved, so the same code
+	// serves a flat list and a grouped matrix. A section that names none is
+	// untouched and pays nothing.
+	if len(weightKeys) > 0 {
+		if err := attachWeights(ctx, pool, m, workshopID, s, weightKeys); err != nil {
+			return err
+		}
+	}
+
+	// "weight:<key>" ordering and grouping are how a rated register sorts
+	// itself and how a roadmap buckets into waves, without either needing a
+	// renderer of its own.
+	if key, desc, ok := parseWeightRef(orderBy); ok {
+		sortByWeight(s.Items, key, desc)
+		for i := range s.Groups {
+			sortByWeight(s.Groups[i].Items, key, desc)
+		}
+	}
+	if key, _, ok := parseWeightRef(groupBy); ok && len(s.Items) > 0 {
+		s.Groups = groupItemsByWeight(m, s.Items, key)
+		s.Items = nil
+	}
 	return nil
+}
+
+// stringList reads a JSON array of strings out of a section's source.
+func stringList(raw interface{}) []string {
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, v := range arr {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// parseWeightRef recognises "weight:impact" and "weight:impact desc".
+// Anything else is left to the existing order_by handling.
+func parseWeightRef(spec string) (key string, desc bool, ok bool) {
+	if !strings.HasPrefix(spec, "weight:") {
+		return "", false, false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(spec, "weight:"))
+	if strings.HasSuffix(rest, " desc") {
+		return strings.TrimSpace(strings.TrimSuffix(rest, " desc")), true, true
+	}
+	return rest, false, true
+}
+
+// attachWeights fills in the requested weights on every item the section
+// resolved, flat or grouped. One query per weight, not one per item.
+func attachWeights(ctx context.Context, pool *pgxpool.Pool, m *methodology.Methodology,
+	workshopID string, s *ReportSection, keys []string) error {
+
+	// Columns are declared from config before any row is looked at, because a
+	// table with nothing approved yet still has columns — and a report shown
+	// mid-workshop is exactly when that happens.
+	defs := make([]*weights.Definition, 0, len(keys))
+	for _, key := range keys {
+		def := m.WeightByKey(key)
+		if def == nil {
+			// A methodology that does not define this weight simply has no
+			// column for it, the way a pair_matrix renders nothing for a
+			// methodology with no relationship types.
+			continue
+		}
+		defs = append(defs, def)
+		s.WeightColumns = append(s.WeightColumns, WeightColumn{Key: def.Key, Name: def.Name})
+	}
+
+	byID := map[string][]*SectionItem{}
+	for i := range s.Items {
+		byID[s.Items[i].ID] = append(byID[s.Items[i].ID], &s.Items[i])
+	}
+	for g := range s.Groups {
+		for i := range s.Groups[g].Items {
+			it := &s.Groups[g].Items[i]
+			byID[it.ID] = append(byID[it.ID], it)
+		}
+	}
+	if len(byID) == 0 {
+		return nil
+	}
+
+	for _, def := range defs {
+		aggs, err := weights.LoadAggregates(ctx, pool, workshopID, []weights.Definition{*def})
+		if err != nil {
+			return err
+		}
+		for _, a := range aggs {
+			for _, item := range byID[a.ObjectID] {
+				if item.Weights == nil {
+					item.Weights = map[string]WeightCell{}
+				}
+				item.Weights[def.Key] = WeightCell{Name: def.Name, Value: a.Value, Label: a.Label}
+			}
+		}
+	}
+	return nil
+}
+
+func weightValue(it SectionItem, key string) (float64, bool) {
+	c, ok := it.Weights[key]
+	if !ok {
+		return 0, false
+	}
+	return c.Value, true
+}
+
+// sortByWeight orders items by one weight. Items with no value sort last in
+// either direction — an unrated row belongs at the bottom of a register, not
+// at the top of it because zero is small.
+func sortByWeight(items []SectionItem, key string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		a, aOK := weightValue(items[i], key)
+		b, bOK := weightValue(items[j], key)
+		if aOK != bOK {
+			return aOK
+		}
+		if a == b {
+			return false
+		}
+		if desc {
+			return a > b
+		}
+		return a < b
+	})
+}
+
+// groupItemsByWeight buckets items by a weight's value — how a transformation
+// roadmap becomes waves without a timeline renderer. Buckets are ordered by
+// value, and anything unrated collects in its own trailing group rather than
+// disappearing.
+func groupItemsByWeight(m *methodology.Methodology, items []SectionItem, key string) []SectionGroup {
+	def := m.WeightByKey(key)
+	name := key
+	if def != nil {
+		name = def.Name
+	}
+
+	buckets := map[float64][]SectionItem{}
+	unrated := []SectionItem{}
+	for _, it := range items {
+		if v, ok := weightValue(it, key); ok {
+			buckets[v] = append(buckets[v], it)
+		} else {
+			unrated = append(unrated, it)
+		}
+	}
+
+	values := make([]float64, 0, len(buckets))
+	for v := range buckets {
+		values = append(values, v)
+	}
+	sort.Float64s(values)
+
+	groups := make([]SectionGroup, 0, len(values)+1)
+	for _, v := range values {
+		label := ""
+		if def != nil {
+			label = def.Label(v)
+		}
+		title := fmt.Sprintf("%s %s", name, strconv.FormatFloat(v, 'f', -1, 64))
+		if label != "" {
+			title = fmt.Sprintf("%s — %s", title, label)
+		}
+		groups = append(groups, SectionGroup{
+			Key:   fmt.Sprintf("%s-%s", key, strconv.FormatFloat(v, 'f', -1, 64)),
+			Name:  title,
+			Items: buckets[v],
+		})
+	}
+	if len(unrated) > 0 {
+		groups = append(groups, SectionGroup{
+			Key:   key + "-unrated",
+			Name:  "Not yet rated",
+			Items: unrated,
+		})
+	}
+	return groups
 }
 
 // groupByCategory renders one bucket per configured factor category. This is

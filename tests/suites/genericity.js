@@ -101,8 +101,19 @@ runSuite("genericity (PESTLE)", async ({ baseUrl, results: r, c }) => {
       "the SAME category_matrix renderer produces SIX groups", matrix.groups.map((g) => g.key).join(","));
     r.ok(!got.data.sections.some((s) => s.section_type === "pair_matrix"),
       "NO strategy matrix — there are no relationship types to render");
-    r.ok(!got.data.sections.some((s) => s.section_type === "table"),
-      "NO recommendation table — PESTLE has no recommend stage");
+    // Asserted on the SOURCE, not the renderer. It used to check that no
+    // `table` section existed at all, which meant the same thing only while
+    // the recommendation table was the sole use of that renderer. PESTLE now
+    // has a rated scan table of its own, and the claim being made here is
+    // that no RECOMMENDATION content appears — which is what this checks.
+    r.ok(!got.data.sections.some((s) => s.source?.from === "recommendation"),
+      "NO recommendation content — PESTLE has no recommend stage",
+      got.data.sections.map((s) => `${s.section_type}:${s.source?.from ?? "-"}`).join(", "));
+
+    const rated = got.data.sections.find((s) => s.section_key === "rated_scan");
+    r.ok(rated?.weight_columns?.length === 2,
+      "the rated scan declares its weight columns from config",
+      rated?.weight_columns?.map((c) => c.name).join(", "));
 
     r.section("no SWOT vocabulary leaks anywhere");
     const blob = JSON.stringify(got.data).toLowerCase();

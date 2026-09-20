@@ -116,11 +116,67 @@ function SectionBody({ section }: { section: ReportSection }) {
         </p>
       );
 
-    case "table":
-      return (section.items ?? []).length === 0 ? (
-        <Empty />
-      ) : (
-        // §14.23 mandates these columns.
+    case "table": {
+      const items = section.items ?? [];
+      if (items.length === 0) return <Empty />;
+
+      // Two column sets, one renderer. When the section asked for weights,
+      // the columns are those weights — a rated PESTLE scan, a risk register,
+      // a capability gap table. Otherwise it is the recommendation table whose
+      // columns §14.23 mandates.
+      //
+      // The columns are declared by the server in the order the methodology
+      // configured them, so no vocabulary and no ordering is invented here.
+      const columns = section.weight_columns ?? [];
+
+      if (columns.length > 0) {
+        return (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th className="py-2 pr-3 font-medium">Item</th>
+                  {columns.map((col) => (
+                    <th key={col.key} className="py-2 pr-3 font-medium">
+                      {col.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.id} className="border-b border-border/60 align-top">
+                    <td className="py-2 pr-3">
+                      <span className="font-medium">{it.title}</span>
+                      {it.body && <span className="block text-muted-foreground">{it.body}</span>}
+                    </td>
+                    {columns.map((col) => {
+                      const cell = it.weights?.[col.key];
+                      return (
+                        <td key={col.key} className="py-2 pr-3 tabular-nums">
+                          {cell ? (
+                            <>
+                              {cell.value}
+                              {cell.label && (
+                                <span className="block text-muted-foreground">{cell.label}</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+
+      // §14.23 mandates these columns.
+      return (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-xs">
             <thead>
@@ -132,7 +188,7 @@ function SectionBody({ section }: { section: ReportSection }) {
               </tr>
             </thead>
             <tbody>
-              {(section.items ?? []).map((it) => (
+              {items.map((it) => (
                 <tr key={it.id} className="border-b border-border/60 align-top">
                   <td className="py-2 pr-3">
                     <span className="font-medium">{it.title}</span>
@@ -149,6 +205,7 @@ function SectionBody({ section }: { section: ReportSection }) {
           </table>
         </div>
       );
+    }
 
     case "evidence_chain":
       return (section.chains ?? []).length === 0 ? (

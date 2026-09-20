@@ -448,6 +448,13 @@ export interface ReportTypeOption {
   missing: string[];
 }
 
+/** One weight's rolled-up figure on a report row. Mirrors handlers.WeightCell. */
+export interface ReportWeightCell {
+  name: string;
+  value: number;
+  label?: string;
+}
+
 export interface ReportSectionItem {
   id: string;
   kind: CitableKind;
@@ -456,6 +463,8 @@ export interface ReportSectionItem {
   state: string;
   included: boolean;
   fields?: Record<string, unknown>;
+  /** Present only when the section's source named weights to show. */
+  weights?: Record<string, ReportWeightCell>;
 }
 
 export interface ReportSectionGroup {
@@ -472,6 +481,12 @@ export interface ReportEvidenceChain {
   supports: Record<string, ReportSectionItem[]>;
 }
 
+/** A column a rated table shows, named by the server in config order. */
+export interface ReportWeightColumn {
+  key: string;
+  name: string;
+}
+
 export interface ReportSection {
   id: string;
   section_key: string;
@@ -483,6 +498,8 @@ export interface ReportSection {
   body: string | null;
   generated_by: "human" | "ai" | "hybrid";
   source: Record<string, unknown>;
+  /** Present only when the section declared weights; the table's columns. */
+  weight_columns?: ReportWeightColumn[];
   groups?: ReportSectionGroup[];
   items?: ReportSectionItem[];
   chains?: ReportEvidenceChain[];
