@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"swot-tows/pkg/weights"
 )
 
 type FactorCategory struct {
@@ -61,7 +63,16 @@ type Methodology struct {
 	FactorCategories  []FactorCategory   `json:"factor_categories"`
 	Stages            []Stage            `json:"stages"`
 	RelationshipTypes []RelationshipType `json:"relationship_types"`
-	AIPrompts         []AIPrompt         `json:"-"` // never serialized to the client
+	// Weights are what a methodology may attach numbers to — votes, maturity
+	// levels, likelihood. The client needs the definitions to render a control
+	// against the right scale, so unlike AIPrompts these are serialized.
+	Weights   []weights.Definition `json:"weights"`
+	AIPrompts []AIPrompt           `json:"-"` // never serialized to the client
+}
+
+// WeightByKey finds one of this methodology's weight definitions.
+func (m *Methodology) WeightByKey(key string) *weights.Definition {
+	return weights.ByKey(m.Weights, key)
 }
 
 func (m *Methodology) StageByKey(key string) *Stage {
@@ -122,6 +133,7 @@ func Load(ctx context.Context, pool *pgxpool.Pool, methodologyID string) (*Metho
 		FactorCategories:  []FactorCategory{},
 		Stages:            []Stage{},
 		RelationshipTypes: []RelationshipType{},
+		Weights:           []weights.Definition{},
 		AIPrompts:         []AIPrompt{},
 	}
 	err := pool.QueryRow(ctx,
@@ -182,6 +194,12 @@ func Load(ctx context.Context, pool *pgxpool.Pool, methodologyID string) (*Metho
 		}
 		m.RelationshipTypes = append(m.RelationshipTypes, r)
 	}
+
+	defs, err := weights.Load(ctx, pool, methodologyID)
+	if err != nil {
+		return nil, err
+	}
+	m.Weights = defs
 
 	promptRows, err := pool.Query(ctx,
 		`select id, function_key, stage_id::text, coalesce(stage_type, ''), name,

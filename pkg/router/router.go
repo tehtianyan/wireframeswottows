@@ -69,8 +69,17 @@ func New() http.Handler {
 			r.Delete("/{id}/factors/{factorId}", handlers.DeleteFactor)
 			r.Post("/{id}/factors/{factorId}/review", handlers.ReviewFactor)
 
+			// Weights — the generic mechanism. "/{id}/weights" is a literal
+			// sitting beside the {kind} wildcard below, so it is registered
+			// first, like "ai" and "reports". router_test.go guards this.
+			r.Get("/{id}/weights", handlers.GetWeights)
+
+			// Voting is one instance of a weight. These two endpoints are
+			// adapters kept for the prioritization UI and the UAT cases that
+			// exercise it; see pkg/handlers/votes.go.
 			r.Get("/{id}/votes", handlers.GetVotes)
 			r.Put("/{id}/factors/{factorId}/vote", handlers.SetVote)
+			r.Put("/{id}/factors/{factorId}/weights/{weightKey}", handlers.SetFactorWeight)
 
 			// AI Strategy Assistant. Registered before the {kind} wildcard so
 			// "ai" is never mistaken for an object route.
@@ -101,6 +110,7 @@ func New() http.Handler {
 			r.Patch("/{id}/{kind}/{objectId}", handlers.UpdateObject)
 			r.Delete("/{id}/{kind}/{objectId}", handlers.DeleteObject)
 			r.Post("/{id}/{kind}/{objectId}/review", handlers.ReviewObject)
+			r.Put("/{id}/{kind}/{objectId}/weights/{weightKey}", handlers.SetWeight)
 		})
 	})
 

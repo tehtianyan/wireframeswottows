@@ -48,6 +48,12 @@
   --color-category-4: var(--category-4);
   --color-category-5: var(--category-5);
   --color-category-6: var(--category-6);
+  --color-category-7: var(--category-7);
+  --color-category-8: var(--category-8);
+  --color-category-9: var(--category-9);
+  --color-category-10: var(--category-10);
+  --color-category-11: var(--category-11);
+  --color-category-12: var(--category-12);
   --color-strength: var(--strength);
   --color-weakness: var(--weakness);
   --color-opportunity: var(--opportunity);
@@ -96,13 +102,24 @@
   --info-foreground: oklch(0.97 0.01 250);
   /* Methodology-neutral category hues. A methodology whose categories are
      not SWOT's four (PESTLE has six) uses these rather than borrowing a
-     token named after someone else's concept. */
+     token named after someone else's concept.
+
+     Extended from six to twelve for the Business Model Canvas, which has
+     nine blocks. The first six are unchanged so no existing methodology's
+     colours shift; 7-12 bisect the gaps between them, so a methodology using
+     seven or nine still gets hues that stay apart around the wheel. */
   --category-1: oklch(0.72 0.14 258);
   --category-2: oklch(0.74 0.14 196);
   --category-3: oklch(0.75 0.15 134);
   --category-4: oklch(0.79 0.14 88);
   --category-5: oklch(0.72 0.15 42);
   --category-6: oklch(0.70 0.15 330);
+  --category-7: oklch(0.71 0.15 294);
+  --category-8: oklch(0.73 0.14 227);
+  --category-9: oklch(0.74 0.15 165);
+  --category-10: oklch(0.77 0.15 111);
+  --category-11: oklch(0.78 0.14 65);
+  --category-12: oklch(0.68 0.16 6);
   --strength: oklch(0.72 0.15 158);
   --weakness: oklch(0.68 0.16 30);
   --opportunity: oklch(0.72 0.13 232);
@@ -195,6 +212,12 @@
   --category-4: oklch(0.55 0.13 88);
   --category-5: oklch(0.52 0.15 42);
   --category-6: oklch(0.50 0.15 330);
+  --category-7: oklch(0.51 0.15 294);
+  --category-8: oklch(0.50 0.14 227);
+  --category-9: oklch(0.48 0.14 165);
+  --category-10: oklch(0.52 0.14 111);
+  --category-11: oklch(0.54 0.14 65);
+  --category-12: oklch(0.52 0.16 6);
   --strength: oklch(0.52 0.14 158);
   --weakness: oklch(0.55 0.16 30);
   --opportunity: oklch(0.54 0.13 232);

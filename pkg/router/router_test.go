@@ -32,6 +32,20 @@ func TestRoutePrecedence(t *testing.T) {
 		{"POST", "/api/v1/workshops/abc/factors/f1/review", "/api/v1/workshops/{id}/factors/{factorId}/review"},
 		{"PUT", "/api/v1/workshops/abc/factors/f1/vote", "/api/v1/workshops/{id}/factors/{factorId}/vote"},
 
+		// Weights. "weights" is a literal at the same depth as {kind}, and the
+		// factor variant exists because chi resolves the static "factors"
+		// segment first and never falls back to the wildcard branch — so if
+		// this route were missing, scoring a factor would 404 while scoring an
+		// insight worked, which is exactly the kind of half-broken routing
+		// this test exists to catch.
+		{"GET", "/api/v1/workshops/abc/weights", "/api/v1/workshops/{id}/weights"},
+		{"PUT", "/api/v1/workshops/abc/factors/f1/weights/likelihood",
+			"/api/v1/workshops/{id}/factors/{factorId}/weights/{weightKey}"},
+		{"PUT", "/api/v1/workshops/abc/syntheses/s1/weights/intensity",
+			"/api/v1/workshops/{id}/{kind}/{objectId}/weights/{weightKey}"},
+		{"PUT", "/api/v1/workshops/abc/recommendations/r1/weights/value",
+			"/api/v1/workshops/{id}/{kind}/{objectId}/weights/{weightKey}"},
+
 		// "ai" must not be swallowed by the {kind} wildcard.
 		{"GET", "/api/v1/workshops/abc/ai", "/api/v1/workshops/{id}/ai"},
 		{"POST", "/api/v1/workshops/abc/ai/execute", "/api/v1/workshops/{id}/ai/execute"},
