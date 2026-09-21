@@ -288,8 +288,9 @@ person clicking can confirm, plus the AI one, which needs a real API key.
 > picked the suggestions out of the response iterated a Go map, whose order is
 > randomised, so the server could index a different list than the screen showed.
 >
-> **Needs `ANTHROPIC_API_KEY` set on the dev environment.** Without it the AI
-> panel correctly hides itself and these cases cannot run.
+> **The AI assistant is now configured on dev**, running `claude-haiku-4-5` —
+> the cheapest and fastest model, about half a cent per call. These cases make
+> real, paid requests, so run them deliberately rather than by habit.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
@@ -297,6 +298,7 @@ person clicking can confirm, plus the AI one, which needs a real API key.
 | DEF-07a | F | Run **Generate TOWS Relationships** on the TOWS Matrix | Same — suggestions arrive rather than a blanket "AI could not complete this request" |
 | DEF-07b | F | Accept the **third** suggestion in a list | The object created is the one you clicked, not a different one |
 | DEF-07c | F | Ask the developer to check `ai_sessions` after a run | A run with dropped suggestions records how many and why, rather than discarding them silently |
+| DEF-07d | F | Open devtools → Network on `/api/v1/workshops/{id}/ai` | The response names the model in use (`claude-haiku-4-5`) — and carries **no** prompt text |
 
 ---
 
@@ -309,9 +311,12 @@ Do not raise defects against these — they were decided, not overlooked.
   new ones. The same information is present as sorted tables and grouped lists.
 - **Gap is not stored** for Capability; it is current minus target, read off
   two adjacent columns.
-- **The AI assistant is off** on the development database — no API key is set,
-  so the panel hides itself. That is correct behaviour, not a defect. Testing
-  AI requires a key and makes real paid calls.
+- **The AI assistant runs `claude-haiku-4-5` on dev**, chosen for being the
+  cheapest and fastest model rather than the most capable. Judge the governance
+  — that nothing is added without you accepting it, and that suggestions arrive
+  at all — not the literary quality of the suggestions. The model is
+  `ANTHROPIC_MODEL` in `.env.dev` and can be raised to `claude-sonnet-5` or
+  `claude-opus-5` if you want to compare.
 - Everything already listed as out of scope in `UAT_TEST_SCRIPT.md`.
 
 ## Defect template
