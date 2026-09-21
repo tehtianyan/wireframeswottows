@@ -387,6 +387,8 @@ export interface AIFunction {
 
 export interface AIStatus {
   configured: boolean;
+  /** Which model the server calls, from ANTHROPIC_MODEL. Not a secret. */
+  model: string;
   limit_per_hour: number;
   used_this_hour: number;
   functions: AIFunction[];

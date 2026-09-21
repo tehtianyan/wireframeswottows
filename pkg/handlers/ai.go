@@ -56,10 +56,14 @@ type AIFunction struct {
 
 // AIStatus tells the client whether to offer AI at all, and what it may run.
 type AIStatus struct {
-	Configured bool         `json:"configured"`
-	Limit      int          `json:"limit_per_hour"`
-	Used       int          `json:"used_this_hour"`
-	Functions  []AIFunction `json:"functions"`
+	Configured bool `json:"configured"`
+	// Model this deployment calls, from ANTHROPIC_MODEL. Returned so the
+	// running configuration can be confirmed without reading server logs —
+	// a model id is not a secret, unlike the key or the prompt templates.
+	Model     string       `json:"model"`
+	Limit     int          `json:"limit_per_hour"`
+	Used      int          `json:"used_this_hour"`
+	Functions []AIFunction `json:"functions"`
 }
 
 // GetAIStatus — GET /workshops/{id}/ai?stage_key=...
@@ -110,6 +114,7 @@ func GetAIStatus(w http.ResponseWriter, r *http.Request) {
 	used, _ := aiRequestsThisHour(r2.Context(), pool, user.ID)
 	response.OK(w, AIStatus{
 		Configured: ai.Configured(),
+		Model:      ai.Model(),
 		Limit:      limitForRole(role),
 		Used:       used,
 		Functions:  fns,
@@ -241,7 +246,7 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 		insert into public.ai_sessions (user_id, workshop_id, prompt_type, input_summary, status, stage_key, model)
 		values ($1, $2, $3, $4, 'pending', $5, $6) returning id`,
 		user.ID, workshopID, prompt.FunctionKey,
-		fmt.Sprintf("%s for %s", prompt.Name, wkName), nullableString(body.StageKey), ai.Model,
+		fmt.Sprintf("%s for %s", prompt.Name, wkName), nullableString(body.StageKey), ai.Model(),
 	).Scan(&sessionID)
 	if err != nil {
 		response.Fail(w, response.CodeServerError, err.Error())

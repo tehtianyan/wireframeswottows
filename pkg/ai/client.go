@@ -18,9 +18,33 @@ import (
 	"time"
 )
 
-// Model is the default model for assistant calls. Sonnet is the right balance
-// of judgement and latency for interactive strategy work.
-const Model = "claude-sonnet-5"
+// DefaultModel is the model used when ANTHROPIC_MODEL is not set.
+//
+// Claude Haiku 4.5 is the cheapest and fastest current model ($1 / $5 per
+// million input / output tokens, against Sonnet 5's $2 / $10 and Opus 5's
+// $5 / $25), which suits this workload: every assistant call here is a
+// short, heavily-constrained JSON generation from context the server
+// supplies, with a human reviewing every suggestion before it becomes
+// workshop content.
+//
+// Model IDs take NO date suffix — "claude-haiku-4-5", never
+// "claude-haiku-4-5-20251001".
+const DefaultModel = "claude-haiku-4-5"
+
+// Model is the model this deployment calls, from ANTHROPIC_MODEL.
+//
+// Deliberately an environment variable rather than a constant, so the model
+// can be changed per environment without a code change: dev can run Haiku
+// while production runs something else, and neither needs a rebuild.
+//
+// Read on every call rather than cached at start-up, so changing it takes
+// effect on the next request in a long-lived process.
+func Model() string {
+	if m := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")); m != "" {
+		return m
+	}
+	return DefaultModel
+}
 
 const (
 	apiURL     = "https://api.anthropic.com/v1/messages"
@@ -121,7 +145,7 @@ func Complete(ctx context.Context, systemPrompt, userPrompt string, expectJSON b
 	}
 
 	body, err := json.Marshal(apiRequest{
-		Model:     Model,
+		Model:     Model(),
 		MaxTokens: maxTokens,
 		System:    systemPrompt,
 		Messages:  []apiMessage{{Role: "user", Content: userPrompt}},
@@ -177,7 +201,7 @@ func Complete(ctx context.Context, systemPrompt, userPrompt string, expectJSON b
 
 	result := &Result{
 		Raw:          out,
-		Model:        Model,
+		Model:        Model(),
 		InputTokens:  parsed.Usage.InputTokens,
 		OutputTokens: parsed.Usage.OutputTokens,
 		LatencyMS:    int(time.Since(start).Milliseconds()),
