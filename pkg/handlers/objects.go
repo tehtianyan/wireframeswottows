@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -729,7 +730,20 @@ func coerceFields(kind *objects.Kind, in map[string]interface{}) (map[string]int
 			if !ok {
 				return nil, fmt.Sprintf("%s must be a number", f.Label)
 			}
-			out[name] = int(n)
+			if n != math.Trunc(n) {
+				return nil, fmt.Sprintf("%s must be a whole number.", f.Label)
+			}
+			v := int(n)
+			// The bounds are the registry's, not a literal here — a field with
+			// none is unbounded. Before this, "Impact (1-10)" was enforced by
+			// nothing and a recommendation could be scored 500.
+			if f.Min != nil && v < *f.Min {
+				return nil, fmt.Sprintf("%s cannot be below %d.", f.Label, *f.Min)
+			}
+			if f.Max != nil && v > *f.Max {
+				return nil, fmt.Sprintf("%s cannot be above %d.", f.Label, *f.Max)
+			}
+			out[name] = v
 		case "enum":
 			s, ok := raw.(string)
 			if !ok {

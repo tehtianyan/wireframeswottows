@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -219,45 +220,88 @@ func buildUserPrompt(prompt *methodology.AIPrompt, vars map[string]string, promp
 	return b.String()
 }
 
-// validateAIOutput applies the §12.30 checklist that can be checked
+// sanitizeAIOutput applies the §12.30 checklist that can be checked
 // server-side: confidence scores in range, and every referenced id belongs to
-// this workshop. Returns a non-empty reason when the output must be discarded.
-func validateAIOutput(ctx context.Context, pool *pgxpool.Pool, workshopID string, content map[string]interface{}) string {
-	if content == nil {
-		return "empty output"
-	}
-	items := firstArray(content)
+// this workshop.
+//
+// It DROPS the individual suggestions that fail and keeps the rest, rather
+// than discarding the whole output. The previous version returned on the first
+// bad id, which threw away every suggestion because one of them echoed a id
+// the model had mangled — the user saw "AI could not complete this request"
+// with no way to tell that five good suggestions had been binned with the bad
+// one, and it looked intermittent because it depended on the model getting
+// every id right.
+//
+// Nothing invalid reaches storage either way, which is what §12.30 requires.
+// Returns how many were kept, how many were dropped, and a fatal reason only
+// when there is nothing usable left.
+func sanitizeAIOutput(ctx context.Context, pool *pgxpool.Pool, workshopID string,
+	content map[string]interface{}) (kept int, dropped int, fatal string) {
 
+	if content == nil {
+		return 0, 0, "empty output"
+	}
+	key := suggestionsKey(content)
+	if key == "" {
+		// A narrative output has no suggestion array at all; there is nothing
+		// per-item to check and the output stands as written.
+		return 0, 0, ""
+	}
+	items, _ := content[key].([]interface{})
+	if len(items) == 0 {
+		return 0, 0, ""
+	}
+
+	clean := make([]interface{}, 0, len(items))
 	for _, raw := range items {
 		item, ok := raw.(map[string]interface{})
 		if !ok {
+			dropped++
 			continue
 		}
-		for key, v := range item {
-			if key == "confidence_score" {
-				if f, ok := v.(float64); ok && (f < 0 || f > 1) {
-					return fmt.Sprintf("confidence_score %v is outside [0,1]", f)
-				}
+		if reason := checkSuggestion(ctx, pool, workshopID, item); reason != "" {
+			dropped++
+			continue
+		}
+		clean = append(clean, raw)
+	}
+
+	content[key] = clean
+	kept = len(clean)
+	if kept == 0 {
+		return 0, dropped, "every suggestion referenced data outside this workshop"
+	}
+	return kept, dropped, ""
+}
+
+// checkSuggestion returns why one suggestion is unusable, or "" if it is fine.
+func checkSuggestion(ctx context.Context, pool *pgxpool.Pool, workshopID string,
+	item map[string]interface{}) string {
+
+	for key, v := range item {
+		if key == "confidence_score" {
+			if f, ok := v.(float64); ok && (f < 0 || f > 1) {
+				return fmt.Sprintf("confidence_score %v is outside [0,1]", f)
+			}
+			continue
+		}
+		// Any *_id or *_ids value must name something in this workshop.
+		if strings.HasSuffix(key, "_ids") {
+			list, ok := v.([]interface{})
+			if !ok {
 				continue
 			}
-			// Any *_id or *_ids value must name something in this workshop.
-			if strings.HasSuffix(key, "_ids") {
-				list, ok := v.([]interface{})
-				if !ok {
-					continue
-				}
-				for _, idRaw := range list {
-					if id, ok := idRaw.(string); ok && id != "" {
-						if !idInWorkshop(ctx, pool, workshopID, id) {
-							return "output referenced an id that is not in this workshop"
-						}
-					}
-				}
-			} else if strings.HasSuffix(key, "_id") {
-				if id, ok := v.(string); ok && id != "" {
+			for _, idRaw := range list {
+				if id, ok := idRaw.(string); ok && id != "" {
 					if !idInWorkshop(ctx, pool, workshopID, id) {
-						return "output referenced an id that is not in this workshop"
+						return "referenced an id that is not in this workshop"
 					}
+				}
+			}
+		} else if strings.HasSuffix(key, "_id") {
+			if id, ok := v.(string); ok && id != "" {
+				if !idInWorkshop(ctx, pool, workshopID, id) {
+					return "referenced an id that is not in this workshop"
 				}
 			}
 		}
@@ -280,17 +324,49 @@ func idInWorkshop(ctx context.Context, pool *pgxpool.Pool, workshopID, id string
 	return false
 }
 
-// firstArray returns the first array value in the output object. Each seeded
-// schema wraps its list under a single key ("suggestions", "themes",
-// "relationships"...), so this avoids needing that key per function.
-func firstArray(content map[string]interface{}) []interface{} {
-	for _, v := range content {
-		if arr, ok := v.([]interface{}); ok {
-			return arr
+// suggestionsArray returns the array of suggestions in an AI output object,
+// chosen DETERMINISTICALLY.
+//
+// This replaced a version that ranged over the map and took the first array it
+// happened to see. Go randomises map iteration order, so with more than one
+// array-valued key the choice differed between calls — and because the accept
+// path resolves the user's clicked INDEX against this array
+// (ReviewAIOutput), the server could index a different array than the one the
+// client displayed and create the wrong object. It also made a failure look
+// intermittent, which is the hardest kind to report.
+//
+// The client applies the same rule (aiSuggestions in src/lib/api.ts), so both
+// sides always agree on which array they are talking about.
+func suggestionsArray(content map[string]interface{}) []interface{} {
+	keys := make([]string, 0, len(content))
+	for k, v := range content {
+		if _, ok := v.([]interface{}); ok {
+			keys = append(keys, k)
 		}
 	}
-	return nil
+	if len(keys) == 0 {
+		return nil
+	}
+	sort.Strings(keys)
+	arr, _ := content[keys[0]].([]interface{})
+	return arr
 }
+
+// suggestionsKey is suggestionsArray's key, for writing a cleaned array back.
+func suggestionsKey(content map[string]interface{}) string {
+	keys := make([]string, 0, len(content))
+	for k, v := range content {
+		if _, ok := v.([]interface{}); ok {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	return keys[0]
+}
+
 
 // suggestionToObjectInput maps one suggestion onto the generic object shape,
 // using the kind's own field list rather than knowledge of the function.

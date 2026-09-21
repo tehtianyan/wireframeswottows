@@ -263,12 +263,22 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 
 	// §12.30: validate before storing. An output referencing objects outside
 	// this workshop, or with an out-of-range confidence, is not saved.
-	if msg := validateAIOutput(r2.Context(), pool, workshopID, result.Parsed); msg != "" {
+	// Drops individual suggestions that fail §12.30 and keeps the rest. Only
+	// an output with nothing usable left is a failure.
+	_, dropped, fatal := sanitizeAIOutput(r2.Context(), pool, workshopID, result.Parsed)
+	if fatal != "" {
 		_, _ = pool.Exec(r2.Context(),
 			`update public.ai_sessions set status = 'failed', error_message = $2 where id = $1`,
-			sessionID, "validation: "+msg)
+			sessionID, "validation: "+fatal)
 		response.Fail(w, response.CodeAIGenerationFailed, ai.UserFacingFailure)
 		return
+	}
+	if dropped > 0 {
+		// Recorded rather than silently swallowed: a run that quietly returns
+		// four of seven suggestions is the kind of thing nobody notices.
+		_, _ = pool.Exec(r2.Context(),
+			`update public.ai_sessions set error_message = $2 where id = $1`,
+			sessionID, fmt.Sprintf("%d suggestion(s) dropped: referenced data outside this workshop", dropped))
 	}
 
 	contentJSON, _ := json.Marshal(result.Parsed)
@@ -483,7 +493,7 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 		response.Fail(w, response.CodeServerError, "stored AI output is unreadable")
 		return
 	}
-	items := firstArray(content)
+	items := suggestionsArray(content)
 	if body.Index < 0 || body.Index >= len(items) {
 		response.Fail(w, response.CodeValidationError, "That suggestion no longer exists in this output.")
 		return

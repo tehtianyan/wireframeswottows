@@ -41,15 +41,17 @@ const roleOptions: ParticipantRole[] = ["participant", "analyst", "facilitator",
 // budget as props. It previously read both from the mock store, which meant a
 // header dropdown could appear to grant invite rights the server would refuse.
 export function ParticipantsPanel({
+  workshopId,
   voteAllocation,
   canManage,
 }: {
+  workshopId: string;
   voteAllocation: number;
   canManage: boolean;
 }) {
   const queryClient = useQueryClient();
 
-  const { data: people = [], isLoading, isError } = useQuery(participantsQueryOptions);
+  const { data: people = [], isLoading, isError } = useQuery(participantsQueryOptions(workshopId));
 
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<ParticipantRole | "all">("all");
@@ -57,10 +59,11 @@ export function ParticipantsPanel({
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", role: "participant" as ParticipantRole });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["workshop-participants"] });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["workshop-participants", workshopId] });
 
   const invite = useMutation({
-    mutationFn: inviteParticipant,
+    mutationFn: (v: { name: string; email: string; role: ParticipantRole }) =>
+      inviteParticipant(workshopId, v),
     onSuccess: async () => {
       await refresh();
       toast.success("Invitation sent");
@@ -71,7 +74,7 @@ export function ParticipantsPanel({
   });
 
   const changeRole = useMutation({
-    mutationFn: (v: { id: string; role: ParticipantRole }) => updateParticipantRole(v.id, v.role),
+    mutationFn: (v: { id: string; role: ParticipantRole }) => updateParticipantRole(workshopId, v.id, v.role),
     onSuccess: async (_d, v) => {
       await refresh();
       toast.success(`Role updated to ${roleLabels[v.role]}`);
@@ -80,16 +83,16 @@ export function ParticipantsPanel({
   });
 
   const activate = useMutation({
-    mutationFn: activateParticipant,
+    mutationFn: (id: string) => activateParticipant(workshopId, id),
     onSuccess: async () => {
       await refresh();
-      toast.success("Participant marked active");
+      toast.success("Participant marked as joined");
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const remove = useMutation({
-    mutationFn: removeParticipant,
+    mutationFn: (id: string) => removeParticipant(workshopId, id),
     onSuccess: async () => {
       await refresh();
       setOpenId(null);
@@ -99,6 +102,10 @@ export function ParticipantsPanel({
   });
 
   const stats = useMemo(() => {
+    // "active" here means JOINED — the workshop_roster derives it from
+    // joined_at. It is not presence: there is no realtime in this product, so
+    // nothing knows who is online. The labels below say "joined" for that
+    // reason; "active" next to a green dot was read as "online now".
     const active = people.filter((p) => p.status === "active").length;
     const invited = people.filter((p) => p.status === "invited").length;
     const engaged = people.filter((p) => p.votes_used > 0).length;
@@ -127,7 +134,7 @@ export function ParticipantsPanel({
       <PanelHeading
         build="live"
         title="Participants"
-        hint={`${people.length} on the roster · ${stats.active} active`}
+        hint={`${people.length} on the roster · ${stats.active} joined`}
         action={
           canManage ? (
             <Button variant="secondary" size="sm" onClick={() => setInviteOpen((v) => !v)}>
@@ -150,7 +157,7 @@ export function ParticipantsPanel({
           />
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-          <span>{stats.active} active</span>
+          <span>{stats.active} joined</span>
           <span>{stats.invited} pending invite</span>
           <span>{stats.engaged} voted</span>
         </div>
@@ -335,7 +342,7 @@ export function ParticipantsPanel({
                   <p className="label-caps">Status</p>
                   <p className="mt-1.5 flex items-center gap-2 text-xs capitalize">
                     <span className={cn("size-2 rounded-full", selected.status === "active" ? "bg-success" : "bg-warning")} />
-                    {selected.status}
+                    {selected.status === "active" ? "joined" : "invited"}
                   </p>
                 </div>
 
@@ -375,7 +382,7 @@ export function ParticipantsPanel({
                           disabled={activate.isPending}
                           onClick={() => guard() && activate.mutate(selected.id)}
                         >
-                          Mark active
+                          Mark as joined
                         </Button>
                       </>
                     )}

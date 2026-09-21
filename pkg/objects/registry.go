@@ -25,7 +25,15 @@ type Field struct {
 	Required bool   `json:"required"`
 	Options  []string `json:"options,omitempty"`
 	Help     string `json:"help,omitempty"`
+	// Min and Max bound an `int` field. They used to live only inside the
+	// label — "Impact (1-10)" — so nothing enforced them and a recommendation
+	// could be scored 500 from the form or the API. Sent to the client so the
+	// input carries the same bounds the server checks.
+	Min *int `json:"min,omitempty"`
+	Max *int `json:"max,omitempty"`
 }
+
+func intPtr(n int) *int { return &n }
 
 // EvidenceLink is a many-to-many table joining this kind to the kind it cites.
 // This is what makes traceability (CLAUDE.md: "Traceability First") structural
@@ -145,8 +153,10 @@ var registry = map[string]*Kind{
 				Options: []string{"critical", "high", "medium", "low"}},
 			{Name: "benefits", Label: "Expected benefits", Type: "textarea"},
 			{Name: "risks", Label: "Risks", Type: "textarea"},
-			{Name: "impact_score", Label: "Impact (1-10)", Type: "int"},
-			{Name: "feasibility_score", Label: "Feasibility (1-10)", Type: "int"},
+			{Name: "impact_score", Label: "Impact (1-10)", Type: "int",
+				Min: intPtr(1), Max: intPtr(10)},
+			{Name: "feasibility_score", Label: "Feasibility (1-10)", Type: "int",
+				Min: intPtr(1), Max: intPtr(10)},
 		},
 		Evidence: []EvidenceLink{
 			{CitesKind: "insight", Table: "recommendation_insights", SelfCol: "recommendation_id", OtherCol: "insight_id", OtherTable: "insights"},

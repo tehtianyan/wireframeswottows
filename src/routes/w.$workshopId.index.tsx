@@ -100,6 +100,7 @@ function WorkshopOverview() {
         {/* Real Supabase-backed roster. Invite rights come from the caller's
             actual workshop role, not a UI toggle. */}
         <ParticipantsPanel
+          workshopId={workshop.id}
           voteAllocation={workshop.votes_per_participant}
           canManage={workshop.my_role === "facilitator"}
         />

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -78,6 +79,9 @@ type KnowledgeHit struct {
 	CreatedAt    string  `json:"created_at"`
 	Promoted     bool    `json:"promoted"`
 	KnowledgeID  *string `json:"knowledge_id"`
+	// Relevance for the current query; 0 when there is no query. Results are
+	// sorted on it ACROSS kinds, which per-kind SQL ordering alone cannot do.
+	Rank float64 `json:"rank"`
 }
 
 // SearchKnowledge — GET /knowledge/search?q=&object_type=&workshop_id=&date_from=&date_to=
@@ -110,27 +114,53 @@ func SearchKnowledge(w http.ResponseWriter, r *http.Request) {
 			body = fmt.Sprintf("coalesce(o.%s, '')", k.BodyCol)
 		}
 
+		// Snippet and ordering both depend on whether there is a query.
+		//
+		// With one, the snippet is a ts_headline around the MATCH and results
+		// are ranked by ts_rank. Both used to ignore the query entirely: the
+		// snippet was the first 220 characters of the description and the
+		// order was newest-first. A row that matched on a word buried in a long
+		// description therefore appeared with a snippet containing no sign of
+		// the search term, above better matches — which reads exactly like a
+		// search returning unrelated results, even though the matching itself
+		// was correct.
+		snippetExpr := fmt.Sprintf("left(%s, 220)", body)
+		rankExpr := "0"
+		orderBy := "o.created_at desc"
+
 		// Scoped by workspace membership in the JOIN, so an object the caller
 		// cannot see never enters the result set to begin with.
+		args := []interface{}{user.ID, k.Kind}
+
+		var whereQuery string
+		if q != "" {
+			args = append(args, q)
+			n := len(args)
+			doc := fmt.Sprintf("to_tsvector('english', coalesce(o.%s,'') || ' ' || %s)", k.TitleCol, body)
+			tsq := fmt.Sprintf("plainto_tsquery('english', $%d)", n)
+			whereQuery = fmt.Sprintf("\n\t\t\t\tand %s @@ %s", doc, tsq)
+			// StartSel/StopSel are empty so the snippet stays plain text —
+			// the client renders it as text, not HTML.
+			snippetExpr = fmt.Sprintf(
+				`ts_headline('english', coalesce(o.%s,'') || ' ' || %s, %s,
+				  'StartSel="",StopSel="",MaxWords=22,MinWords=6,ShortWord=3,MaxFragments=2,FragmentDelimiter=" … "')`,
+				k.TitleCol, body, tsq)
+			rankExpr = fmt.Sprintf("ts_rank(%s, %s)", doc, tsq)
+			orderBy = "rank desc, o.created_at desc"
+		}
+
 		query := fmt.Sprintf(`
 			select o.id::text, coalesce(o.%s, ''), %s, o.state, o.workshop_id::text, w.name, o.created_at,
-			       ka.id::text
+			       ka.id::text, %s as rank
 			from public.%s o
 			join public.workshops w on w.id = o.workshop_id
 			join public.workspace_members wsm
 			     on wsm.workspace_id = w.workspace_id and wsm.user_id = $1
 			left join public.knowledge_assets ka
 			     on ka.object_kind = $2 and ka.object_id = o.id
-			where true`, k.TitleCol, body, k.Table)
+			where true`, k.TitleCol, snippetExpr, rankExpr, k.Table)
 
-		args := []interface{}{user.ID, k.Kind}
-
-		if q != "" {
-			args = append(args, q)
-			query += fmt.Sprintf(`
-				and to_tsvector('english', coalesce(o.%s,'') || ' ' || %s)
-				    @@ plainto_tsquery('english', $%d)`, k.TitleCol, body, len(args))
-		}
+		query += whereQuery
 		if workshopFilter != "" {
 			args = append(args, workshopFilter)
 			query += fmt.Sprintf(` and o.workshop_id = $%d`, len(args))
@@ -146,7 +176,7 @@ func SearchKnowledge(w http.ResponseWriter, r *http.Request) {
 		if promotedOnly {
 			query += ` and ka.id is not null`
 		}
-		query += ` order by o.created_at desc limit 25`
+		query += fmt.Sprintf(` order by %s limit 25`, orderBy)
 
 		rows, err := pool.Query(r2.Context(), query, args...)
 		if err != nil {
@@ -156,8 +186,9 @@ func SearchKnowledge(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var h KnowledgeHit
 			var createdAt time.Time
+			var rank float64
 			if err := rows.Scan(&h.ObjectID, &h.Title, &h.Snippet, &h.State,
-				&h.WorkshopID, &h.WorkshopName, &createdAt, &h.KnowledgeID); err != nil {
+				&h.WorkshopID, &h.WorkshopName, &createdAt, &h.KnowledgeID, &rank); err != nil {
 				rows.Close()
 				response.Fail(w, response.CodeServerError, err.Error())
 				return
@@ -165,12 +196,24 @@ func SearchKnowledge(w http.ResponseWriter, r *http.Request) {
 			h.ObjectKind = k.Kind
 			h.CreatedAt = createdAt.Format(time.RFC3339)
 			h.Promoted = h.KnowledgeID != nil
-			if len(h.Snippet) > 220 {
+			// Only the no-query path needs capping. Truncating a ts_headline
+			// would be self-defeating: it is built AROUND the match, so
+			// cutting it at a fixed length can remove the very words that
+			// justify the hit.
+			if q == "" && len(h.Snippet) > 220 {
 				h.Snippet = h.Snippet[:220] + "…"
 			}
+			h.Rank = rank
 			hits = append(hits, h)
 		}
 		rows.Close()
+	}
+
+	// Each kind was queried and ordered separately, so without this the list
+	// is grouped by kind and only ranked inside each group — the best match
+	// overall could sit below a weak one from an earlier kind.
+	if q != "" {
+		sort.SliceStable(hits, func(i, j int) bool { return hits[i].Rank > hits[j].Rank })
 	}
 
 	response.OK(w, hits)

@@ -147,10 +147,16 @@ export function ObjectForm({
               ))}
             </select>
           ) : f.type === "int" ? (
+            // min/max come from the registry, which is also what the server
+            // checks. They used to exist only inside the label ("Impact
+            // (1-10)"), so nothing stopped a score of 500.
             <Input
               id={`obj-${f.name}`}
               className="mt-1.5"
               type="number"
+              step={1}
+              {...(f.min !== undefined ? { min: f.min } : {})}
+              {...(f.max !== undefined ? { max: f.max } : {})}
               value={String(fields[f.name] ?? "")}
               onChange={(e) => setFields((p) => ({ ...p, [f.name]: e.target.value }))}
               disabled={isPending}

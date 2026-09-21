@@ -308,6 +308,9 @@ export interface ObjectField {
   required: boolean;
   options?: string[];
   help?: string;
+  /** Bounds for an `int` field; the server enforces the same values. */
+  min?: number;
+  max?: number;
 }
 
 export interface ObjectKind {
@@ -413,11 +416,24 @@ export interface AIExecuteResult {
 }
 
 /** Pulls the suggestion list out of an output, whatever key it is under. */
+/**
+ * The suggestions in an AI output, chosen DETERMINISTICALLY.
+ *
+ * Must stay identical to `suggestionsArray` in pkg/handlers/ai_context.go:
+ * the accept call sends an INDEX into this array, and the server resolves that
+ * index against its own copy. If the two disagreed about which array they were
+ * reading, accepting a suggestion would create a different one.
+ *
+ * Keys are sorted rather than taken in object order, because the server reads
+ * a Go map whose iteration order is randomised and cannot match JSON order.
+ */
 export function aiSuggestions(content: Record<string, unknown>): Record<string, unknown>[] {
-  for (const v of Object.values(content ?? {})) {
-    if (Array.isArray(v)) return v as Record<string, unknown>[];
-  }
-  return [];
+  const arrayKeys = Object.keys(content ?? {})
+    .filter((k) => Array.isArray((content ?? {})[k]))
+    .sort();
+  const first = arrayKeys[0];
+  if (first === undefined) return [];
+  return (content[first] ?? []) as Record<string, unknown>[];
 }
 
 export const aiApi = {
@@ -558,6 +574,44 @@ export const reportsApi = {
   /** Server-rendered, self-contained HTML — the second export format. */
   exportHtmlUrl: (workshopId: string, reportId: string) =>
     `${API_BASE}/api/v1/workshops/${workshopId}/reports/${reportId}/export.html`,
+
+  /**
+   * Downloads the HTML export.
+   *
+   * This cannot be a plain `<a href download>`: the endpoint requires an
+   * `Authorization: Bearer` header, and a browser navigation sends none, so
+   * the server answered 401 and Chrome reported "Failed - Needs
+   * authorisation". Fetching it with the token and saving the response as a
+   * blob is what makes the download work at all.
+   */
+  downloadHtml: async (workshopId: string, reportId: string, filename: string) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    const res = await fetch(reportsApi.exportHtmlUrl(workshopId, reportId), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      // The endpoint answers with the standard envelope on failure.
+      let message = `Export failed (${res.status})`;
+      try {
+        const body = (await res.json()) as Envelope<unknown>;
+        if (body.error?.message) message = body.error.message;
+      } catch {
+        /* a non-JSON body leaves the status-code message in place */
+      }
+      throw new ApiError("EXPORT_FAILED", message);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoked on the next tick so the click has taken the URL first.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  },
 };
 
 // ---- Dashboard ----

@@ -62,9 +62,9 @@ Same seven accounts and the same password as the live script,
 
 ### Activating a methodology
 
-All seven ship **inactive**, so they do not appear in the workshop picker until
-you switch one on. Ask the developer, or run it yourself against the dev
-database:
+All eight are currently **active on the development database**, so they appear
+in the workshop picker with no further steps. If you need to hide one while
+testing something else, or a colleague has switched one off:
 
 ```sql
 update public.methodologies set is_active = true  where key = 'risk-iso31000';
@@ -75,8 +75,8 @@ update public.methodologies set is_active = false where key = 'risk-iso31000';
 Keys: `pestle`, `five-forces`, `capability`, `operating-model`,
 `risk-iso31000`, `business-model`, `transformation`.
 
-**Deactivate when you finish with one.** Leaving several active makes the
-picker noisy and skews workshop counts on the dashboard.
+The test suites record which methodologies are active before they run and put
+that back afterwards, so running them will not switch anything off under you.
 
 ---
 
@@ -223,6 +223,80 @@ Six external lenses, rated for impact and likelihood, distilled into drivers.
 | GEN-65 | F | Ask the developer to confirm what was written for these seven | **Seven SQL files of configuration. No Go, no React, no schema.** If anything else was needed, that is the defect |
 
 > GEN-65 is the whole point of this script.
+
+---
+
+# Part D — Defects reported against production
+
+Eight defects were reported on the live build and fixed here. The API-level
+ones are covered by `tests/suites/defects.js`; these are the four that only a
+person clicking can confirm, plus the AI one, which needs a real API key.
+
+## D.1 The participants roster
+
+> **What was wrong.** The panel called a leftover helper that fetched *the
+> first workshop row in the table*, whichever that happened to be. So a new
+> workshop showed the demo workshop's roster — people who are not members and
+> have no access. The unseen half was worse: changing a role, marking someone
+> joined, or removing them all wrote to that other workshop.
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| DEF-01 | F | Create a brand-new workshop and open its overview | The Participants panel lists **only you**, as facilitator — not the demo workshop's seven people |
+| DEF-02 | F | Open the demo workshop's overview in another tab | It still lists its own seven. The two rosters are independent |
+| DEF-03 | F | In the **new** workshop, invite someone, change their role, then remove them | Every change lands in the new workshop. Re-open the demo workshop and confirm **its** roster is untouched |
+
+## D.2 The status dot did not mean "online"
+
+> **What was wrong.** Each person carried a green dot labelled "active". There
+> is no presence in this product — no realtime at all — and "active" came from
+> `joined_at`. It read as "online now".
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| DEF-04 | F | Read the Participants panel headings and each person's status | It says **joined** / **invited**. Nothing anywhere claims a person is online or currently present |
+
+## D.3 The HTML export
+
+> **What was wrong.** The button was a plain link. The endpoint requires an
+> `Authorization: Bearer` header, which a browser navigation does not send, so
+> the server answered 401 and Chrome reported "Failed — Needs authorisation".
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| DEF-05 | F | Open a report → **HTML** | A `.html` file downloads. No "Needs authorisation" error |
+| DEF-05a | F | Open the downloaded file with the network disconnected | It renders fully — self-contained, no external requests |
+
+## D.4 Getting back to the report types
+
+> **What was wrong.** The type chooser rendered only when a workshop had *no*
+> reports. After creating the Executive Summary there was no way back to it, so
+> a second report of a different type could never be created.
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| DEF-06 | F | Create one report, then look at the report header | A **New report** button sits beside the report selector |
+| DEF-06a | F | Click it | The full list of report types appears, each with its own requirements, without leaving the report you were on |
+| DEF-06b | F | Create a second report of a different type | Both exist; the selector switches between them and the first is unchanged |
+
+## D.5 The AI assistant worked only sometimes
+
+> **What was wrong.** Two things. A single suggestion that referenced a
+> mangled id caused the **whole** output to be discarded, so six good
+> suggestions vanished with one bad one — and whether that happened depended on
+> the model, which is why it looked intermittent. Separately, the code that
+> picked the suggestions out of the response iterated a Go map, whose order is
+> randomised, so the server could index a different list than the screen showed.
+>
+> **Needs `ANTHROPIC_API_KEY` set on the dev environment.** Without it the AI
+> panel correctly hides itself and these cases cannot run.
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| DEF-07 | F | Run **Generate Themes** on Theme Analysis, several times | Suggestions appear each time. If some were dropped as unusable, the rest still arrive |
+| DEF-07a | F | Run **Generate TOWS Relationships** on the TOWS Matrix | Same — suggestions arrive rather than a blanket "AI could not complete this request" |
+| DEF-07b | F | Accept the **third** suggestion in a list | The object created is the one you clicked, not a different one |
+| DEF-07c | F | Ask the developer to check `ai_sessions` after a run | A run with dropped suggestions records how many and why, rather than discarding them silently |
 
 ---
 

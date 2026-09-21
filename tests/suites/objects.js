@@ -131,7 +131,17 @@ runSuite("objects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     const delAfter = await F("DELETE", `/workshops/${WS}/insights/${ins.data.id}`);
     r.ok(!delAfter.success, "an approved insight cannot be deleted", delAfter.error?.message);
   } finally {
-    await cleanup(c, { titlePrefixes: ["VERIFY"] });
+    // The relationships created here have no title by design, so they must
+    // be removed by id — a title prefix never matches them.
+    await cleanup(c, {
+      titlePrefixes: ["VERIFY"],
+      ids: {
+        recommendations: created.recommendations,
+        insights: created.insights,
+        factor_relationships: created.relationships,
+        syntheses: created.syntheses,
+      },
+    });
     r.note("test rows removed");
   }
 });

@@ -46,6 +46,11 @@ export function ReportBuilder({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  // The type chooser used to render ONLY in the empty state, so once any
+  // report existed there was no way back to it and a second report of a
+  // different type could never be created.
+  const [choosingType, setChoosingType] = useState(false);
 
   const contributor = workshop.my_role === "facilitator" || workshop.my_role === "analyst";
   const reviewer = roleCanReview(workshop.my_role);
@@ -83,6 +88,7 @@ export function ReportBuilder({
     mutationFn: (reportType: string) => reportsApi.create(workshop.id, { report_type: reportType }),
     onSuccess: (d) => {
       setActiveId(d.id);
+      setChoosingType(false);
       invalidate();
       toast.success("Report created");
     },
@@ -165,49 +171,55 @@ export function ReportBuilder({
     );
   }
 
+  // The report-type chooser. Reachable from the empty state AND from the
+  // header's "New report" button, so a workshop can hold more than one type.
+  const typeChooser = (
+    <div className="space-y-3 p-4">
+      {(typesQuery.data ?? []).map((t) => (
+        <div key={t.key} className="rounded-md border border-border p-3.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{t.name}</p>
+              {t.description && (
+                <p className="mt-1 text-xs text-muted-foreground">{t.description}</p>
+              )}
+              <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
+                {t.section_count} sections
+              </p>
+              {!t.can_generate && (
+                <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  Needs {t.missing.join(", ")} first.
+                </p>
+              )}
+            </div>
+            <Button
+              size="sm"
+              disabled={!t.can_generate || !contributor || create.isPending}
+              onClick={() => create.mutate(t.key)}
+            >
+              {create.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+              Create
+            </Button>
+          </div>
+        </div>
+      ))}
+      {!contributor && (
+        <p className="text-xs text-muted-foreground">
+          Only a facilitator or analyst can create a report.
+        </p>
+      )}
+    </div>
+  );
+
   // Empty state (wireframe §8.32).
   if ((listQuery.data ?? []).length === 0) {
     return (
       <section className="console-panel" data-build="live">
         <PanelHeading build="live" title="Reports" hint="none yet" />
-        <div className="space-y-3 p-4">
-          <p className="text-sm text-muted-foreground">
-            No report has been created. Choose a report type to begin.
-          </p>
-          {(typesQuery.data ?? []).map((t) => (
-            <div key={t.key} className="rounded-md border border-border p-3.5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{t.name}</p>
-                  {t.description && (
-                    <p className="mt-1 text-xs text-muted-foreground">{t.description}</p>
-                  )}
-                  <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
-                    {t.section_count} sections
-                  </p>
-                  {!t.can_generate && (
-                    <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
-                      Needs {t.missing.join(", ")} first.
-                    </p>
-                  )}
-                </div>
-                <Button
-                  size="sm"
-                  disabled={!t.can_generate || !contributor || create.isPending}
-                  onClick={() => create.mutate(t.key)}
-                >
-                  {create.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
-                  Create
-                </Button>
-              </div>
-            </div>
-          ))}
-          {!contributor && (
-            <p className="text-xs text-muted-foreground">
-              Only a facilitator or analyst can create a report.
-            </p>
-          )}
-        </div>
+        <p className="px-4 pt-4 text-sm text-muted-foreground">
+          No report has been created. Choose a report type to begin.
+        </p>
+        {typeChooser}
       </section>
     );
   }
@@ -230,6 +242,17 @@ export function ReportBuilder({
                 </option>
               ))}
             </select>
+            {contributor && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setChoosingType((v) => !v)}
+                aria-expanded={choosingType}
+              >
+                <Plus className="size-3.5" />
+                New report
+              </Button>
+            )}
             {report && (
               <span
                 className={cn(
@@ -259,15 +282,41 @@ export function ReportBuilder({
               Download PDF
             </Button>
             {report && (
-              <Button asChild size="sm" variant="outline">
-                <a href={reportsApi.exportHtmlUrl(workshop.id, report.id)} download>
-                  <Download className="size-3.5" />
-                  HTML
-                </a>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={downloading}
+                onClick={async () => {
+                  setDownloading(true);
+                  try {
+                    await reportsApi.downloadHtml(
+                      workshop.id,
+                      report.id,
+                      `${report.title.toLowerCase().replace(/\s+/g, "-")}-${report.version}.html`,
+                    );
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                  } finally {
+                    setDownloading(false);
+                  }
+                }}
+              >
+                {downloading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                HTML
               </Button>
             )}
           </div>
         </div>
+
+        {choosingType && (
+          <div className="border-b border-border bg-elevated/40">
+            <p className="px-4 pt-3 text-xs text-muted-foreground">
+              Every report type this methodology defines. Creating one leaves the
+              existing reports untouched.
+            </p>
+            {typeChooser}
+          </div>
+        )}
 
         {/* Lifecycle controls (§8.30). */}
         <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5">

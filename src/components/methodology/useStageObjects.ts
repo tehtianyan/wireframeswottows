@@ -86,13 +86,39 @@ export function useStageObjects(workshop: WorkshopDetail, stage: MethodologyStag
           }
           if (!route) return [];
           const objs = await objectsApi.list(workshopId, route);
-          return objs.map((o) => ({
-            id: o.id,
-            kind: citeKind,
-            label: o.title ?? "(untitled)",
-            ...(o.description ? { sublabel: o.description } : {}),
-            state: o.state,
-          }));
+
+          // A paired kind may legitimately have no title — a relationship is
+          // identified by its endpoints, which is why TitleRequired is false
+          // for it in the registry. Labelling those "(untitled)" made every
+          // relationship in the insight picker look identical and
+          // unselectable-by-meaning. They are named the way the relationship
+          // matrix names them: source → target.
+          const needsEndpoints = objs.some((o) => !o.title && o.source_id && o.target_id);
+          const factorTitle = new Map<string, string>();
+          if (needsEndpoints) {
+            for (const f of await workshopsApi.factors(workshopId)) {
+              factorTitle.set(f.id, f.title);
+            }
+          }
+
+          return objs.map((o) => {
+            let label = o.title ?? "";
+            if (!label && o.source_id && o.target_id) {
+              const from = factorTitle.get(o.source_id) ?? "unknown";
+              const to = factorTitle.get(o.target_id) ?? "unknown";
+              label = `${from} → ${to}`;
+            }
+            if (!label) label = "(untitled)";
+            // A relationship's prose lives in `narrative`, not `description`.
+            const sub = o.description ?? (o.fields?.["narrative"] as string | undefined);
+            return {
+              id: o.id,
+              kind: citeKind,
+              label,
+              ...(sub ? { sublabel: sub } : {}),
+              state: o.state,
+            };
+          });
         },
         enabled: citeKind === "factor" || Boolean(route),
       };

@@ -17,35 +17,39 @@ export interface ParticipantRecord {
   joined_at: string | null;
 }
 
-// There is exactly one workshop in this prototype today, so the roster is
-// scoped to whichever workshop row exists rather than a workshop-switcher.
-async function getSeedWorkshopId(): Promise<string> {
-  const { data, error } = await supabase.from("workshops").select("id").limit(1).single();
-  if (error) throw error;
-  return data.id;
+// Every function here takes the workshop it operates on.
+//
+// They used to call a getSeedWorkshopId() helper that did
+// `from("workshops").select("id").limit(1).single()` — the FIRST workshop row
+// in the table, whichever that happened to be — left over from when there was
+// only one. The visible symptom was that a newly created workshop showed the
+// demo workshop's roster: people who are not members of it and have no access
+// to it. The unseen half was worse: changing a role, activating or removing a
+// participant all wrote to that other workshop instead.
+export function participantsQueryOptions(workshopId: string) {
+  return queryOptions({
+    queryKey: ["workshop-participants", workshopId],
+    queryFn: async (): Promise<ParticipantRecord[]> => {
+      const { data, error } = await supabase
+        .from("workshop_roster")
+        .select("*")
+        .eq("workshop_id", workshopId)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as ParticipantRecord[];
+    },
+    enabled: Boolean(workshopId),
+  });
 }
 
-export const participantsQueryOptions = queryOptions({
-  queryKey: ["workshop-participants"],
-  queryFn: async (): Promise<ParticipantRecord[]> => {
-    const workshopId = await getSeedWorkshopId();
-    const { data, error } = await supabase
-      .from("workshop_roster")
-      .select("*")
-      .eq("workshop_id", workshopId)
-      .order("name", { ascending: true });
-    if (error) throw error;
-    return (data ?? []) as ParticipantRecord[];
-  },
-});
-
-export async function inviteParticipant(input: { name: string; email: string; role: ParticipantRole }) {
-  const workshopId = await getSeedWorkshopId();
+export async function inviteParticipant(
+  workshopId: string,
+  input: { name: string; email: string; role: ParticipantRole },
+) {
   await inviteParticipantFn({ data: { workshopId, ...input } });
 }
 
-export async function updateParticipantRole(id: string, role: ParticipantRole) {
-  const workshopId = await getSeedWorkshopId();
+export async function updateParticipantRole(workshopId: string, id: string, role: ParticipantRole) {
   const { error } = await supabase
     .from("workshop_members")
     .update({ role })
@@ -54,8 +58,7 @@ export async function updateParticipantRole(id: string, role: ParticipantRole) {
   if (error) throw error;
 }
 
-export async function activateParticipant(id: string) {
-  const workshopId = await getSeedWorkshopId();
+export async function activateParticipant(workshopId: string, id: string) {
   const { error } = await supabase
     .from("workshop_members")
     .update({ joined_at: new Date().toISOString() })
@@ -64,8 +67,7 @@ export async function activateParticipant(id: string) {
   if (error) throw error;
 }
 
-export async function removeParticipant(id: string) {
-  const workshopId = await getSeedWorkshopId();
+export async function removeParticipant(workshopId: string, id: string) {
   const { error } = await supabase
     .from("workshop_members")
     .delete()

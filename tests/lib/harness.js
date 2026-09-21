@@ -162,13 +162,22 @@ async function db() {
  * the reports_immutable trigger — so the harness disables the guard rather
  * than pretending it is not there.
  */
-async function cleanup(c, { titlePrefixes = [], allReports = false } = {}) {
+async function cleanup(c, { titlePrefixes = [], allReports = false, ids = {} } = {}) {
   if (allReports) {
     await c.query("alter table public.reports disable trigger reports_immutable");
     await c.query("alter table public.report_sections disable trigger report_sections_frozen");
     await c.query("delete from public.reports");
     await c.query("alter table public.reports enable trigger reports_immutable");
     await c.query("alter table public.report_sections enable trigger report_sections_frozen");
+  }
+  // Deleting by id first, because not every object HAS a title to match on:
+  // a relationship is identified by its endpoints, so TitleRequired is false
+  // for it and title-prefix cleanup silently skipped every one. They then
+  // accumulated in the demo workshop, one or more per run.
+  for (const [table, list] of Object.entries(ids)) {
+    if (Array.isArray(list) && list.length > 0) {
+      await c.query(`delete from public.${table} where id = any($1)`, [list]);
+    }
   }
   for (const prefix of titlePrefixes) {
     for (const table of ["recommendations", "insights", "factor_relationships", "syntheses", "factors"]) {
