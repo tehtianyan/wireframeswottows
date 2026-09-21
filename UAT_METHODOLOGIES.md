@@ -22,11 +22,17 @@ Two terminals. **Pause Dropbox first** — it corrupts `node_modules/.vite` and
 the app then renders with nothing interactive. That is an environment fault,
 not a defect.
 
+**Both terminals must be in `wireframeswottows/`**, not the folder above it.
+That is where `go.mod` and `.env.dev` live; running from the parent gives
+`go: go.mod file not found in current directory or any parent directory`.
+
 ```bash
 # terminal 1 — the API, against the development database
+cd "<repo>/20260825 session on claude for UI/wireframeswottows"
 go run ./cmd/devserver -env .env.dev -port 3001
 
 # terminal 2 — the UI, loading .env.dev for its own variables
+cd "<repo>/20260825 session on claude for UI/wireframeswottows"
 npx vite dev --mode dev
 ```
 
