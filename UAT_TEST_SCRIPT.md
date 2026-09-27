@@ -17,10 +17,10 @@ listed with their cases withheld so the document stays a single source of truth.
 
 **Phases 0-5 are testable now.**
 
-Before starting, consider running the automated suites — they cover 333 API-level checks in
+Before starting, consider running the automated suites — they cover 348 API-level checks in
 a few minutes and will catch anything broken at the API before you spend time clicking.
-(Some of those checks exercise methodologies not yet on the live site; they pass because
-they run against the development database.)
+They are pointed at a development database, not the live site: several suites create,
+approve and delete rows, and one resets workshop statuses.
 
 ```bash
 npx vercel@59.5.0 dev      # in one terminal
@@ -29,15 +29,21 @@ node tests/run-all.js      # in another
 
 This script covers what those cannot: that the screens are usable, legible and honest.
 
-> **PESTLE is live, and no longer a hidden fixture.** The workshop picker on the live site
-> offers **two** methodologies — SWOT-TOWS and PESTLE — where it used to offer one, and
-> nobody has to ask a developer to switch anything on. This script still runs on SWOT-TOWS
-> throughout, and its §1.5, §2.6, §3.4 and §4.6 genericity suites still use PESTLE.
+> **All eight methodologies are now live.** The workshop picker offers SWOT-TOWS, PESTLE,
+> Porter's Five Forces, Capability Assessment, Operating Model, Risk Assessment, Business
+> Model Assessment and Transformation Planning — where it used to offer one, and nobody has
+> to ask a developer to switch anything on.
 >
-> Six further methodologies are **built but not yet deployed**. They are deliberately being
-> held back until this UAT round finishes, so the product does not shift under you mid-run.
-> They are testable today on a separate development database — see
-> **`UAT_METHODOLOGIES.md`**, which is a different script for a different environment.
+> This script still runs on **SWOT-TOWS** throughout, and its §1.5, §2.6, §3.4 and §4.6
+> genericity suites still use PESTLE. The per-methodology cases for the other six are in
+> **`UAT_METHODOLOGIES.md`**, which was written against a development database — its setup
+> instructions point at `localhost`, so use this script for the live site.
+>
+> **Voting was rewritten underneath.** It now runs on the same mechanism as the new rating
+> scales, with the same endpoints, shapes and behaviour. §1.3 is therefore worth re-running
+> even though nothing about it should have changed. One deliberate correction: the
+> Participants panel's "votes used" now counts votes SPENT rather than factors voted on, and
+> its status now reads joined/invited rather than a green dot that looked like presence.
 
 ---
 
@@ -163,8 +169,8 @@ wireframe spec it is a mode available on every workspace, not a separate stage.
 | ID | Role | Steps | Expected result | Spec Ref |
 | --- | --- | --- | --- | --- |
 | WIZ-01 | F | Click **New workshop** from `/w` | Three-step wizard: Methodology → Details → Confirm | `AS §6.4` |
-| WIZ-02 | F | Read step 1 | A methodology **picker**, not a fixed SWOT-TOWS form. **SWOT-TOWS and PESTLE** are both listed, each showing its own category and stage counts — SWOT-TOWS is one option among several, not the default with extras | `AS §6.4`, `CL` |
-| WIZ-02a | F | Compare the options against §1.5's table | Exactly the methodologies marked **live** there appear. One missing is a defect; one present that the table does not mark live means something was deployed early — report it either way | `CL` |
+| WIZ-02 | F | Read step 1 | A methodology **picker**, not a fixed SWOT-TOWS form. **All eight** are listed, each showing its own category and stage counts — SWOT-TOWS is one option among several, not the default with extras | `AS §6.4`, `CL` |
+| WIZ-02a | F | Compare the options against §1.5's table | All eight appear, with the category counts that table gives. A missing one, or a count that disagrees, is a defect | `CL` |
 | WIZ-03 | F | Try **Next** without choosing a methodology | Disabled until a choice is made | `AS §6.4` |
 | WIZ-04 | F | On step 2, leave the name blank | **Next** disabled | `AS §2.16` |
 | WIZ-05 | F | Complete all steps and create | Lands on the new workshop's **stage 1**; a toast confirms creation | `AS §2.16` |
@@ -180,36 +186,33 @@ wireframe spec it is a mode available on every workspace, not a separate stage.
 > components (`CL` → Generic Methodology Engine). These cases test that claim directly.
 > A failure here is **Critical**: it means the engine has a methodology baked into it.
 
-**Changed: PESTLE is live.** It used to be a hidden fixture you asked a developer to switch
-on and off. It is now a methodology anyone can pick, so there is no activation step and
-nothing to turn off afterwards. If an earlier copy of this script told you to run an
+**Changed: the methodologies are live and there is no activation step.** PESTLE used to be a
+hidden fixture you asked a developer to switch on and off. It, and six more, are now ordinary
+options in the picker. If an earlier copy of this script told you to run an
 `update ... set is_active` statement, ignore it.
 
-PESTLE has **six** factor categories and a **six**-vote budget, both different from
-SWOT-TOWS — which is what makes it worth testing here.
+This suite still uses PESTLE, because its job is to prove the *engine* is generic rather than
+to test each methodology's content. PESTLE has **six** factor categories and a **six**-vote
+budget, both different from SWOT-TOWS, which is what makes it the useful probe.
 
-| Methodology | Categories | Live on the site? | Notable |
-| --- | --- | --- | --- |
-| SWOT-TOWS | 4 | **yes** | the original; has a TOWS matrix |
-| PESTLE | 6 | **yes** | rates impact and likelihood; **no** recommendations stage |
-| Porter's Five Forces | 5 | not yet | **no** prioritization stage; rates each force |
-| Capability Assessment | 6 | not yet | rates current *and* target maturity |
-| Operating Model | 6 | not yet | POLISM; rates pain severity |
-| Risk Assessment | 6 | not yet | likelihood and consequence, inherent and residual |
-| Business Model Assessment | 9 | not yet | nine canvas blocks; two fit tests, no TOWS matrix |
-| Transformation Planning | 6 | not yet | dependencies between any two initiatives; a wave roadmap |
+| Methodology | Categories | Notable |
+| --- | --- | --- |
+| SWOT-TOWS | 4 | the original; has a TOWS matrix |
+| PESTLE | 6 | rates impact and likelihood; **no** recommendations stage |
+| Porter's Five Forces | 5 | **no** prioritization stage; rates each force |
+| Capability Assessment | 6 | rates current *and* target maturity |
+| Operating Model | 6 | POLISM; rates pain severity |
+| Risk Assessment | 6 | likelihood and consequence, inherent and residual |
+| Business Model Assessment | 9 | nine canvas blocks; two fit tests, no TOWS matrix |
+| Transformation Planning | 6 | dependencies between any two initiatives; a wave roadmap |
 
-> The six marked "not yet" are built and tested but **deliberately not deployed** until this
-> UAT round finishes. Do not raise a defect that they are missing from the picker — that is
-> the current intent. They are testable now on the development database via
-> **`UAT_METHODOLOGIES.md`**, which is a separate script for a separate environment.
->
-> This suite stays focused on PESTLE, because its job is to prove the *engine* is generic
-> rather than to test each methodology's content.
+> Per-methodology cases for the six beyond SWOT-TOWS and PESTLE are in
+> **`UAT_METHODOLOGIES.md`**. Its *setup* section targets a development database; the cases
+> themselves apply to the live site now that these are deployed.
 
 | ID | Role | Steps | Expected result | Spec Ref |
 | --- | --- | --- | --- | --- |
-| GEN-01 | F | Open the creation wizard | **Every methodology in the table above appears**, with no code deployment between them | `CL` |
+| GEN-01 | F | Open the creation wizard | **Every methodology in the table above appears.** Seven of the eight were added as configuration only — no Go, no React, no schema | `CL` |
 | GEN-02 | F | Read PESTLE's summary in the picker | 6 factor categories, 7 stages | `CL` |
 | GEN-03 | F | Create a PESTLE workshop | Succeeds through the same wizard | `CL` |
 | GEN-04 | F | Open its overview | Stages read Political, Economic, Social, Technological, Legal, Environmental Discovery, then Prioritization | `CL` |
@@ -540,11 +543,18 @@ Do not raise defects against these — they were never built, by decision:
 
 Three corrections to earlier versions of this document, which said otherwise:
 
-- **PESTLE is live and there is no activation step.** It used to be a hidden fixture you
-  asked a developer to switch on with an `update ... set is_active` statement and off again
-  afterwards. It is now an ordinary option in the workshop picker. WIZ-02 has been
-  re-baselined accordingly, and §1.5 lists which methodologies you should expect — and
-  which six are built but deliberately not yet deployed.
+- **All eight methodologies are live and there is no activation step.** PESTLE used to be a
+  hidden fixture you asked a developer to switch on with an `update ... set is_active`
+  statement and off again afterwards. It, and six more, are now ordinary options in the
+  picker. WIZ-02 is re-baselined and §1.5 lists all eight with their category counts. An
+  earlier copy of this document marked six as "not yet" deployed — that is no longer true.
+- **Voting runs on a new mechanism** (the same one behind the new rating scales), with
+  identical endpoints and behaviour. Re-run §1.3. Two deliberate corrections in the
+  Participants panel: "votes used" counts votes SPENT rather than factors voted on, and
+  status reads joined/invited rather than a green dot that read as presence.
+- **The AI assistant runs `claude-haiku-4-5`**, chosen for cost and speed rather than
+  capability. Judge the governance — nothing is added without you accepting it — not the
+  literary quality of the suggestions.
 
 - The **Executive Dashboard, Administration screens and Notifications are now built** and
   are tested in §5.2–5.4. An earlier version listed them as out of scope. Please do raise
