@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { StageShell } from "@/components/methodology/StageShell";
 import { CaptureCanvas } from "@/components/methodology/CaptureCanvas";
+import { CaptureBoard } from "@/components/methodology/CaptureBoard";
 import { PrioritizationGrid } from "@/components/methodology/PrioritizationGrid";
 import { ReviewBoard } from "@/components/methodology/ReviewBoard";
 import { EvidenceBoard } from "@/components/methodology/EvidenceBoard";
@@ -10,6 +11,7 @@ import { RelationshipMatrix } from "@/components/methodology/RelationshipMatrix"
 import { AiActionPanel } from "@/components/methodology/AiActionPanel";
 import { ReportBuilder } from "@/components/methodology/ReportBuilder";
 import { workshopsApi } from "@/lib/api";
+import { useCurrentPerson } from "@/lib/useCurrentPerson";
 
 // Search params are the stage's own view mode. `validateSearch` must return a
 // key only when it is set — returning `{ mode: undefined }` widens the type
@@ -46,6 +48,7 @@ export const Route = createFileRoute("/w/$workshopId/stage/$stageKey")({
 });
 
 function StagePage() {
+  const me = useCurrentPerson();
   const { workshopId, stageKey } = Route.useParams();
   const { mode } = Route.useSearch();
 
@@ -97,6 +100,11 @@ function StagePage() {
       if (!category) {
         return <p className="p-6 text-sm text-destructive">This capture stage has no factor category configured.</p>;
       }
+      // A methodology opts into the wall-of-sticky-notes board with
+      // `"layout": "board"` on its capture stages; everything else keeps the
+      // single-category canvas. The board's grid comes from the category
+      // count, so nothing here is SWOT-shaped.
+      const board = stage.config["layout"] === "board";
       return (
         <StageShell
           workshop={workshop}
@@ -105,7 +113,17 @@ function StagePage() {
           guidance={category.guidance_text}
           aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
         >
-          <CaptureCanvas workshopId={workshop.id} category={category} myRole={workshop.my_role} />
+          {board ? (
+            <CaptureBoard
+              workshopId={workshop.id}
+              methodology={workshop.methodology}
+              stage={stage}
+              myRole={workshop.my_role}
+              me={me}
+            />
+          ) : (
+            <CaptureCanvas workshopId={workshop.id} category={category} myRole={workshop.my_role} />
+          )}
         </StageShell>
       );
     }

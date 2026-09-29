@@ -116,6 +116,33 @@ runSuite("weights", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
       "the roster view sums allocations across factors, so the Participants panel is right",
       roster.rows[0]?.votes_used);
 
+    // ---- deleting a weighted object ---------------------------------
+    //
+    // weights.DeleteForObject existed but was NEVER CALLED until 2026-09-29.
+    // A weight has no foreign key back to its object — the reference is
+    // polymorphic across five tables — so the rows outlived their factor and
+    // kept counting towards the owner's budget. Deleting a factor you had
+    // voted on silently spent those votes forever.
+    r.section("deleting an object takes its weights with it");
+
+    const doomed = await F("POST", `/workshops/${WS}/factors`,
+      { category_key: "strength", title: "WEIGHT probe: about to be deleted" });
+    await P("PUT", `/workshops/${WS}/factors/${doomed.data.id}/vote`, { value: 2 });
+
+    const spentBefore = (await P("GET", `/workshops/${WS}/votes`)).data.used;
+    r.ok(spentBefore > 0, "the vote counts against the budget while the factor lives", spentBefore);
+
+    await F("DELETE", `/workshops/${WS}/factors/${doomed.data.id}`);
+
+    const orphans = await c.query(
+      `select count(*)::int n from public.weights where object_id = $1`, [doomed.data.id]);
+    r.ok(orphans.rows[0].n === 0, "its weights are gone too, not orphaned", orphans.rows[0].n);
+
+    const spentAfter = (await P("GET", `/workshops/${WS}/votes`)).data.used;
+    r.ok(spentAfter === spentBefore - 2,
+      "and the budget is given back rather than silently consumed",
+      `${spentBefore} -> ${spentAfter}`);
+
     await c.query(`delete from public.weights where workshop_id = $1`, [WS]);
 
     // ---- scales the engine must not assume --------------------------

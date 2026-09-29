@@ -23,6 +23,7 @@ import (
 	"swot-tows/pkg/authz"
 	"swot-tows/pkg/httpctx"
 	"swot-tows/pkg/response"
+	"swot-tows/pkg/weights"
 )
 
 // Roles permitted to make review decisions. Naming them once keeps the
@@ -36,12 +37,16 @@ type Factor struct {
 	Title       string  `json:"title"`
 	Description *string `json:"description"`
 	CreatedBy   *string `json:"created_by"`
-	State       string  `json:"state"`
-	Votes       int     `json:"votes"`
-	ReviewedBy  *string `json:"reviewed_by"`
-	ReviewedAt  *string `json:"reviewed_at"`
-	ReviewNote  *string `json:"review_note"`
-	CreatedAt   string  `json:"created_at"`
+	// CreatedByName is the author's display name, joined here rather than
+	// looked up per note by the client — the capture board puts initials on
+	// every sticky, so N notes must not mean N round trips.
+	CreatedByName *string `json:"created_by_name"`
+	State         string  `json:"state"`
+	Votes         int     `json:"votes"`
+	ReviewedBy    *string `json:"reviewed_by"`
+	ReviewedAt    *string `json:"reviewed_at"`
+	ReviewNote    *string `json:"review_note"`
+	CreatedAt     string  `json:"created_at"`
 }
 
 // ListFactors — GET /workshops/{id}/factors?category=strength&state=submitted
@@ -66,13 +71,18 @@ func ListFactors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-		select f.id, f.workshop_id, mfc.key, f.title, f.description, f.created_by, f.state,
+		select f.id, f.workshop_id, mfc.key, f.title, f.description, f.created_by,
+		       coalesce(nullif(trim(p.display_name), ''),
+		                nullif(trim(coalesce(p.first_name,'') || ' ' || coalesce(p.last_name,'')), ''),
+		                p.email) as created_by_name,
+		       f.state,
 		       coalesce((select sum(w.value) from public.weights w
 		                 where w.object_id = f.id and w.weight_key = 'vote'), 0)::int as votes,
 		       f.reviewed_by, f.reviewed_at, f.review_note,
 		       f.created_at
 		from public.factors f
 		join public.methodology_factor_categories mfc on mfc.id = f.factor_category_id
+		left join public.profiles p on p.id = f.created_by
 		where f.workshop_id = $1`
 	args := []interface{}{workshopID}
 
@@ -106,7 +116,7 @@ func ListFactors(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		var reviewedAt *time.Time
 		if err := rows.Scan(&f.ID, &f.WorkshopID, &f.CategoryKey, &f.Title, &f.Description, &f.CreatedBy,
-			&f.State, &f.Votes, &f.ReviewedBy, &reviewedAt, &f.ReviewNote, &createdAt); err != nil {
+			&f.CreatedByName, &f.State, &f.Votes, &f.ReviewedBy, &reviewedAt, &f.ReviewNote, &createdAt); err != nil {
 			response.Fail(w, response.CodeServerError, err.Error())
 			return
 		}
@@ -199,6 +209,11 @@ func CreateFactor(w http.ResponseWriter, r *http.Request) {
 type updateFactorBody struct {
 	Title       *string `json:"title"`
 	Description *string `json:"description"`
+	// CategoryKey moves a factor to another category — what dragging a sticky
+	// note into a different quadrant does on the capture board. Omitted leaves
+	// it where it is. Resolved through the workshop's own methodology, exactly
+	// as CreateFactor does, so a key from a different methodology is refused.
+	CategoryKey *string `json:"category_key"`
 }
 
 // UpdateFactor — PATCH /workshops/{id}/factors/{factorId}.
@@ -242,16 +257,59 @@ func UpdateFactor(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if _, err := pool.Exec(ctx,
+	// Moving between categories. The frozen check above already refused a
+	// reviewed factor, so an approved note cannot be dragged elsewhere.
+	categoryID := ""
+	if body.CategoryKey != nil {
+		key := strings.TrimSpace(*body.CategoryKey)
+		if key == "" {
+			response.Fail(w, response.CodeValidationError, "category_key cannot be empty")
+			return
+		}
+		err := pool.QueryRow(ctx, `
+			select mfc.id from public.methodology_factor_categories mfc
+			join public.workshops w on w.methodology_id = mfc.methodology_id
+			where w.id = $1 and mfc.key = $2`, f.workshopID, key,
+		).Scan(&categoryID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			response.Fail(w, response.CodeValidationError,
+				"unknown factor category for this workshop's methodology")
+			return
+		}
+		if err != nil {
+			response.Fail(w, response.CodeServerError, err.Error())
+			return
+		}
+	}
+
+	if categoryID != "" {
+		// The activity is re-pointed too, so the factor belongs to the stage
+		// that captures its new category rather than the one it came from.
+		if _, err := pool.Exec(ctx, `
+			update public.factors
+			set title = $2, description = $3, factor_category_id = $4,
+			    activity_id = (
+			      select a.id from public.activities a
+			      join public.methodology_stages ms on ms.id = a.stage_id
+			      where a.workshop_id = $5 and (ms.config->>'factor_category_key') = $6
+			      limit 1)
+			where id = $1`,
+			f.id, title, description, categoryID, f.workshopID, strings.TrimSpace(*body.CategoryKey)); err != nil {
+			response.Fail(w, response.CodeServerError, err.Error())
+			return
+		}
+	} else if _, err := pool.Exec(ctx,
 		`update public.factors set title = $2, description = $3 where id = $1`,
 		f.id, title, description); err != nil {
 		response.Fail(w, response.CodeServerError, err.Error())
 		return
 	}
 
-	audit.Record(ctx, pool, user.ID, "factor.updated", "factor", f.id, f.state, f.state, map[string]interface{}{
-		"workshop_id": f.workshopID,
-	})
+	meta := map[string]interface{}{"workshop_id": f.workshopID}
+	if body.CategoryKey != nil {
+		meta["moved_to_category"] = strings.TrimSpace(*body.CategoryKey)
+	}
+	audit.Record(ctx, pool, user.ID, "factor.updated", "factor", f.id, f.state, f.state, meta)
 	response.OK(w, map[string]string{"id": f.id})
 }
 
@@ -266,6 +324,16 @@ func DeleteFactor(w http.ResponseWriter, r *http.Request) {
 	if f.state == "approved" {
 		response.Fail(w, response.CodeInvalidStateTransition,
 			"Approved factors cannot be deleted — reject it instead so the decision stays on the record.")
+		return
+	}
+
+	// Weights carry no foreign key to the object — the reference is polymorphic
+	// across five tables — so they must be removed explicitly. Without this the
+	// rows survive their factor and keep counting towards a participant's
+	// budget, so deleting a factor you voted on silently spends those votes
+	// forever.
+	if err := weights.DeleteForObject(ctx, pool, f.workshopID, f.id); err != nil {
+		response.Fail(w, response.CodeServerError, err.Error())
 		return
 	}
 

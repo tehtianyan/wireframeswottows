@@ -272,6 +272,8 @@ export interface Factor {
   id: string;
   workshop_id: string;
   category_key: string;
+  /** Author's display name, joined server-side so the board can show initials. */
+  created_by_name?: string | null;
   title: string;
   description: string | null;
   created_by: string | null;
@@ -910,8 +912,12 @@ export const workshopsApi = {
   },
   createFactor: (id: string, input: { category_key: string; title: string; description?: string }) =>
     apiPost<{ id: string }>(`/workshops/${id}/factors`, input),
-  updateFactor: (id: string, factorId: string, input: { title?: string; description?: string }) =>
-    apiPatch<{ id: string }>(`/workshops/${id}/factors/${factorId}`, input),
+  /** `category_key` moves the factor — what dragging a note between quadrants does. */
+  updateFactor: (
+    id: string,
+    factorId: string,
+    input: { title?: string; description?: string; category_key?: string },
+  ) => apiPatch<{ id: string }>(`/workshops/${id}/factors/${factorId}`, input),
   deleteFactor: (id: string, factorId: string) =>
     apiDelete<{ id: string }>(`/workshops/${id}/factors/${factorId}`),
   reviewFactor: (id: string, factorId: string, input: { action: "approve" | "reject"; note?: string }) =>

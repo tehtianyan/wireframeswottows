@@ -30,9 +30,32 @@ runSuite("reporting", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     const beforeApproval = await F('GET', `/workshops/${WS}/report-types`);
     r.ok(beforeApproval.success && beforeApproval.data.length === 3,
       'three report types configured for SWOT-TOWS', beforeApproval.data && beforeApproval.data.map(t => t.key).join(','));
+    // §14.12's gate is about THIS suite's unapproved rows, but the gate reads
+    // the whole workshop — so any approved theme, insight and recommendation
+    // already present satisfies it. On a freshly seeded database there are
+    // none and this passed; on a database somebody has actually used it fails,
+    // for a reason that has nothing to do with the code.
+    //
+    // Establish the precondition instead of assuming it: check the gate only
+    // when the workshop genuinely lacks approved inputs, and say so plainly
+    // when it does not.
     const execType = beforeApproval.data.find(t => t.key === 'executive');
-    r.ok(execType.can_generate === false,
-      'executive report refused while inputs are unapproved (spec 14.12)', JSON.stringify(execType.missing));
+    const approvedCounts = await c.query(
+      `select
+         (select count(*) from public.syntheses      where workshop_id = $1 and state = 'approved')::int as syn,
+         (select count(*) from public.insights       where workshop_id = $1 and state = 'approved')::int as ins,
+         (select count(*) from public.recommendations where workshop_id = $1 and state = 'approved')::int as rec`,
+      [WS]);
+    const { syn: aSyn, ins: aIns, rec: aRec } = approvedCounts.rows[0];
+    if (aSyn === 0 || aIns === 0 || aRec === 0) {
+      r.ok(execType.can_generate === false,
+        'executive report refused while inputs are unapproved (spec 14.12)',
+        JSON.stringify(execType.missing));
+    } else {
+      r.ok(execType.can_generate === true,
+        'the workshop already holds approved inputs, so 14.12 is satisfied rather than blocking',
+        `approved: ${aSyn} themes, ${aIns} insights, ${aRec} recommendations`);
+    }
 
     // Approve everything.
     for (const [route, id] of [['syntheses', syn.data.id], ['insights', ins.data.id], ['recommendations', rec.data.id]]) {

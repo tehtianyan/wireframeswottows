@@ -29,6 +29,7 @@ import (
 	"swot-tows/pkg/httpctx"
 	"swot-tows/pkg/objects"
 	"swot-tows/pkg/response"
+	"swot-tows/pkg/weights"
 )
 
 // Object is the wire shape shared by every kind. Kind-specific columns live
@@ -234,9 +235,9 @@ type writeObjectBody struct {
 	// Evidence replaces the object's citations wholesale when present.
 	Evidence map[string][]string `json:"evidence"`
 	// Paired kinds only.
-	SourceID             *string `json:"source_id"`
-	TargetID             *string `json:"target_id"`
-	RelationshipTypeKey  *string `json:"relationship_type_key"`
+	SourceID            *string `json:"source_id"`
+	TargetID            *string `json:"target_id"`
+	RelationshipTypeKey *string `json:"relationship_type_key"`
 }
 
 // CreateObject — POST /workshops/{id}/{kind}
@@ -492,6 +493,13 @@ func DeleteObject(w http.ResponseWriter, r *http.Request) {
 			"Approved items cannot be deleted — reject it instead so the decision stays on the record.")
 		return
 	}
+	// Same as factors: a weight has no foreign key back to its object, so it
+	// outlives the row unless removed here — and an orphan still counts.
+	if err := weights.DeleteForObject(ctx, pool, row.workshopID, row.id); err != nil {
+		response.Fail(w, response.CodeServerError, err.Error())
+		return
+	}
+
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`delete from public.%s where id = $1`, kind.Table), row.id); err != nil {
 		response.Fail(w, response.CodeServerError, err.Error())
 		return

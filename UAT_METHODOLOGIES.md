@@ -308,6 +308,83 @@ person clicking can confirm, plus the AI one, which needs a real API key.
 
 ---
 
+# Part E — The capture board
+
+The four Discovery stages now show the whole wall at once: every factor category as a panel
+of sticky notes, filling in live as people contribute.
+
+> **The grid is not a SWOT quadrant.** It is laid out from the number of categories the
+> methodology declares — four give the 2×2, PESTLE's six give 3×2, the Business Model
+> Canvas's nine give 3×3 — from one component that names no methodology. Only SWOT-TOWS has
+> the board switched on; the rest keep the single-category view until someone decides
+> otherwise.
+
+## E.1 The board itself
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| BRD-01 | F | Open a SWOT-TOWS workshop → Strength Discovery | **Four panels in a 2×2**, one per category, each in its own colour |
+| BRD-02 | F | Look at the Strength panel | It is the **focused** one — coloured top edge, "this stage" label, and its guidance text. The others show notes only |
+| BRD-03 | F | Move to Weakness Discovery | The same board; the focus moves to Weakness. The wall does not reload or change shape |
+| BRD-04 | F | Count notes against the Review board | The same factors, same counts. The board is a view of the data, not a second store |
+| BRD-05 | F | Enable PESTLE and open one of its capture stages | Single-column capture, **not** a board — it has not opted in. Confirms the layout is config |
+
+## E.2 Sticky notes
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| BRD-10 | P | Click the "Add a note…" box in the focused panel, type, press Enter | The note posts immediately and the box clears, ready for the next. No dialog |
+| BRD-11 | P | Read your note | It carries the panel's colour and **your initials** bottom-right |
+| BRD-12 | P | Add a note, then look at its state | It shows **in review** — the governance lifecycle is visible on the wall, not hidden |
+| BRD-13 | P | Click a note you can edit, change the text, press Enter | It saves in place. Escape cancels |
+| BRD-14 | F | Approve a note in Review mode, return to the board | The approved note no longer shows a state pill and can no longer be edited |
+
+## E.3 Moving a note
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| BRD-20 | F | Drag a note from Strength onto Opportunity | It moves. The target panel highlights while dragging |
+| BRD-21 | F | Check the Review board | The note is now in Opportunity there too |
+| BRD-22 | F | Try to drag an **approved** note | Refused: "A reviewed note cannot be moved. Reject it instead…" |
+| BRD-23 | F | Use the **"Move a note to…"** picker at the foot of a panel | Same result without a mouse — dragging must not be the only way |
+
+## E.4 Live collaboration
+
+> Two browsers, two different accounts, the same workshop and stage. A second browser
+> profile or a private window is enough.
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| BRD-30 | F+P | Open the board in both | Both show **Live — notes appear as people add them**, and "In the room" lists both people's initials |
+| BRD-31 | P | Add a note in one browser | It appears in the other **without a refresh**, within about a second |
+| BRD-32 | F | Drag a note to another panel in one browser | It moves in the other too |
+| BRD-33 | F | Close one browser | That person drops out of "In the room" in the other |
+| BRD-34 | F | Ask the developer to block the websocket, then reload | It says **"Live updates unavailable — refreshing every few seconds instead"** and still works. It must never claim to be live when it is not |
+
+## E.5 Who may write where
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| BRD-40 | F | Look at all four panels as a facilitator | Every panel has an add box, and the header says "You can add to any panel" |
+| BRD-41 | P | Look at the same board as a participant | Only the **focused** panel has an add box |
+| BRD-42 | E | Open the board as an executive viewer | No add boxes anywhere, and notes cannot be dragged |
+
+> BRD-41 is an **affordance, not a boundary**. The create endpoint has never been scoped to a
+> stage, so a participant posting to another category through the API is allowed today and
+> stays allowed. Do not raise that as a defect against this release.
+
+## E.6 Access, which Realtime now depends on
+
+> **The one case worth testing carefully.** Live updates are authorised by Postgres RLS
+> alone, not by the Go API — the only place in the product where that is true.
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| BRD-50 | F | Have the developer remove your **workspace** membership while leaving workshop membership, then watch the board | Live updates stop and the workshop becomes inaccessible. If notes keep arriving, that is **Critical** |
+| BRD-51 | F | Restore membership | The board works again |
+
+---
+
 ## Known gaps, stated up front
 
 Do not raise defects against these — they were decided, not overlooked.

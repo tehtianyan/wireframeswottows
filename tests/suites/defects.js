@@ -136,6 +136,40 @@ runSuite("defects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
       "with no query there is nothing to rank, and everything is returned",
       noQuery.length);
 
+    // ---- the capture board ------------------------------------------
+    r.section("board — moving a note between categories");
+
+    const mover = await F("POST", `/workshops/${WS}/factors`, {
+      category_key: "strength", title: "DEFECT probe: a note to move",
+    });
+    made.factors.push(mover.data.id);
+
+    let mv = await F("PATCH", `/workshops/${WS}/factors/${mover.data.id}`,
+      { category_key: "opportunity" });
+    r.ok(mv.success, "a note can be moved to another category — what dragging does",
+      mv.error?.message);
+
+    const moved = (await F("GET", `/workshops/${WS}/factors`)).data
+      .find((f) => f.id === mover.data.id);
+    r.ok(moved?.category_key === "opportunity", "and it lands in the new quadrant",
+      moved?.category_key);
+
+    mv = await F("PATCH", `/workshops/${WS}/factors/${mover.data.id}`,
+      { category_key: "political" });
+    r.ok(!mv.success && /unknown factor category/.test(mv.error?.message ?? ""),
+      "a category from ANOTHER methodology is refused", mv.error?.message);
+
+    r.ok(typeof moved?.created_by_name === "string" && moved.created_by_name.length > 0,
+      "factors carry an author name, so a note can show initials without N round trips",
+      moved?.created_by_name);
+
+    // A decided note is frozen: an approval refers to text somebody approved,
+    // in a category somebody approved it in.
+    await F("POST", `/workshops/${WS}/factors/${mover.data.id}/review`, { action: "approve" });
+    mv = await F("PATCH", `/workshops/${WS}/factors/${mover.data.id}`,
+      { category_key: "threat" });
+    r.ok(!mv.success, "an APPROVED note cannot be dragged elsewhere", mv.error?.message);
+
     // ---- 5: one bad id discarded every suggestion --------------------
     // The AI path itself needs a real API key, so what is checked here is the
     // deterministic selection the accept path depends on. The drop-invalid

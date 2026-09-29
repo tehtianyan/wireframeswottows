@@ -7,7 +7,8 @@
 // impossible to see by reading a passing test that only checks happy paths —
 // so this test proves it empirically, by removing a real user's membership
 // and confirming results drop to zero.
-import { runSuite, client, token, ACCOUNTS } from "../lib/harness.js";
+import { createClient } from "@supabase/supabase-js";
+import { runSuite, client, token, env, ACCOUNTS } from "../lib/harness.js";
 
 runSuite("scoping", async ({ baseUrl, results: r, c }) => {
   // Deliberately an executive viewer: the least-privileged real account, so a
@@ -59,6 +60,39 @@ runSuite("scoping", async ({ baseUrl, results: r, c }) => {
     r.ok(exec.success && exec.data.published_reports === 0 && exec.data.alerts.length === 0,
       "including its counts and alerts — a count leaks less than content, but still leaks",
       `${exec.data?.published_reports} reports, ${exec.data?.alerts?.length} alerts`);
+    // ---- the same property, through RLS ----
+    //
+    // Everything above goes through Go, which is the trust boundary and
+    // bypasses RLS entirely (it connects as `postgres`, which has
+    // rolbypassrls). Realtime does NOT: a subscription is authorised by RLS
+    // alone, so the capture board made RLS load-bearing for the first time.
+    //
+    // is_workshop_member() checked ONLY workshop_members until 2026-09-29,
+    // which is the same level-1 hole pkg/authz had. Reading as a real user
+    // here is the only way to catch it — a Go-mediated test cannot.
+    r.section("and through RLS, which Realtime relies on");
+    const e = env();
+    const asUser = createClient(e.SUPABASE_URL, e.SUPABASE_PUBLISHABLE_KEY, {
+      global: { headers: { Authorization: `Bearer ${await token(EMAIL)}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const stillMember = (await c.query(
+      "select count(*)::int n from public.workshop_members where user_id = $1", [uid])).rows[0].n;
+    r.ok(stillMember > 0,
+      "the user is still a workshop member, so only level 1 is missing", stillMember);
+
+    const { data: rlsFactors } = await asUser.from("factors").select("id");
+    r.ok((rlsFactors ?? []).length === 0,
+      "RLS returns NO factors to a non-workspace-member — without this, a " +
+      "removed user keeps receiving live board updates",
+      (rlsFactors ?? []).length);
+
+    const { data: rlsSyntheses } = await asUser.from("syntheses").select("id");
+    r.ok((rlsSyntheses ?? []).length === 0,
+      "and nothing from the other tables the same function guards",
+      (rlsSyntheses ?? []).length);
+
   } finally {
     if (savedMemberships) {
       for (const m of savedMemberships) {
@@ -71,6 +105,17 @@ runSuite("scoping", async ({ baseUrl, results: r, c }) => {
         "select count(*)::int n from public.workspace_members where user_id = $1", [uid])).rows[0].n;
       r.note(`membership restored: ${n} row(s)`);
       if (n === 0) r.ok(false, "CRITICAL: membership was NOT restored — fix by hand");
+
+      // Restoring must restore access too, or the check above would pass on a
+      // permanently broken policy rather than on the rule working.
+      const e2 = env();
+      const back = createClient(e2.SUPABASE_URL, e2.SUPABASE_PUBLISHABLE_KEY, {
+        global: { headers: { Authorization: `Bearer ${await token(EMAIL)}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: again } = await back.from("factors").select("id");
+      r.ok((again ?? []).length > 0,
+        "and RLS grants access again once membership is back", (again ?? []).length);
     }
   }
 });
