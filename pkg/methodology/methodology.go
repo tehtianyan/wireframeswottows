@@ -54,6 +54,22 @@ type AIPrompt struct {
 	PromptTemplate string `json:"prompt_template"`
 	OutputSchema   string `json:"output_schema"`
 	PromptVersion  string `json:"prompt_version"`
+	// OutputKind is the SHAPE of what comes back: "suggestions" (things to
+	// create, offered one by one for acceptance), "narrative" (prose) or
+	// "changeset" (edits to rows that already exist). The generic AI panel
+	// only knows how to review the first two, so a changeset function is not
+	// listed there — it has its own button. Declared in config rather than
+	// sniffed from the payload.
+	OutputKind string `json:"output_kind"`
+	// Scope is WHERE the action is offered: "stage" (the stage panel),
+	// "object" (a card for one of AppliesTo), "workshop" (the overview).
+	// App Spec §13.10-13.12 fixes this per function, and getting it wrong is
+	// not cosmetic: a Challenge with no selected object cannot do what its own
+	// prompt asks. Config, so a methodology's assistant stays configured.
+	Scope string `json:"scope"`
+	// AppliesTo names the object registry keys an "object"-scoped function may
+	// run against. Empty for any other scope.
+	AppliesTo []string `json:"applies_to"`
 }
 
 type Methodology struct {
@@ -203,7 +219,9 @@ func Load(ctx context.Context, pool *pgxpool.Pool, methodologyID string) (*Metho
 
 	promptRows, err := pool.Query(ctx,
 		`select id, function_key, stage_id::text, coalesce(stage_type, ''), name,
-		        prompt_template, coalesce(output_schema::text, ''), coalesce(prompt_version, '')
+		        prompt_template, coalesce(output_schema::text, ''), coalesce(prompt_version, ''),
+		        coalesce(output_kind, 'suggestions'), coalesce(scope, 'stage'),
+		        coalesce(applies_to, '{}')
 		 from public.methodology_ai_prompts where methodology_id = $1 order by function_key`,
 		methodologyID)
 	if err != nil {
@@ -214,10 +232,16 @@ func Load(ctx context.Context, pool *pgxpool.Pool, methodologyID string) (*Metho
 		var p AIPrompt
 		var stageID *string
 		if err := promptRows.Scan(&p.ID, &p.FunctionKey, &stageID, &p.StageType, &p.Name,
-			&p.PromptTemplate, &p.OutputSchema, &p.PromptVersion); err != nil {
+			&p.PromptTemplate, &p.OutputSchema, &p.PromptVersion, &p.OutputKind,
+			&p.Scope, &p.AppliesTo); err != nil {
 			return nil, err
 		}
 		p.StageID = stageID
+		// A nil slice marshals to JSON null, not [] — the same trap
+		// relationship_types fell into.
+		if p.AppliesTo == nil {
+			p.AppliesTo = []string{}
+		}
 		m.AIPrompts = append(m.AIPrompts, p)
 	}
 

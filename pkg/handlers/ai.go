@@ -50,8 +50,22 @@ const defaultAIHourlyLimit = 20
 type AIFunction struct {
 	FunctionKey string `json:"function_key"`
 	Name        string `json:"name"`
-	// StageType is empty for functions available anywhere in the workshop.
+	// StageType is empty for functions not tied to a stage type.
 	StageType string `json:"stage_type"`
+	// Scope tells the client WHERE to offer this action: "stage" (the stage
+	// panel), "object" (a card for one of AppliesTo), "workshop" (the
+	// overview). App Spec §13.10-13.12 fixes it per function. Before this
+	// existed the panel offered everything, so Challenge and Explain Why
+	// appeared as stage buttons with no object to act on and could only ever
+	// return something the panel then failed to render.
+	Scope string `json:"scope"`
+	// AppliesTo names the object kinds an "object"-scoped action runs against.
+	AppliesTo []string `json:"applies_to"`
+	// OutputKind is the SHAPE of the result — "suggestions" (a list to accept
+	// item by item) or "narrative" (prose to read). The client needs it to
+	// pick a renderer; rendering a narrative as suggestions is what produced
+	// "The assistant had nothing to add" for output that was perfectly fine.
+	OutputKind string `json:"output_kind"`
 }
 
 // AIStatus tells the client whether to offer AI at all, and what it may run.
@@ -64,6 +78,13 @@ type AIStatus struct {
 	Limit     int          `json:"limit_per_hour"`
 	Used      int          `json:"used_this_hour"`
 	Functions []AIFunction `json:"functions"`
+	// BoardCleanup is true when this stage has a `changeset` prompt — the
+	// "Merge and Fix" tidy-up. It is reported separately because a changeset
+	// is not reviewed suggestion-by-suggestion like the functions above; it
+	// applies as tracked changes and has its own panel. A methodology with no
+	// such prompt row simply shows no button, which is how the feature stays
+	// configuration rather than code.
+	BoardCleanup bool `json:"board_cleanup"`
 }
 
 // GetAIStatus — GET /workshops/{id}/ai?stage_key=...
@@ -102,22 +123,36 @@ func GetAIStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fns := []AIFunction{}
+	cleanup := false
 	for _, p := range m.AIPrompts {
-		// A prompt with no stage type is available anywhere; one with a stage
-		// type only on stages of that type.
-		if p.StageType != "" && p.StageType != stageType {
+		// A STAGE-scoped prompt with a stage type belongs only to stages of
+		// that type. Object- and workshop-scoped ones are not filtered by the
+		// stage at all — they are offered on cards and on the overview, and
+		// the client places them by `scope`.
+		if p.Scope == "stage" && p.StageType != "" && p.StageType != stageType {
 			continue
 		}
-		fns = append(fns, AIFunction{FunctionKey: p.FunctionKey, Name: p.Name, StageType: p.StageType})
+		// A changeset edits existing rows rather than proposing new ones, so
+		// the generic accept/reject panel cannot render it. It is surfaced
+		// through BoardCleanup instead.
+		if p.OutputKind == "changeset" {
+			cleanup = true
+			continue
+		}
+		fns = append(fns, AIFunction{
+			FunctionKey: p.FunctionKey, Name: p.Name, StageType: p.StageType,
+			Scope: p.Scope, AppliesTo: p.AppliesTo, OutputKind: p.OutputKind,
+		})
 	}
 
 	used, _ := aiRequestsThisHour(r2.Context(), pool, user.ID)
 	response.OK(w, AIStatus{
-		Configured: ai.Configured(),
-		Model:      ai.Model(),
-		Limit:      limitForRole(role),
-		Used:       used,
-		Functions:  fns,
+		Configured:   ai.Configured(),
+		Model:        ai.Model(),
+		Limit:        limitForRole(role),
+		Used:         used,
+		Functions:    fns,
+		BoardCleanup: cleanup,
 	})
 }
 
@@ -139,6 +174,12 @@ func aiRequestsThisHour(ctx context.Context, pool *pgxpool.Pool, userID string) 
 type executeAIBody struct {
 	StageKey    string `json:"stage_key"`
 	FunctionKey string `json:"function_key"`
+	// ObjectKind and ObjectID name the object an `object`-scoped function runs
+	// against — the "Selected Object" App Spec §13.11 and §13.12 both require.
+	// A Challenge without one is the bug UAT found: the prompt asks for an
+	// object, gets a whole workshop, and produces something no card can show.
+	ObjectKind string `json:"object_kind"`
+	ObjectID   string `json:"object_id"`
 }
 
 // AIOutput is a stored suggestion set awaiting human review.
@@ -210,13 +251,46 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 			"That assistant function is not available for this stage.")
 		return
 	}
+	// A changeset proposes edits to existing rows, which this endpoint has no
+	// way to apply or review. It has its own endpoint (POST /cleanup) with its
+	// own undo trail; routing it here would store an output nobody could act on.
+	if prompt.OutputKind == "changeset" {
+		response.Fail(w, response.CodeValidationError,
+			"That assistant function applies changes directly and is run from its own panel.")
+		return
+	}
+
+	// An object-scoped function must name its object, and a stage-scoped one
+	// must not: both prompts interpolate a SELECTED object, so running one
+	// without a target produces confident prose about nothing in particular.
+	if prompt.Scope == "object" {
+		if body.ObjectKind == "" || body.ObjectID == "" {
+			response.Fail(w, response.CodeValidationError,
+				"This action runs on one insight or recommendation — open it from that item.")
+			return
+		}
+		if !promptAppliesTo(prompt, body.ObjectKind) {
+			response.Fail(w, response.CodeValidationError,
+				"This action is not available for that kind of item.")
+			return
+		}
+	}
 
 	// Build the context from the stage's OWN declared inputs — the same
 	// citation graph Phase 2 uses. Nothing here knows what SWOT is.
-	promptCtx, err := buildAIContext(r2.Context(), pool, m, stage, workshopID)
-	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
-		return
+	var promptCtx map[string]interface{}
+	if prompt.Scope == "object" {
+		promptCtx, err = buildObjectContext(r2.Context(), pool, workshopID, body.ObjectKind, body.ObjectID)
+		if err != nil {
+			response.Fail(w, response.CodeNotFound, err.Error())
+			return
+		}
+	} else {
+		promptCtx, err = buildAIContext(r2.Context(), pool, m, stage, workshopID)
+		if err != nil {
+			response.Fail(w, response.CodeServerError, err.Error())
+			return
+		}
 	}
 
 	var wkName, wkObjective string
@@ -307,6 +381,7 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 		map[string]interface{}{
 			"workshop_id": workshopID, "function_key": prompt.FunctionKey,
 			"stage_key": body.StageKey, "latency_ms": result.LatencyMS,
+			"scope": prompt.Scope, "object_kind": body.ObjectKind, "object_id": body.ObjectID,
 		})
 
 	response.Created(w, map[string]interface{}{
@@ -316,6 +391,15 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 		"content":             result.Parsed,
 		"human_review_status": "pending",
 	})
+}
+
+func promptAppliesTo(p *methodology.AIPrompt, kindKey string) bool {
+	for _, k := range p.AppliesTo {
+		if k == kindKey {
+			return true
+		}
+	}
+	return false
 }
 
 // resolvePrompt picks the prompt for a function: a stage-type match wins for
@@ -499,6 +583,14 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := suggestionsArray(content)
+	// A narrative — a challenge, an explanation, a summary — has nothing to
+	// accept: it is prose to read, not an object to create. Saying so beats
+	// "that suggestion no longer exists", which reads like data loss.
+	if len(items) == 0 {
+		response.Fail(w, response.CodeValidationError,
+			"This is something to read, not a suggestion to add. Dismiss it when you are done with it.")
+		return
+	}
 	if body.Index < 0 || body.Index >= len(items) {
 		response.Fail(w, response.CodeValidationError, "That suggestion no longer exists in this output.")
 		return

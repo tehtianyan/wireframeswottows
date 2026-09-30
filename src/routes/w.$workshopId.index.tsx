@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { PanelHeading } from "@/components/workshop-ui";
+import { AiInlineActions } from "@/components/methodology/AiInlineActions";
 import { ParticipantsPanel } from "@/components/ParticipantsPanel";
 import { cn } from "@/lib/utils";
 import {
@@ -96,6 +97,12 @@ function WorkshopOverview() {
         </section>
 
         {summaryQuery.data && <SummaryPanels summary={summaryQuery.data} />}
+
+        {/* "Summarize Workshop" — App Spec §13.10 puts its trigger here, on the
+            Workshop Overview, and not on a stage panel. It was previously
+            offered on every stage, where it produced output the panel could not
+            render and nobody could read. */}
+        <AiInlineActions workshopId={workshop.id} scope="workshop" label="Where this workshop stands" />
 
         {/* Real Supabase-backed roster. Invite rights come from the caller's
             actual workshop role, not a UI toggle. */}

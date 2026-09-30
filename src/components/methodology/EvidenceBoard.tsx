@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { PanelHeading } from "@/components/workshop-ui";
+import { AiInlineActions } from "./AiInlineActions";
 import { ObjectCard } from "./ObjectCard";
 import { ObjectForm } from "./ObjectForm";
 import { useStageObjects } from "./useStageObjects";
@@ -183,6 +184,15 @@ export function EvidenceBoard({
                 object={o}
                 kind={kind}
                 citable={allCitable}
+                aiActions={
+                  <AiInlineActions
+                    workshopId={workshop.id}
+                    scope="object"
+                    objectKind={kind.key}
+                    objectId={o.id}
+                    stageKey={stage.key}
+                  />
+                }
                 canEdit={contributor}
                 canReview={reviewer}
                 onEdit={() => setEditing(o)}

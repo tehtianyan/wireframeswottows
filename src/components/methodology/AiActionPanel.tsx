@@ -7,11 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
+import { AiNarrativeView } from "./AiNarrativeView";
 import {
   aiApi,
+  aiNarrative,
   aiSuggestions,
   objectKindsApi,
   type AIExecuteResult,
+  type AIFunction,
   type MethodologyStage,
   type ObjectField,
   type WorkshopDetail,
@@ -62,8 +65,8 @@ export function AiActionPanel({
   );
 
   const execute = useMutation({
-    mutationFn: (functionKey: string) =>
-      aiApi.execute(workshop.id, { stage_key: stage.key, function_key: functionKey }),
+    mutationFn: (fn: AIFunction) =>
+      aiApi.execute(workshop.id, { stage_key: stage.key, function_key: fn.function_key }),
     onSuccess: (data) => {
       setResult(data);
       setAccepted(new Map());
@@ -109,12 +112,24 @@ export function AiActionPanel({
 
   if (statusQuery.isLoading) return null;
 
+  // Only STAGE-scoped actions belong here. Object-scoped ones (Challenge,
+  // Explain Why) are offered on the insight or recommendation card they act on,
+  // and workshop-scoped ones (Summarize Workshop) on the overview — per App
+  // Spec §13.10-13.12. They used to be listed here too, where they had no
+  // object to act on and so could not do what their own prompts ask.
+  const stageFunctions = (status?.functions ?? []).filter((f) => f.scope === "stage");
+
   // Nothing configured server-side, or nothing for this stage: show no panel
   // rather than buttons that cannot work.
-  if (!status?.configured || status.functions.length === 0) return null;
+  if (!status?.configured || stageFunctions.length === 0) return null;
 
   const remaining = status.limit_per_hour - status.used_this_hour;
-  const suggestions = result ? aiSuggestions(result.content) : [];
+  // Which renderer to use comes from the function's declared output_kind, not
+  // from guessing at the payload's shape.
+  const ranFunction = stageFunctions.find((f) => f.function_key === result?.output_type);
+  const narrative =
+    result && ranFunction?.output_kind === "narrative" ? aiNarrative(result.content) : null;
+  const suggestions = result && !narrative ? aiSuggestions(result.content) : [];
 
   return (
     <section className="console-panel" data-build="live">
@@ -125,16 +140,16 @@ export function AiActionPanel({
       />
 
       <div className="space-y-2 border-b border-border p-3.5">
-        {status.functions.map((fn) => (
+        {stageFunctions.map((fn) => (
           <Button
             key={fn.function_key}
             size="sm"
             variant="outline"
             className="w-full justify-start"
             disabled={execute.isPending || remaining <= 0}
-            onClick={() => execute.mutate(fn.function_key)}
+            onClick={() => execute.mutate(fn)}
           >
-            {execute.isPending && execute.variables === fn.function_key ? (
+            {execute.isPending && execute.variables?.function_key === fn.function_key ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : (
               <Sparkles className="size-3.5" />
@@ -157,7 +172,9 @@ export function AiActionPanel({
         <div>
           <div className="flex items-center justify-between border-b border-border bg-elevated/40 px-3.5 py-2">
             <span className="label-caps">
-              {suggestions.length} suggestion{suggestions.length === 1 ? "" : "s"}
+              {narrative
+                ? (ranFunction?.name ?? "Result")
+                : `${suggestions.length} suggestion${suggestions.length === 1 ? "" : "s"}`}
             </span>
             <Button
               size="sm"
@@ -165,11 +182,13 @@ export function AiActionPanel({
               onClick={() => review.mutate({ action: "reject" })}
               disabled={review.isPending}
             >
-              Dismiss all
+              {narrative ? "Dismiss" : "Dismiss all"}
             </Button>
           </div>
 
-          <div className="divide-y divide-border">
+          {narrative && <AiNarrativeView narrative={narrative} />}
+
+          {!narrative && <div className="divide-y divide-border">
             {suggestions.length === 0 && (
               <p className="p-3.5 text-xs text-muted-foreground">
                 The assistant had nothing to add from the data available.
@@ -190,9 +209,9 @@ export function AiActionPanel({
                 onAcceptEdited={(overrides) => review.mutate({ action: "accept", index: i, overrides })}
               />
             ))}
-          </div>
+          </div>}
 
-          {!contributor && (
+          {!narrative && !contributor && (
             <p className="border-t border-border px-3.5 py-2.5 text-[11px] text-muted-foreground">
               Only a facilitator or analyst can add these to the workshop.
             </p>

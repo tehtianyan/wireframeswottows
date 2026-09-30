@@ -17,6 +17,7 @@ import (
 
 	"swot-tows/pkg/methodology"
 	"swot-tows/pkg/objects"
+	"swot-tows/pkg/weights"
 )
 
 // buildAIContext gathers only what the stage declares it works from, and only
@@ -78,6 +79,23 @@ func buildAIContext(ctx context.Context, pool *pgxpool.Pool, m *methodology.Meth
 			return nil, err
 		}
 		out[k.Route] = items
+	}
+
+	// A prioritize stage works from what has been captured AND how the group
+	// has weighted it. Without this the stage's context was literally empty:
+	// it declares no factor_category_key and cites nothing, so App Spec
+	// §4.12's "suggest prioritization anomalies" had no numbers to look at.
+	if stage.StageType == "prioritize" {
+		rated, err := fetchWeightedFactorContext(ctx, pool, m, workshopID)
+		if err != nil {
+			return nil, err
+		}
+		out["factors"] = rated
+		// The scales themselves, so the reviewer knows what a total MEANS.
+		// "18" is a lot out of a budget of 20 and unremarkable out of 100, and
+		// nothing here may assume which — the bounds are configuration.
+		out["scales"] = weightScaleContext(ctx, pool, m, workshopID)
+		return out, nil
 	}
 
 	// A relate stage needs the factors to pair AND the pairing rules, both
@@ -507,4 +525,217 @@ func nullableString(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+// fetchWeightedFactorContext lists factors with every weight the methodology
+// defines, its total and HOW MANY PEOPLE are behind that total.
+//
+// The voter count is not decoration. A factor with 12 points from one person is
+// not the same finding as 12 points from six, and a reviewer told only the
+// total will call the first one consensus. Nothing here names a weight: it
+// reads methodology_weights, so it reports intensity for Five Forces and
+// likelihood for ISO 31000 without change.
+func fetchWeightedFactorContext(ctx context.Context, pool *pgxpool.Pool,
+	m *methodology.Methodology, workshopID string) ([]map[string]interface{}, error) {
+
+	factorWeights := []string{}
+	labels := map[string]string{}
+	for _, d := range m.Weights {
+		if d.AppliesTo == "factor" {
+			factorWeights = append(factorWeights, d.Key)
+			labels[d.Key] = d.Name
+		}
+	}
+
+	rows, err := pool.Query(ctx, `
+		select f.id::text, mfc.key, f.title, coalesce(f.description, ''), f.state
+		from public.factors f
+		join public.methodology_factor_categories mfc on mfc.id = f.factor_category_id
+		where f.workshop_id = $1 and f.state not in ('rejected', 'archived')
+		order by mfc.sort_order, f.created_at
+		limit 300`, workshopID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []map[string]interface{}{}
+	order := []string{}
+	byID := map[string]map[string]interface{}{}
+	for rows.Next() {
+		var id, cat, title, desc, state string
+		if err := rows.Scan(&id, &cat, &title, &desc, &state); err != nil {
+			return nil, err
+		}
+		entry := map[string]interface{}{
+			"id": id, "category": cat, "title": title, "description": desc, "state": state,
+		}
+		byID[id] = entry
+		order = append(order, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(factorWeights) > 0 && len(order) > 0 {
+		wRows, err := pool.Query(ctx, `
+			select object_id::text, weight_key, sum(value)::float8,
+			       count(distinct user_id)::int
+			from public.weights
+			where workshop_id = $1 and object_kind = 'factor' and weight_key = any($2)
+			group by object_id, weight_key`, workshopID, factorWeights)
+		if err != nil {
+			return nil, err
+		}
+		defer wRows.Close()
+		for wRows.Next() {
+			var objectID, key string
+			var total float64
+			var voters int
+			if err := wRows.Scan(&objectID, &key, &total, &voters); err != nil {
+				return nil, err
+			}
+			entry, ok := byID[objectID]
+			if !ok {
+				continue
+			}
+			name := labels[key]
+			if name == "" {
+				name = key
+			}
+			entry[key] = map[string]interface{}{
+				"label": name, "total": total, "contributors": voters,
+			}
+		}
+	}
+	for _, id := range order {
+		out = append(out, byID[id])
+	}
+	return out, nil
+}
+
+// buildObjectContext assembles the "Selected Object" + "Supporting Evidence"
+// that App Spec §13.11 (Challenge) and §13.12 (Explain Why) both ask for.
+//
+// The evidence comes from expandEvidence — the SAME walk the traceability
+// screen and the report's evidence_chain use — so an explanation cites the
+// actual link rows rather than the model's recollection of them. The walk is
+// scoped to this workshop, so a target outside it resolves to nothing.
+func buildObjectContext(ctx context.Context, pool *pgxpool.Pool,
+	workshopID, kindKey, objectID string) (map[string]interface{}, error) {
+
+	kind, err := objects.ByKey(kindKey)
+	if err != nil {
+		return nil, fmt.Errorf("unknown object kind %q", kindKey)
+	}
+
+	cols := []string{"coalesce(title, '')"}
+	if kind.HasDescription {
+		cols = append(cols, "coalesce(description, '')")
+	}
+	cols = append(cols, "state")
+	for _, f := range kind.Fields {
+		cols = append(cols, fmt.Sprintf("coalesce(%s::text, '')", f.Name))
+	}
+
+	dest := make([]interface{}, len(cols))
+	vals := make([]string, len(cols))
+	for i := range vals {
+		dest[i] = &vals[i]
+	}
+	// Scoped by workshop_id, so this can never reach an object the caller's
+	// membership check did not cover.
+	if err := pool.QueryRow(ctx, fmt.Sprintf(
+		`select %s from public.%s where id = $1 and workshop_id = $2`,
+		strings.Join(cols, ", "), kind.Table), objectID, workshopID,
+	).Scan(dest...); err != nil {
+		return nil, fmt.Errorf("that %s is not part of this workshop", kind.Label)
+	}
+
+	selected := map[string]interface{}{"id": objectID, "kind": kind.Label}
+	i := 0
+	selected["title"] = vals[i]
+	i++
+	if kind.HasDescription {
+		selected["description"] = vals[i]
+		i++
+	}
+	selected["state"] = vals[i]
+	i++
+	for _, f := range kind.Fields {
+		if vals[i] != "" {
+			selected[f.Name] = vals[i]
+		}
+		i++
+	}
+
+	evidence := map[string][]SectionItem{}
+	if err := expandEvidence(ctx, pool, workshopID, kind, objectID, evidence, 0); err != nil {
+		return nil, err
+	}
+	supporting := map[string]interface{}{}
+	for citeKind, items := range evidence {
+		list := []map[string]interface{}{}
+		for _, it := range items {
+			list = append(list, map[string]interface{}{
+				"id": it.ID, "title": it.Title, "state": it.State,
+			})
+		}
+		supporting[citeKind] = list
+	}
+
+	var objective string
+	_ = pool.QueryRow(ctx,
+		`select coalesce(objective, '') from public.workshops where id = $1`, workshopID).Scan(&objective)
+
+	return map[string]interface{}{
+		"selected_object":    selected,
+		"supporting_evidence": supporting,
+		"workshop_objective": objective,
+	}, nil
+}
+
+// weightScaleContext describes each factor weight's scale and budget, so a
+// total can be read against what was available rather than in the abstract.
+//
+// THE SCALE IS CONFIGURATION. Nothing here hardcodes a bound, a step or a
+// budget, and the per-workshop votes_per_participant override is applied so the
+// number quoted is the one people actually had.
+func weightScaleContext(ctx context.Context, pool *pgxpool.Pool,
+	m *methodology.Methodology, workshopID string) []map[string]interface{} {
+
+	var override int
+	_ = pool.QueryRow(ctx,
+		`select coalesce(votes_per_participant, 0) from public.workshops where id = $1`,
+		workshopID).Scan(&override)
+
+	out := []map[string]interface{}{}
+	for i := range m.Weights {
+		d := &m.Weights[i]
+		if d.AppliesTo != "factor" {
+			continue
+		}
+		entry := map[string]interface{}{
+			"key": d.Key, "label": d.Name,
+			"min": d.ScaleMin, "step": d.ScaleStep,
+			"constraint": d.ConstraintType, "per_participant": d.PerParticipant,
+		}
+		if d.ScaleMax != nil {
+			entry["max"] = *d.ScaleMax
+		}
+		if len(d.ScaleLabels) > 0 {
+			entry["labels"] = d.ScaleLabels
+		}
+		if d.ConstraintType == weights.ConstraintBudget {
+			total := d.ConstraintTotal
+			if override > 0 {
+				o := float64(override)
+				total = &o
+			}
+			if total != nil {
+				entry["budget_per_participant"] = *total
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
 }

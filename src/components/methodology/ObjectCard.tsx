@@ -20,6 +20,7 @@ export function ObjectCard({
   onReview,
   isBusy,
   extraHeader,
+  aiActions,
 }: {
   object: WorkObject;
   kind: ObjectKind;
@@ -32,6 +33,12 @@ export function ObjectCard({
   onReview?: (action: "approve" | "reject") => void;
   isBusy?: boolean;
   extraHeader?: React.ReactNode;
+  /**
+   * Per-object assistant actions — "Challenge this", "Explain why". Passed in
+   * rather than built here so this stays a presentational card, and offered on
+   * the card because that is the trigger App Spec §13.11-13.12 specifies.
+   */
+  aiActions?: React.ReactNode;
 }) {
   const decided = object.state === "approved" || object.state === "rejected";
   const citedEntries = Object.entries(object.evidence).filter(([, ids]) => (ids ?? []).length > 0);
@@ -90,6 +97,8 @@ export function ObjectCard({
           <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
             {new Date(object.created_at).toLocaleDateString()}
           </p>
+
+          {aiActions}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">

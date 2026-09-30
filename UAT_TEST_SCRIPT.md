@@ -337,7 +337,7 @@ methodology configuration, so the list differs per stage and per methodology.
 | ID | Role | Steps | Expected result | Spec Ref |
 | --- | --- | --- | --- | --- |
 | AI-01 | F | Open any Discovery stage | An **AI assistant** panel appears beside the main content | `WF §2.21` |
-| AI-02 | F | Read the action list on *Strength Discovery* | Includes "Generate Artifact Suggestions" and "Detect Duplicates" | `AS §13` |
+| AI-02 | F | Read the action list on *Strength Discovery* | Includes "Generate Artifact Suggestions". **"Detect Duplicates" is gone** — superseded by **Merge and Fix**, which does §4.11's duplicate detection, merge suggestions and language normalization with an undo. The panel must NOT list Challenge, Explain Why or Summarize Workshop either; those act on an item or on the workshop, not on a stage | `AS §13`, `AS §4.11` |
 | AI-03 | F | Open *Weakness*, *Opportunity* and *Threat* Discovery | The **same** actions are offered on all four — capture prompts apply per stage type, not per stage | `CL` |
 | AI-04 | F | Open *Theme Analysis* | Offers "Generate Themes"; does **not** offer the capture-only actions | `AS §13` |
 | AI-05 | F | Open *TOWS Matrix* and *Recommendations* | Each offers its own generation action | `AS §13` |
