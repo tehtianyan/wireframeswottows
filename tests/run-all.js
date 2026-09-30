@@ -21,6 +21,9 @@ const suites = [
   ["weights", "Platform — weights, and voting as one instance of them"],
   ["methodologies", "Architecture — seven methodologies, configuration only"],
   ["defects", "Regressions — defects reported against production"],
+  ["cleanup", "Capture board — Merge and Fix, tracked and undoable"],
+  ["ai-scope", "AI assistant — where each action is offered, and what it refuses"],
+  ["prioritization", "Prioritization — the group's ranking, and the report"],
   ["objects", "Phase 2 — analysis objects and governance"],
   ["reporting", "Phase 4 — reports, versioning, export"],
   ["knowledge", "Phase 5 — knowledge, notifications, admin"],
@@ -38,7 +41,7 @@ const failed = [];
 for (const [name, description] of suites) {
   console.log("─".repeat(70));
   console.log(`${description}`);
-  const res = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "suites", `${name}.js`), baseUrl], {
+  const res = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "suites", `${name}.js`), baseUrl, ...(withAI ? ["--with-ai"] : [])], {
     stdio: "inherit",
   });
   if (res.status !== 0) failed.push(name);

@@ -160,6 +160,14 @@ export interface WeightAggregate {
   voters: number;
 }
 
+/** The GROUP's figures for one weight, across everyone. */
+export interface WeightParticipation {
+  /** How many distinct people have allocated anything. */
+  contributors: number;
+  /** What they have allocated in total. */
+  allocated: number;
+}
+
 export interface WeightsResponse {
   definitions: WeightDefinition[];
   /** The caller's own values, plus any that belong to the object itself. */
@@ -167,6 +175,13 @@ export interface WeightsResponse {
   totals: WeightAggregate[];
   /** Used budget per budget-constrained weight key. */
   spent: Record<string, number>;
+  /**
+   * Per weight key, how many people have allocated and how much. This is the
+   * denominator a per-object voter count needs: "3 backers" means one thing
+   * when 4 people have voted and another when 20 have, and a total cannot tell
+   * them apart.
+   */
+  participation: Record<string, WeightParticipation>;
 }
 
 /** What the caller's position is after setting one weight. */
@@ -237,7 +252,10 @@ export const canReview = (role: WorkshopRole) => REVIEWER_ROLES.includes(role);
 export const canVote = (role: WorkshopRole) => VOTING_ROLES.includes(role);
 
 /** The governance lifecycle every object type shares (App Spec §8). */
-export type FactorState = "draft" | "submitted" | "approved" | "rejected";
+// `archived` is what a note becomes when "Merge and Fix" folds it into a
+// near-duplicate: kept, never deleted, so the merge can be undone and nobody's
+// contribution is thrown away.
+export type FactorState = "draft" | "submitted" | "approved" | "rejected" | "archived";
 
 export interface MethodologySummary {
   id: string;
@@ -380,11 +398,27 @@ export const objectsApi = {
 // Prompt templates are deliberately absent from every type here: they live on
 // the server and the API never returns them.
 
+/** Where an action is offered. App Spec §13.10-13.12 fixes this per function. */
+export type AIScope = "stage" | "object" | "workshop";
+
+/** The shape of what comes back, which decides the renderer. */
+export type AIOutputKind = "suggestions" | "narrative" | "changeset";
+
 export interface AIFunction {
   function_key: string;
   name: string;
-  /** Empty for functions available anywhere in the workshop. */
+  /** Empty for functions not tied to a stage type. */
   stage_type: string;
+  /**
+   * Which surface offers this action. UAT found Challenge and Explain Why on
+   * the stage panel, where they have no object to act on and could only ever
+   * produce output the panel then failed to render. The spec puts them on an
+   * insight or recommendation card; this is how the client knows that.
+   */
+  scope: AIScope;
+  /** Object registry keys an `object`-scoped action runs against. */
+  applies_to: string[];
+  output_kind: AIOutputKind;
 }
 
 export interface AIStatus {
@@ -394,6 +428,49 @@ export interface AIStatus {
   limit_per_hour: number;
   used_this_hour: number;
   functions: AIFunction[];
+  /**
+   * True when this stage has a `changeset` prompt — the "Merge and Fix"
+   * tidy-up. Reported separately from `functions` because a changeset edits
+   * existing notes rather than proposing new ones, so it is applied as tracked
+   * changes rather than reviewed suggestion by suggestion. A methodology with
+   * no such prompt row shows no button.
+   */
+  board_cleanup: boolean;
+}
+
+// ---- Board cleanup ("Merge and Fix") ----
+
+export type CleanupChangeType = "reword" | "move" | "merge";
+
+export interface CleanupChange {
+  id: string;
+  change_type: CleanupChangeType;
+  factor_id: string;
+  /** Only what the change touched, so an undo restores exactly that. */
+  before: Record<string, string>;
+  after: Record<string, string>;
+  reason: string | null;
+  undone_at: string | null;
+  factor_title: string;
+}
+
+/** A change the model proposed and the server refused, with why. */
+export interface CleanupSkip {
+  change_type: CleanupChangeType;
+  factor_id: string;
+  title: string;
+  reason: string;
+  refused: string;
+}
+
+export interface CleanupRun {
+  id: string;
+  stage_key: string | null;
+  created_at: string;
+  created_by: string;
+  undone_at: string | null;
+  changes: CleanupChange[];
+  skipped: CleanupSkip[];
 }
 
 export type AIReviewStatus = "pending" | "accepted" | "edited" | "rejected";
@@ -440,11 +517,39 @@ export function aiSuggestions(content: Record<string, unknown>): Record<string, 
   return (content[first] ?? []) as Record<string, unknown>[];
 }
 
+/**
+ * The single object a `narrative` output carries — a challenge, an explanation,
+ * a summary. Chosen by the same sorted-key rule as aiSuggestions, for the same
+ * reason: the server reads a Go map whose iteration order is randomised.
+ *
+ * Returning null is meaningful — it says this output is NOT a narrative, so the
+ * caller should render it as suggestions instead of drawing an empty panel.
+ */
+export function aiNarrative(content: Record<string, unknown>): Record<string, unknown> | null {
+  const objectKeys = Object.keys(content ?? {})
+    .filter((k) => {
+      const v = (content ?? {})[k];
+      return v !== null && typeof v === "object" && !Array.isArray(v);
+    })
+    .sort();
+  const first = objectKeys[0];
+  if (first === undefined) return null;
+  return content[first] as Record<string, unknown>;
+}
+
 export const aiApi = {
   status: (workshopId: string, stageKey?: string) =>
     apiGet<AIStatus>(`/workshops/${workshopId}/ai${stageKey ? `?stage_key=${stageKey}` : ""}`),
-  execute: (workshopId: string, input: { stage_key: string; function_key: string }) =>
-    apiPost<AIExecuteResult>(`/workshops/${workshopId}/ai/execute`, input),
+  execute: (
+    workshopId: string,
+    input: {
+      stage_key: string;
+      function_key: string;
+      /** Required for an `object`-scoped function: the "Selected Object". */
+      object_kind?: string;
+      object_id?: string;
+    },
+  ) => apiPost<AIExecuteResult>(`/workshops/${workshopId}/ai/execute`, input),
   outputs: (workshopId: string, filters?: { status?: AIReviewStatus; stage_key?: string }) => {
     const qs = new URLSearchParams();
     if (filters?.status) qs.set("status", filters.status);
@@ -457,6 +562,18 @@ export const aiApi = {
     input: { action: "accept" | "reject"; index?: number; stage_key?: string; overrides?: WriteObjectInput },
   ) => apiPost<{ id: string; human_review_status: AIReviewStatus; converted_object_id?: string }>(
     `/workshops/${workshopId}/ai/outputs/${outputId}/review`, input),
+
+  /** Tidies the whole board and returns what it changed. Facilitators only. */
+  cleanup: (workshopId: string, stageKey: string) =>
+    apiPost<CleanupRun>(`/workshops/${workshopId}/cleanup`, { stage_key: stageKey }),
+  cleanupRuns: (workshopId: string) =>
+    apiGet<CleanupRun[]>(`/workshops/${workshopId}/cleanup/runs`),
+  undoCleanupChange: (workshopId: string, changeId: string) =>
+    apiPost<{ id: string; undone: boolean }>(
+      `/workshops/${workshopId}/cleanup/changes/${changeId}/undo`, {}),
+  undoCleanupRun: (workshopId: string, runId: string) =>
+    apiPost<{ id: string; undone: number; refused: string[] }>(
+      `/workshops/${workshopId}/cleanup/runs/${runId}/undo`, {}),
 };
 
 // ---- Reporting (Phase 4) ----
@@ -483,6 +600,12 @@ export interface ReportWeightCell {
   name: string;
   value: number;
   label?: string;
+  /**
+   * How many people are behind the figure. A total alone reads as agreement,
+   * and in a report going to an executive that is the misreading that matters.
+   * Absent for a weight that is one agreed rating rather than per-participant.
+   */
+  voters?: number;
 }
 
 export interface ReportSectionItem {

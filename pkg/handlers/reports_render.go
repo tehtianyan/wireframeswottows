@@ -216,7 +216,13 @@ func attachWeights(ctx context.Context, pool *pgxpool.Pool, m *methodology.Metho
 				if item.Weights == nil {
 					item.Weights = map[string]WeightCell{}
 				}
-				item.Weights[def.Key] = WeightCell{Name: def.Name, Value: a.Value, Label: a.Label}
+				cell := WeightCell{Name: def.Name, Value: a.Value, Label: a.Label}
+				// Only meaningful where each person holds their own value; a
+				// single agreed rating has one row and "1 voter" would mislead.
+				if def.PerParticipant {
+					cell.Voters = a.Voters
+				}
+				item.Weights[def.Key] = cell
 			}
 		}
 	}

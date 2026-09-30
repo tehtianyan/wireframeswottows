@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
 import { FactorStatePill } from "./FactorCard";
+import { PriorityLeaderboard } from "./PriorityLeaderboard";
 import { WeightControl } from "./WeightControl";
 import {
   workshopsApi,
@@ -126,6 +127,9 @@ export function PrioritizationGrid({
 
   const budgets = definitions.filter((d) => d.constraint_type === "budget");
   const readOnly = allowed.size === 0;
+  // The stage's PRIMARY weight is the one the columns already sort by, so the
+  // leaderboard and the columns agree by construction rather than by luck.
+  const primary = definitions[0];
 
   return (
     <div className="space-y-4">
@@ -153,6 +157,19 @@ export function PrioritizationGrid({
             </p>
           </div>
         </section>
+      )}
+
+      {/* The aggregated result — §4.12 Step 5, "Top-ranked factors identified".
+          The columns below rank within a category; this is the one ranking
+          across them, which is the question the stage actually answers. */}
+      {primary && (
+        <PriorityLeaderboard
+          definition={primary}
+          factors={eligible}
+          categories={methodology.factor_categories}
+          totals={weightsQuery.data?.totals ?? []}
+          participation={weightsQuery.data?.participation?.[primary.key]}
+        />
       )}
 
       <div

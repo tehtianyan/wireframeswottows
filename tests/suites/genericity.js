@@ -90,6 +90,49 @@ runSuite("genericity (PESTLE)", async ({ baseUrl, results: r, c }) => {
     r.ok(!rel.success, "relationships are refused — PESTLE has no relationship types",
       rel.error?.message);
 
+    r.section("the board tidy-up is opt-in, per methodology");
+
+    // "Merge and Fix" is a `changeset` prompt row seeded for SWOT-TOWS only.
+    // PESTLE has capture stages and a capture board, but no such row — so it
+    // must offer no button and refuse the endpoint. If this ever starts
+    // passing by accident, the feature has been wired to a stage TYPE in code
+    // instead of to config, and every methodology would inherit it.
+    const captureStage = stages.find((s) => s.stage_type === "capture").key;
+    const aiStatus = await F("GET", `/workshops/${workshopId}/ai?stage_key=${captureStage}`);
+    r.ok(aiStatus.data.board_cleanup === false,
+      "PESTLE offers no board tidy-up — it has no changeset prompt configured",
+      aiStatus.data.board_cleanup);
+
+    const tidy = await F("POST", `/workshops/${workshopId}/cleanup`, { stage_key: captureStage });
+    r.ok(!tidy.success, "and the endpoint refuses rather than running SWOT's prompt against it",
+      tidy.error?.message);
+
+    // The three functions App Spec §13.10-13.12 places away from the stage
+    // panel must be placed the same way for every methodology. If PESTLE
+    // inherited them with scope defaulted to 'stage', Challenge would be back
+    // on a stage button with no object to act on — the exact bug UAT found.
+    const scopes = Object.fromEntries(
+      (aiStatus.data.functions ?? []).map((f) => [f.function_key, f.scope]),
+    );
+    r.ok(scopes["challenge"] === "object" && scopes["traceability_explanation"] === "object",
+      "PESTLE's Challenge and Explain Why are object-scoped too — seeding carries scope",
+      `${scopes["challenge"]}/${scopes["traceability_explanation"]}`);
+    r.ok(scopes["workshop_summary"] === "workshop",
+      "and its workshop summary is workshop-scoped", scopes["workshop_summary"]);
+    r.ok(
+      !(aiStatus.data.functions ?? []).some((f) => f.function_key === "duplicate_detection"),
+      "duplicate_detection is gone from PESTLE as well as SWOT",
+    );
+
+    // §4.12's prioritization review follows the STAGE, not the methodology:
+    // PESTLE has a prioritize stage so it gets one, and a methodology without
+    // that stage must be offered nothing.
+    const prioritize = stages.find((s) => s.stage_type === "prioritize");
+    const prioStatus = (await F("GET", `/workshops/${workshopId}/ai?stage_key=${prioritize.key}`)).data;
+    r.ok(prioStatus.functions.some((f) => f.function_key === "prioritization_review"),
+      "PESTLE's prioritize stage gets the §4.12 review from config, with no code written for it",
+    );
+
     r.section("reporting renders PESTLE's own template");
     const types = await F("GET", `/workshops/${workshopId}/report-types`);
     r.ok(types.data.length === 1 && types.data[0].key === "driver_scan",

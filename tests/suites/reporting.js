@@ -11,6 +11,7 @@ runSuite("reporting", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
   const { facilitator: F, analyst: A, participant: P } = await clients(baseUrl, ["facilitator", "analyst", "participant"]);
 
       const seeded = { syntheses: [], insights: [], recommendations: [] };
+  let expectedSections = 0;
   let reportId = null, v2Id = null;
 
   try {
@@ -71,7 +72,15 @@ runSuite("reporting", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
 
     const got = await F('GET', `/workshops/${WS}/reports/${reportId}`);
     r.ok(got.success, 'fetch the report', got.error && got.error.message);
-    r.ok(got.data.sections.length === 9, 'nine sections seeded from config', got.data.sections.length);
+    // Read from config rather than hardcoded. This asserted "nine" and broke
+    // the day a section was ADDED to the report type — a correct change
+    // failing a test that was really checking a magic number. What matters is
+    // that the report gets exactly what its type declares.
+    const declared = (await F('GET', `/workshops/${WS}/report-types`)).data
+      .find((t) => t.key === 'executive').section_count;
+    expectedSections = declared;
+    r.ok(got.data.sections.length === declared,
+      'every section the report type declares is seeded, and no others', `${got.data.sections.length} of ${declared}`);
     r.ok(got.data.version === 'v1.0', 'starts at v1.0', got.data.version);
     r.ok(got.data.from_snapshot === false, 'a draft renders live, not from a snapshot');
 
@@ -153,7 +162,8 @@ runSuite("reporting", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     r.ok(v2.success && v2.data.version === 'v1.1', 'editing a published report creates v1.1', v2.data && v2.data.version);
     v2Id = v2.data.id;
     const v2Got = await F('GET', `/workshops/${WS}/reports/${v2Id}`);
-    r.ok(v2Got.data.sections.length === 9, 'the new version inherited its sections', v2Got.data.sections.length);
+    r.ok(v2Got.data.sections.length === expectedSections,
+      'the new version inherited its sections', `${v2Got.data.sections.length} of ${expectedSections}`);
     r.ok(v2Got.data.state === 'draft', 'the new version starts as a draft', v2Got.data.state);
     const dupe = await F('POST', `/workshops/${WS}/reports/${reportId}/versions`, { bump: 'minor' });
     r.ok(!dupe.success, 'a second open version is refused', dupe.error && dupe.error.message);

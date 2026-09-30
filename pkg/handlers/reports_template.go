@@ -144,7 +144,7 @@ const reportHTMLTemplate = `<!doctype html>
         {{$cols := .WeightColumns}}
         {{range .Items}}{{$item := .}}<tr>
           <td><strong>{{.Title}}</strong>{{if .Body}}<br>{{.Body}}{{end}}</td>
-          {{range $cols}}<td>{{with index $item.Weights .Key}}{{.Value}}{{if .Label}}<br><span class="sub">{{.Label}}</span>{{end}}{{else}}&mdash;{{end}}</td>{{end}}
+          {{range $cols}}<td>{{with index $item.Weights .Key}}{{.Value}}{{if .Label}}<br><span class="sub">{{.Label}}</span>{{end}}{{if .Voters}}<br><span class="sub">{{.Voters}} contributor{{if ne .Voters 1}}s{{end}}</span>{{end}}{{else}}&mdash;{{end}}</td>{{end}}
         </tr>{{end}}
         </tbody>
       </table>

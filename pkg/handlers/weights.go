@@ -36,6 +36,11 @@ type WeightsResponse struct {
 	// Spent is the caller's used budget per budget-constrained weight key, so
 	// the UI can show remaining without re-summing.
 	Spent map[string]float64 `json:"spent"`
+	// Participation is the GROUP's figures per weight key — how many people
+	// have allocated and how much. It is what turns a per-object voter count
+	// into a statement about agreement: 3 backers out of 4 contributors is
+	// consensus, 3 out of 20 is not, and a total alone cannot tell them apart.
+	Participation map[string]weights.Participation `json:"participation"`
 }
 
 // weightTargetTable resolves the URL's {kind} segment — which is a route like
@@ -106,7 +111,15 @@ func GetWeights(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response.OK(w, WeightsResponse{Definitions: defs, Mine: mine, Totals: totals, Spent: spent})
+	participation, err := weights.LoadParticipation(r2.Context(), pool, workshopID, defs)
+	if err != nil {
+		response.Fail(w, response.CodeServerError, err.Error())
+		return
+	}
+
+	response.OK(w, WeightsResponse{
+		Definitions: defs, Mine: mine, Totals: totals, Spent: spent, Participation: participation,
+	})
 }
 
 type setWeightBody struct {

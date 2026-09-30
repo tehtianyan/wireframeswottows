@@ -62,6 +62,11 @@ type WeightCell struct {
 	Name  string  `json:"name"`
 	Value float64 `json:"value"`
 	Label string  `json:"label,omitempty"`
+	// Voters is how many people are behind the figure. A prioritization table
+	// that prints only a total invites the reader to treat one enthusiast as
+	// the group — which is the specific misreading an executive report should
+	// not enable. Zero for a weight nobody set per-participant.
+	Voters int `json:"voters,omitempty"`
 }
 
 type SectionItem struct {

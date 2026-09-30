@@ -160,6 +160,13 @@ function SectionBody({ section }: { section: ReportSection }) {
                               {cell.label && (
                                 <span className="block text-muted-foreground">{cell.label}</span>
                               )}
+                              {/* A total with no count reads as agreement even
+                                  when one person produced it. */}
+                              {cell.voters !== undefined && cell.voters > 0 && (
+                                <span className="block text-muted-foreground">
+                                  {cell.voters} contributor{cell.voters === 1 ? "" : "s"}
+                                </span>
+                              )}
                             </>
                           ) : (
                             <span className="text-muted-foreground">—</span>

@@ -232,6 +232,59 @@ type Aggregate struct {
 	Voters     int     `json:"voters"`
 }
 
+// Participation is how much of a weight the group as a whole has allocated.
+//
+// Contributors is the denominator the per-object Voters count needs to mean
+// anything: "3 voters" is a different finding when 4 people have allocated than
+// when 20 have. Without it a leaderboard shows totals that look like consensus
+// and may be one person.
+type Participation struct {
+	Contributors int     `json:"contributors"`
+	Allocated    float64 `json:"allocated"`
+}
+
+// LoadParticipation reports, per weight key, how many distinct people have
+// allocated anything and what they have allocated in total.
+//
+// Deliberately NOT read from public.workshop_roster, which hardcodes
+// weight_key = 'vote' and would make this SWOT-specific. It counts whatever
+// weights the methodology defines.
+func LoadParticipation(ctx context.Context, pool *pgxpool.Pool, workshopID string,
+	defs []Definition) (map[string]Participation, error) {
+
+	out := map[string]Participation{}
+	if len(defs) == 0 {
+		return out, nil
+	}
+	keys := make([]string, 0, len(defs))
+	for i := range defs {
+		keys = append(keys, defs[i].Key)
+		// Declared before any row is read, so a weight nobody has touched
+		// reports zero rather than being absent — the same reason a table's
+		// columns come from config rather than from its rows.
+		out[defs[i].Key] = Participation{}
+	}
+
+	rows, err := pool.Query(ctx, `
+		select weight_key, count(distinct user_id)::int, coalesce(sum(value), 0)::float8
+		from public.weights
+		where workshop_id = $1 and weight_key = any($2) and user_id is not null
+		group by weight_key`, workshopID, keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var p Participation
+		if err := rows.Scan(&key, &p.Contributors, &p.Allocated); err != nil {
+			return nil, err
+		}
+		out[key] = p
+	}
+	return out, rows.Err()
+}
+
 // sqlAggregate maps a definition's aggregate to SQL. The set is closed by a
 // CHECK constraint on the table, and anything unrecognised falls back to sum
 // rather than interpolating caller input into the query.
