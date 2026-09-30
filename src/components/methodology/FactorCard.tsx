@@ -15,6 +15,9 @@ const STATE_STYLES: Record<FactorState, { label: string; className: string }> = 
   submitted: { label: "In review", className: "border-amber-500/40 text-amber-600 dark:text-amber-400" },
   approved: { label: "Approved", className: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400" },
   rejected: { label: "Rejected", className: "border-destructive/40 text-destructive" },
+  // A note "Merge and Fix" folded into a near-duplicate. Kept rather than
+  // deleted so the merge can be undone; the label says what happened to it.
+  archived: { label: "Merged", className: "border-border text-muted-foreground" },
 };
 
 export function FactorStatePill({ state, className }: { state: FactorState; className?: string }) {

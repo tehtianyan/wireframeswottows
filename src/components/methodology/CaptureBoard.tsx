@@ -4,6 +4,7 @@ import { Loader2, Plus, Radio, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { StickyNote } from "./StickyNote";
+import { CleanupPanel } from "./CleanupPanel";
 import { useFactorChannel, type ChannelStatus, type PresentPerson } from "@/lib/useFactorChannel";
 import {
   workshopsApi,
@@ -96,7 +97,10 @@ export function CaptureBoard({
     const m = new Map<string, Factor[]>();
     for (const c of methodology.factor_categories) m.set(c.key, []);
     for (const f of factorsQuery.data ?? []) {
-      if (f.state === "rejected") continue;
+      // `archived` is a note "Merge and Fix" folded into a near-duplicate. It
+      // is kept so the merge can be undone, but it is off the wall — leaving
+      // it visible would make a merge look like it had done nothing.
+      if (f.state === "rejected" || f.state === "archived") continue;
       m.get(f.category_key)?.push(f);
     }
     return m;
@@ -131,6 +135,10 @@ export function CaptureBoard({
   return (
     <div className="space-y-3">
       <BoardStatus status={status} present={present} facilitator={facilitator} />
+
+      {/* Tidying the whole wall is the facilitator's job, and the panel hides
+          itself entirely when the methodology has no cleanup prompt. */}
+      <CleanupPanel workshopId={workshopId} stage={stage} isFacilitator={facilitator} />
 
       <div
         className="grid gap-3"

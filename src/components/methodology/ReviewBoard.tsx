@@ -1,13 +1,21 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Loader2, Sparkles, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
 import { FactorCard } from "./FactorCard";
-import { canReview, workshopsApi, type FactorState, type Methodology, type WorkshopRole } from "@/lib/api";
+import {
+  aiApi,
+  canReview,
+  workshopsApi,
+  type CleanupChange,
+  type FactorState,
+  type Methodology,
+  type WorkshopRole,
+} from "@/lib/api";
 
 // The Review Board (wireframe: "SWOT Review Board"). Despite that name it is
 // not SWOT-specific: it reviews whatever factor categories the workshop's
@@ -42,6 +50,35 @@ export function ReviewBoard({
   const factorsQuery = useQuery({
     queryKey: ["factors", workshopId, "all"],
     queryFn: () => workshopsApi.factors(workshopId),
+  });
+
+  // What "Merge and Fix" changed, so an edited note carries its original text
+  // at the moment somebody decides whether to approve it. A reviewer approving
+  // a sentence the AI wrote should be able to see the sentence a participant
+  // wrote — this is where that belongs, not buried in a panel on another tab.
+  const cleanupQuery = useQuery({
+    queryKey: ["cleanup-runs", workshopId],
+    queryFn: () => aiApi.cleanupRuns(workshopId),
+  });
+
+  const tidiedBy = useMemo(() => {
+    const m = new Map<string, CleanupChange>();
+    for (const run of cleanupQuery.data ?? []) {
+      for (const c of run.changes) {
+        if (!c.undone_at) m.set(c.factor_id, c);
+      }
+    }
+    return m;
+  }, [cleanupQuery.data]);
+
+  const undoTidy = useMutation({
+    mutationFn: (changeId: string) => aiApi.undoCleanupChange(workshopId, changeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["factors", workshopId] });
+      queryClient.invalidateQueries({ queryKey: ["cleanup-runs", workshopId] });
+      toast.success("Change undone — the note is back as it was.");
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const review = useMutation({
@@ -162,6 +199,15 @@ export function ReviewBoard({
               }
             />
 
+            {tidiedBy.has(f.id) && (
+              <TidiedNotice
+                change={tidiedBy.get(f.id)!}
+                canUndo={reviewer}
+                onUndo={() => undoTidy.mutate(tidiedBy.get(f.id)!.id)}
+                undoing={undoTidy.isPending && undoTidy.variables === tidiedBy.get(f.id)!.id}
+              />
+            )}
+
             {rejecting === f.id && (
               <div className="space-y-2 border-t border-border bg-elevated/40 px-4 py-3">
                 <label className="label-caps" htmlFor={`reject-note-${f.id}`}>
@@ -195,5 +241,51 @@ export function ReviewBoard({
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * "AI tidied" — what a cleanup run changed about this note, shown at the
+ * decision point rather than in a separate panel, with the original text and a
+ * one-click way back to it.
+ */
+function TidiedNotice({
+  change,
+  canUndo,
+  onUndo,
+  undoing,
+}: {
+  change: CleanupChange;
+  canUndo: boolean;
+  onUndo: () => void;
+  undoing: boolean;
+}) {
+  const was =
+    change.change_type === "reword"
+      ? change.before["title"]
+      : change.change_type === "move"
+        ? `in ${change.before["category_key"]}`
+        : "a separate note, folded into a near-duplicate";
+
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-2 border-t border-border bg-elevated/40 px-4 py-2.5">
+      <div className="min-w-0">
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <Sparkles className="size-3" /> AI tidied
+        </span>
+        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+          Was: <span className="text-foreground/80">{was}</span>
+        </p>
+        {change.reason && (
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{change.reason}</p>
+        )}
+      </div>
+      {canUndo && (
+        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onUndo} disabled={undoing}>
+          {undoing ? <Loader2 className="size-3.5 animate-spin" /> : <Undo2 className="size-3.5" />}
+          Undo
+        </Button>
+      )}
+    </div>
   );
 }

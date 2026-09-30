@@ -52,6 +52,16 @@ func TestRoutePrecedence(t *testing.T) {
 		{"GET", "/api/v1/workshops/abc/ai/outputs", "/api/v1/workshops/{id}/ai/outputs"},
 		{"POST", "/api/v1/workshops/abc/ai/outputs/o1/review", "/api/v1/workshops/{id}/ai/outputs/{outputId}/review"},
 
+		// The board tidy-up. "cleanup" is a literal at the same depth as
+		// {kind}, so if the wildcard ever won, running it would 404 as an
+		// unknown object kind rather than as a routing mistake.
+		{"POST", "/api/v1/workshops/abc/cleanup", "/api/v1/workshops/{id}/cleanup"},
+		{"GET", "/api/v1/workshops/abc/cleanup/runs", "/api/v1/workshops/{id}/cleanup/runs"},
+		{"POST", "/api/v1/workshops/abc/cleanup/runs/r1/undo",
+			"/api/v1/workshops/{id}/cleanup/runs/{runId}/undo"},
+		{"POST", "/api/v1/workshops/abc/cleanup/changes/c1/undo",
+			"/api/v1/workshops/{id}/cleanup/changes/{changeId}/undo"},
+
 		{"GET", "/api/v1/dashboard", "/api/v1/dashboard"},
 
 		{"GET", "/api/v1/executive", "/api/v1/executive"},

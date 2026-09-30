@@ -88,6 +88,13 @@ func New() http.Handler {
 			r.Get("/{id}/ai/outputs", handlers.ListAIOutputs)
 			r.Post("/{id}/ai/outputs/{outputId}/review", handlers.ReviewAIOutput)
 
+			// "Merge and Fix" — the tracked, undoable board tidy-up. Another
+			// literal beside the {kind} wildcard; router_test.go guards it.
+			r.Post("/{id}/cleanup", handlers.RunCleanup)
+			r.Get("/{id}/cleanup/runs", handlers.ListCleanupRuns)
+			r.Post("/{id}/cleanup/runs/{runId}/undo", handlers.UndoCleanupRun)
+			r.Post("/{id}/cleanup/changes/{changeId}/undo", handlers.UndoCleanupChange)
+
 			// Reporting. Registered before the {kind} wildcard, like the AI
 			// routes, so "reports" is never taken for an object route.
 			r.Get("/{id}/summary", handlers.GetWorkshopSummary)
