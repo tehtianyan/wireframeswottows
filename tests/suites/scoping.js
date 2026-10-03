@@ -20,6 +20,57 @@ runSuite("scoping", async ({ baseUrl, results: r, c }) => {
   let savedMemberships = null;
 
   try {
+    // ---- RLS coverage, before anything else ----
+    //
+    // THE BUG THIS GUARDS. Supabase's advisor — not this suite — found
+    // public._migrations with RLS disabled and full DML granted to `anon`, so
+    // anyone holding the publishable key (which ships in the browser bundle by
+    // design) could read and TRUNCATE the migration ledger. Every other table
+    // was fine, because every other table is created by a migration, which
+    // enables RLS as a matter of course. That one was created by the migration
+    // RUNNER, outside the system that would have secured it.
+    //
+    // The lesson is not "that table". It is that nothing checked the
+    // convention held, so the first time it was broken nobody found out until
+    // a vendor emailed. This assertion is that check: ANY table added to
+    // `public` without RLS fails here.
+    r.section("RLS covers every table in public");
+
+    const gaps = (await c.query("select table_name from public.rls_coverage_gaps order by 1")).rows;
+    r.ok(gaps.length === 0,
+      "no table in public has RLS disabled — a table reachable through PostgREST without RLS is readable and writable by anyone with the publishable key",
+      gaps.length === 0 ? "0 gaps" : `EXPOSED: ${gaps.map((g) => g.table_name).join(", ")}`);
+
+    // The ledger specifically, since it is the one that was wrong and the one
+    // the runner re-creates on every single run.
+    const ledger = (await c.query(`
+      select c.relrowsecurity rls,
+             (select count(*)::int from information_schema.role_table_grants g
+              where g.table_schema = 'public' and g.table_name = '_migrations'
+                and g.grantee in ('anon', 'authenticated')) grants
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = '_migrations'`)).rows[0];
+    r.ok(ledger?.rls === true, "the migration ledger has RLS enabled", ledger?.rls);
+    r.ok(ledger?.grants === 0,
+      "and no grant to anon or authenticated, so it stays unreachable even if RLS is ever turned off again",
+      ledger?.grants);
+
+    // Proof rather than inference: ask PostgREST as an anonymous caller.
+    const anonEnv = env();
+    const anonRes = await fetch(
+      `${anonEnv.SUPABASE_URL}/rest/v1/_migrations?select=name&limit=1`,
+      {
+        headers: {
+          apikey: anonEnv.SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${anonEnv.SUPABASE_PUBLISHABLE_KEY}`,
+        },
+      },
+    );
+    const anonBody = await anonRes.text();
+    r.ok(!anonRes.ok || anonBody.trim() === "[]",
+      "and an anonymous HTTP read of it returns nothing — this used to return the whole table",
+      `${anonRes.status} ${anonBody.slice(0, 60)}`);
+
     r.section("as a workspace member");
     const before = await api("GET", "/knowledge/search");
     r.ok(before.success && before.data.length > 0,

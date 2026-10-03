@@ -52,11 +52,35 @@ const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
 
 const c = new Client({ connectionString: env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 await c.connect();
-await c.query(
-  `create table if not exists public._migrations (
-     name text primary key,
-     applied_at timestamptz not null default now())`,
-);
+// The ledger is created SECURED, in the same breath as the table.
+//
+// It was not, originally, and that was the one table in `public` without RLS —
+// because every other table is created by a migration, which enables RLS as a
+// matter of course, while this one is created by the runner, outside the system
+// that would have secured it. Supabase served it to anyone holding the
+// publishable key, which ships in the browser bundle by design.
+//
+// Securing it HERE as well as in 20261003100000 is not belt-and-braces for its
+// own sake: on a brand-new project this runs BEFORE any migration, so without
+// it a fresh database is exposed for the length of the first deploy.
+//
+// No policies, deliberately — the runner connects as `postgres` (rolbypassrls),
+// so RLS with zero policies denies every client and costs the runner nothing.
+await c.query(`
+  create table if not exists public._migrations (
+    name text primary key,
+    applied_at timestamptz not null default now());
+  alter table public._migrations enable row level security;
+  revoke all on public._migrations from public;
+  do $$
+  begin
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+      revoke all on public._migrations from anon;
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+      revoke all on public._migrations from authenticated;
+    end if;
+  end $$;`);
 const done = new Set((await c.query("select name from public._migrations")).rows.map((r) => r.name));
 
 const pending = files.filter((f) => !done.has(f));
