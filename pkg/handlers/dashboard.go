@@ -117,7 +117,7 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
 		join public.methodologies m on m.id = w.methodology_id
 		order by w.updated_at desc nulls last, w.created_at desc`, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -127,7 +127,7 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
 		var x row
 		if err := rows.Scan(&x.id, &x.name, &x.status, &x.methodology, &x.role); err != nil {
 			rows.Close()
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		found = append(found, x)
@@ -138,7 +138,7 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
 	for _, x := range found {
 		counts, awaiting, err := countsFor(r2.Context(), pool, x.id)
 		if err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 
@@ -254,13 +254,13 @@ func GetWorkshopSummary(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
 	counts, awaiting, err := countsFor(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 

@@ -1,11 +1,21 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, ShieldAlert } from "lucide-react";
+import { KeyRound, Loader2, ShieldAlert, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AdminWorkshops } from "@/components/admin/AdminWorkshops";
+import { OneTimeLink } from "@/components/OneTimeLink";
 import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
-import { adminApi, describeActivity, type AdminUser } from "@/lib/api";
+import {
+  adminApi,
+  describeActivity,
+  type AdminUser,
+  type InviteResult,
+  type ResetLinkResult,
+} from "@/lib/api";
 
 // Administration (App Spec §11.29) plus the audit viewer (§11.28).
 //
@@ -19,6 +29,14 @@ export const Route = createFileRoute("/admin")({
 
 function AdminPage() {
   const queryClient = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
+  const [form, setForm] = useState({ email: "", name: "", global_role: "user" });
+  // One slot for whichever link was last minted — an invite or a reset. Shown
+  // once; the server never records it, because until it is used it IS a
+  // credential for that account.
+  const [link, setLink] = useState<
+    { email: string; link?: string; kind?: "invite" | "recovery"; error?: string } | null
+  >(null);
 
   const usersQuery = useQuery({
     queryKey: ["admin-users"],
@@ -40,6 +58,39 @@ function AdminPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const createUser = useMutation({
+    mutationFn: () =>
+      adminApi.createUser({
+        email: form.email.trim(),
+        ...(form.name.trim() ? { name: form.name.trim() } : {}),
+        global_role: form.global_role,
+      }),
+    onSuccess: (r: InviteResult) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      setForm({ email: "", name: "", global_role: "user" });
+      setAddOpen(false);
+      setLink({
+        email: r.email,
+        ...(r.invite_link ? { link: r.invite_link } : {}),
+        ...(r.link_type ? { kind: r.link_type } : {}),
+        ...(r.link_error ? { error: r.link_error } : {}),
+      });
+      toast.success(
+        r.new_account ? `Account created for ${r.email}` : `${r.email} already had an account`,
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const resetPassword = useMutation({
+    mutationFn: (id: string) => adminApi.resetPassword(id),
+    onSuccess: (r: ResetLinkResult) => {
+      setLink({ email: r.email, link: r.reset_link, kind: "recovery" });
+      toast.success(`Reset link ready for ${r.email}`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const setStatus = useMutation({
     mutationFn: (v: { id: string; status: "active" | "disabled" }) =>
       adminApi.setStatus(v.id, v.status),
@@ -88,7 +139,72 @@ function AdminPage() {
         </div>
 
         <section className="console-panel" data-build="live">
-          <PanelHeading build="live" title="Users" hint={`${users.length} accounts`} />
+          <PanelHeading
+            build="live"
+            title="Users"
+            hint={`${users.length} accounts`}
+            action={
+              <Button variant="secondary" size="sm" onClick={() => setAddOpen((v) => !v)}>
+                <UserPlus className="size-3.5" />
+                Add user
+              </Button>
+            }
+          />
+
+          {addOpen && (
+            <div className="space-y-2 border-b border-border bg-elevated/40 p-4">
+              <p className="label-caps">Create an account</p>
+              <Input
+                type="email"
+                placeholder="Email address"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                autoFocus
+              />
+              <Input
+                placeholder="Name (optional)"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              />
+              <select
+                value={form.global_role}
+                onChange={(e) => setForm((f) => ({ ...f, global_role: e.target.value }))}
+                aria-label="Platform role"
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Works with a real email address. No mail is sent — you get a one-time link to pass
+                on, and they choose their own password. Add them to a workshop from its
+                Participants panel, or from the Workshops list below.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setAddOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!form.email.trim() || createUser.isPending}
+                  onClick={() => createUser.mutate()}
+                >
+                  {createUser.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  Create
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {link && (
+            <OneTimeLink
+              email={link.email}
+              {...(link.link ? { link: link.link } : {})}
+              {...(link.kind ? { kind: link.kind } : {})}
+              {...(link.error ? { error: link.error } : {})}
+              onDismiss={() => setLink(null)}
+            />
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -97,6 +213,7 @@ function AdminPage() {
                   <th className="px-4 py-2.5 font-medium">Platform role</th>
                   <th className="px-4 py-2.5 font-medium">Workshops</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5 font-medium">Password</th>
                 </tr>
               </thead>
               <tbody>
@@ -106,6 +223,8 @@ function AdminPage() {
                     user={u}
                     onRole={(role) => setRole.mutate({ id: u.id, role })}
                     onStatus={(status) => setStatus.mutate({ id: u.id, status })}
+                    onReset={() => resetPassword.mutate(u.id)}
+                    resetting={resetPassword.isPending && resetPassword.variables === u.id}
                     busy={setRole.isPending || setStatus.isPending}
                   />
                 ))}
@@ -113,6 +232,8 @@ function AdminPage() {
             </table>
           </div>
         </section>
+
+        <AdminWorkshops />
 
         <section className="console-panel" data-build="live">
           <PanelHeading
@@ -156,11 +277,15 @@ function UserRow({
   user,
   onRole,
   onStatus,
+  onReset,
+  resetting,
   busy,
 }: {
   user: AdminUser;
   onRole: (role: string) => void;
   onStatus: (status: "active" | "disabled") => void;
+  onReset: () => void;
+  resetting: boolean;
   busy: boolean;
 }) {
   return (
@@ -199,6 +324,27 @@ function UserRow({
           )}
         >
           {user.status}
+        </Button>
+      </td>
+      <td className="px-4 py-2.5">
+        {/* A link, never a password an admin chooses: an admin who sets
+            another person’s password knows it, and that person cannot tell
+            whether it was ever used. Refused for a disabled account, because
+            that would hand back access deliberately withdrawn. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-[11px] text-muted-foreground"
+          onClick={onReset}
+          disabled={resetting || user.status !== "active"}
+          title={
+            user.status === "active"
+              ? "Generate a one-time link so they can set a new password"
+              : "Re-enable the account first"
+          }
+        >
+          {resetting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
+          Reset link
         </Button>
       </td>
     </tr>

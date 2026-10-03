@@ -51,6 +51,16 @@ func New() http.Handler {
 		r.Get("/admin/users", handlers.ListAdminUsers)
 		r.Put("/admin/users/{userId}/role", handlers.UpdateUserRole)
 		r.Post("/admin/users/{userId}/status", handlers.SetUserStatus)
+		// Platform IAM: create a login-capable account for a real address, and
+		// mint a reset link. Both return a one-time link rather than emailing,
+		// because Supabase's built-in mailer may silently drop mail to a
+		// client's domain — see pkg/supaadmin.
+		r.Post("/admin/users", handlers.CreateAdminUser)
+		r.Post("/admin/users/{userId}/reset-password", handlers.ResetUserPassword)
+		// Every workshop on the platform, so an admin can archive one or fix a
+		// roster without first joining it.
+		r.Get("/admin/workshops", handlers.ListAdminWorkshops)
+		r.Get("/admin/workshops/{id}/participants", handlers.ListAdminWorkshopParticipants)
 		r.Get("/audit-events", handlers.ListAuditEvents)
 
 		r.Route("/workshops", func(r chi.Router) {
@@ -87,6 +97,19 @@ func New() http.Handler {
 			r.Post("/{id}/ai/execute", handlers.ExecuteAI)
 			r.Get("/{id}/ai/outputs", handlers.ListAIOutputs)
 			r.Post("/{id}/ai/outputs/{outputId}/review", handlers.ReviewAIOutput)
+
+			// Participants. Membership writes are GO-ONLY: the RLS write
+			// policies were removed in 20261003110000 after a participant was
+			// shown to be able to promote themselves to facilitator through
+			// PostgREST. Literals, so registered before the {kind} wildcard.
+			r.Get("/{id}/participants", handlers.ListParticipants)
+			r.Post("/{id}/participants", handlers.InviteParticipant)
+			r.Patch("/{id}/participants/{userId}", handlers.SetParticipantRole)
+			r.Delete("/{id}/participants/{userId}", handlers.RevokeParticipant)
+
+			// Archiving — the lifecycle's last state, previously unreachable.
+			r.Post("/{id}/archive", handlers.ArchiveWorkshop)
+			r.Post("/{id}/unarchive", handlers.UnarchiveWorkshop)
 
 			// "Merge and Fix" — the tracked, undoable board tidy-up. Another
 			// literal beside the {kind} wildcard; router_test.go guards it.

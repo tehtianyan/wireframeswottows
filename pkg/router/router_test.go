@@ -62,6 +62,24 @@ func TestRoutePrecedence(t *testing.T) {
 		{"POST", "/api/v1/workshops/abc/cleanup/changes/c1/undo",
 			"/api/v1/workshops/{id}/cleanup/changes/{changeId}/undo"},
 
+		// Participants and archiving: more literals beside the {kind}
+		// wildcard, and these carry membership writes, so a routing mistake
+		// here would surface as "unknown object kind" on a security-relevant
+		// endpoint.
+		{"GET", "/api/v1/workshops/abc/participants", "/api/v1/workshops/{id}/participants"},
+		{"POST", "/api/v1/workshops/abc/participants", "/api/v1/workshops/{id}/participants"},
+		{"PATCH", "/api/v1/workshops/abc/participants/u1",
+			"/api/v1/workshops/{id}/participants/{userId}"},
+		{"DELETE", "/api/v1/workshops/abc/participants/u1",
+			"/api/v1/workshops/{id}/participants/{userId}"},
+		{"POST", "/api/v1/workshops/abc/archive", "/api/v1/workshops/{id}/archive"},
+		{"POST", "/api/v1/workshops/abc/unarchive", "/api/v1/workshops/{id}/unarchive"},
+
+		{"POST", "/api/v1/admin/users", "/api/v1/admin/users"},
+		{"POST", "/api/v1/admin/users/u1/reset-password", "/api/v1/admin/users/{userId}/reset-password"},
+		{"GET", "/api/v1/admin/workshops", "/api/v1/admin/workshops"},
+		{"GET", "/api/v1/admin/workshops/w1/participants", "/api/v1/admin/workshops/{id}/participants"},
+
 		{"GET", "/api/v1/dashboard", "/api/v1/dashboard"},
 
 		{"GET", "/api/v1/executive", "/api/v1/executive"},

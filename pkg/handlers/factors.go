@@ -105,7 +105,7 @@ func ListFactors(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := pool.Query(r2.Context(), query, args...)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -117,7 +117,7 @@ func ListFactors(w http.ResponseWriter, r *http.Request) {
 		var reviewedAt *time.Time
 		if err := rows.Scan(&f.ID, &f.WorkshopID, &f.CategoryKey, &f.Title, &f.Description, &f.CreatedBy,
 			&f.CreatedByName, &f.State, &f.Votes, &f.ReviewedBy, &reviewedAt, &f.ReviewNote, &createdAt); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		f.CreatedAt = createdAt.Format(time.RFC3339)
@@ -196,7 +196,7 @@ func CreateFactor(w http.ResponseWriter, r *http.Request) {
 		workshopID, activityID, categoryID, title, body.Description, user.ID,
 	).Scan(&id)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -277,7 +277,7 @@ func UpdateFactor(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 	}
@@ -295,13 +295,13 @@ func UpdateFactor(w http.ResponseWriter, r *http.Request) {
 			      limit 1)
 			where id = $1`,
 			f.id, title, description, categoryID, f.workshopID, strings.TrimSpace(*body.CategoryKey)); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 	} else if _, err := pool.Exec(ctx,
 		`update public.factors set title = $2, description = $3 where id = $1`,
 		f.id, title, description); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -333,12 +333,12 @@ func DeleteFactor(w http.ResponseWriter, r *http.Request) {
 	// budget, so deleting a factor you voted on silently spends those votes
 	// forever.
 	if err := weights.DeleteForObject(ctx, pool, f.workshopID, f.id); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
 	if _, err := pool.Exec(ctx, `delete from public.factors where id = $1`, f.id); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -402,7 +402,7 @@ func ReviewFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if currentState == "draft" {
@@ -424,7 +424,7 @@ func ReviewFactor(w http.ResponseWriter, r *http.Request) {
 		update public.factors
 		set state = $2, reviewed_by = $3, reviewed_at = now(), review_note = $4
 		where id = $1`, factorID, newState, user.ID, note); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -504,7 +504,7 @@ func loadFactorForWrite(w http.ResponseWriter, r *http.Request) (
 		return nil, nil, nil, empty, false
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return nil, nil, nil, empty, false
 	}
 

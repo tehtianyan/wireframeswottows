@@ -640,6 +640,158 @@ first factor weight**, not by "votes".
 
 ---
 
+# Part I — Participants, IAM and archiving
+
+Four separate complaints, one of which turned out to be a vulnerability.
+
+> **Read this first.** A participant could previously promote themselves to facilitator and
+> delete the facilitator, through the browser, because the database authorised membership
+> writes on "are you a member" rather than "are you the facilitator". Confirmed exploitable
+> and now closed: membership writes go through the API only. IAM-01 and IAM-02 are that
+> exploit — **if either succeeds, it is Critical.**
+
+## I.1 A participant cannot grant themselves authority
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| IAM-01 | P | Ask the developer to run the escalation probe as your account | Refused. A participant cannot change their own role |
+| IAM-02 | P | Same, attempting to delete the facilitator | Refused |
+| IAM-03 | P | Open a workshop's Participants panel | You can SEE the roster — that is intended — but there is no Invite button, no role picker and no Revoke |
+| IAM-04 | P | Try the API directly for invite, revoke and archive | 403 on all three |
+
+## I.2 Inviting a real email address
+
+Use a real address you control that has **never** been in this system.
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| IAM-10 | F | Participants → **Invite**, enter the address, pick a role, Invite | "Account created…" and a **one-time link** shown with a Copy button. No email is sent — that is deliberate; see the note below |
+| IAM-11 | F | Copy the link and open it in a private window | You are asked to set a password, then land in the app |
+| IAM-12 | — | As that new person, open the workshop | **It works.** Previously an invited person was refused everywhere, because the invite granted workshop access without workspace access |
+| IAM-13 | F | Look at the roster before they have opened it | "Has not signed in yet", in amber |
+| IAM-14 | F | Look again after they have | "Last joined <date>" |
+| IAM-15 | F | Invite the SAME address again, to any workshop | Succeeds, reusing their account. It used to fail with "already registered", so nobody could join a second workshop |
+| IAM-16 | F | Invite a malformed address, e.g. `bob@` | Refused with a clear message, nothing created |
+
+> **Why no email.** Supabase's built-in sender is heavily rate-limited and on newer projects
+> only delivers to the project owners' own addresses — so mail to a client domain can vanish
+> with no error, and you would believe somebody had been invited. A link always exists and you
+> can send it however you already talk to them. Treat it like a password.
+
+## I.3 Servicing a user (admin)
+
+Needs a platform admin account (`profiles.global_role = 'admin'`).
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| IAM-20 | A | Open **/admin** | Users, **Workshops** and Audit trail |
+| IAM-21 | A | Users → **Add user** with a real address | Account created and a one-time link shown |
+| IAM-22 | A | Click **Reset link** on any active user | A one-time link they can use to set a new password |
+| IAM-23 | A | Check what was recorded | The audit trail shows the reset happened but **never contains the link** — until used it is a credential |
+| IAM-24 | A | Disable a user, then try **Reset link** on them | The button is disabled. Re-enabling first is required — a reset would hand back access you withdrew |
+| IAM-25 | A | Disable your own account | Refused |
+| IAM-26 | P | Open /admin as a participant | "Administration is restricted", not an empty screen |
+
+## I.4 Revoking access
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| IAM-30 | F | Revoke somebody who captured factors and voted | Confirmation first; then they are off the roster |
+| IAM-31 | F | Check the board and the prioritization | **Their factors and votes are still there.** Deleting them would change every total the report is built on |
+| IAM-32 | F | As that person, open the workshop | Refused |
+| IAM-33 | F | Try to revoke the only facilitator | Refused: appoint another first |
+| IAM-34 | F | Make somebody else a facilitator, then try to demote yourself | **Refused** — you could not reverse it. Another facilitator or an admin can |
+| IAM-35 | A | From /admin → Workshops → Roster, change that role | Works. The role is never stuck |
+
+## I.5 Archiving
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| IAM-40 | F | Workshop overview → **Archive**, confirm | Status becomes **archived**, with a read-only banner. Still listed |
+| IAM-41 | F | Try to add a factor, vote, run AI or review anything | All refused, with "This workshop is archived and read-only" |
+| IAM-42 | F | Open its reports and exports | Fully readable. Archiving ends the work, it does not hide it |
+| IAM-43 | F | Look at the Participants panel | Shown, but not editable, and it says why |
+| IAM-44 | F | **Un-archive** | Everything works again |
+| IAM-45 | A | /admin → Workshops | Archive and un-archive from there too, with a **no facilitator** flag on any workshop nobody can manage |
+
+> IAM-41 is enforced by a database trigger, not by the screen. If any write succeeds while the
+> banner is showing, that is **Critical**.
+
+## I.6 The green light
+
+The dot used to mean "joined", was true for everyone permanently, and was read as "online".
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| IAM-50 | F | Open Participants with nobody else signed in | **No green dots.** The header says nobody else is in the workshop |
+| IAM-51 | F | Have somebody sign in and open the same workshop | A green dot appears on their row, and their line reads "In the workshop now" |
+| IAM-52 | F | Have them close the tab | The dot disappears within a few seconds |
+| IAM-53 | F | Compare against "Last joined" | Somebody who has signed in before but is away shows a DATE and no dot. Those are different facts |
+| IAM-54 | F | Ask the developer to block the websocket, then reload | "Live status unavailable — the roster below is still accurate", and **no dots at all**. An absent dot is honest; a grey one would be a guess |
+
+> IAM-50 and IAM-52 are the regression. If everyone shows green all the time, the old bug is
+> back.
+
+---
+
+# Part J — Skins
+
+Five palettes, chosen from the **palette button** in the top right. The day/dark
+toggle sits next to it and keeps working exactly as before — the two are
+separate controls on purpose, so dimming the room mid-session does not lose the
+client's colours.
+
+| Skin | What it is for |
+| --- | --- |
+| **Strategy Console** | Navy and cyan. The existing default; nobody loses the current look |
+| **Boardroom** | Navy and brass. Understated, for a steering committee |
+| **Studio** | Ink on paper with a burnt-orange marker. Reads as workshop materials |
+| **Signal** | Neutral greys, one electric accent, so the data is the only colour |
+| **Meridian** | Deep teal and sand. Operations and sustainability work |
+
+## J.1 The control
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| SKN-01 | any | Look at the top right | A palette icon beside the sun/moon toggle |
+| SKN-02 | any | Open it | Five skins, each with three colour chips, a name and a line saying what it is for |
+| SKN-03 | any | Read the chips | They preview the skin **in the mode you are currently in** — switch to day mode and reopen; the chips change |
+| SKN-04 | any | Pick one | The whole app repaints immediately. The current skin carries a tick |
+| SKN-05 | any | Reload the page | Your skin is still applied |
+
+## J.2 Dark mode must keep working in every skin
+
+**This is the case to spend time on.** Both controls must stay independent.
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| SKN-10 | any | For **each** of the five skins, toggle day/dark | Both modes look deliberate. **No skin may produce white-on-white, black-on-black, or an unreadable panel** |
+| SKN-11 | any | Pick a skin, then toggle the mode | The skin is unchanged — only the mode flips |
+| SKN-12 | any | Pick dark, change skin | You stay in dark. The mode is not reset |
+| SKN-13 | any | In day mode, check each skin's panel edges and shadows | Panels are still distinguishable from the page. A heavy dark shadow in daylight is a defect |
+| SKN-14 | any | In day mode, look at the faint grid texture behind the pages | Visible but subtle. Invisible or harsh white lines on a pale ground is a defect |
+| SKN-15 | any | Read the secondary grey text in every skin and mode | Legible. This is the token most easily left too faint |
+
+## J.3 Meaning must not change with branding
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| SKN-20 | F | In each skin, open a capture board | The four SWOT quadrant colours are the **same in every skin**. They tell you what a factor IS and are not branding |
+| SKN-21 | F | Look at an approved and a rejected item in each skin | Green still means approved, red still means rejected |
+| SKN-22 | F | Open a PESTLE or Business Model workshop | Its category colours are also unchanged between skins |
+
+> If a skin recolours the SWOT quadrants or turns "approved" amber, that is a
+> defect, not a style choice.
+
+## J.4 Printing
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| SKN-30 | F | In **dark** mode with a non-default skin, print a report to PDF | It prints on white, in that skin's **day** palette — branded, readable, not a page of black ink |
+| SKN-31 | F | After printing, check the screen | You are back in dark mode and the same skin |
+
+---
+
 ## Known gaps, stated up front
 
 Do not raise defects against these — they were decided, not overlooked.

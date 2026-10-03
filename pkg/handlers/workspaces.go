@@ -36,7 +36,7 @@ func ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		where wm.user_id = $1
 		order by ws.name`, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -45,7 +45,7 @@ func ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var ws Workspace
 		if err := rows.Scan(&ws.ID, &ws.Name, &ws.Role); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		// Mirrors the check in CreateWorkshop (App Spec §3.16).

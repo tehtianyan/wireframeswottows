@@ -132,7 +132,7 @@ func ListObjects(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := pool.Query(r2.Context(), query, args...)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -142,7 +142,7 @@ func ListObjects(w http.ResponseWriter, r *http.Request) {
 		obj, err := scanObject(rows, kind)
 		if err != nil {
 			rows.Close()
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		out = append(out, *obj)
@@ -151,7 +151,7 @@ func ListObjects(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 
 	if err := attachEvidence(r2.Context(), pool, kind, out, ids); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	response.OK(w, out)
@@ -273,7 +273,7 @@ func CreateObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -461,7 +461,7 @@ func UpdateObject(w http.ResponseWriter, r *http.Request) {
 		args = append(args, row.id)
 		if _, err := pool.Exec(ctx, fmt.Sprintf(`update public.%s set %s where id = $%d`,
 			kind.Table, strings.Join(sets, ", "), len(args)), args...); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 	}
@@ -496,12 +496,12 @@ func DeleteObject(w http.ResponseWriter, r *http.Request) {
 	// Same as factors: a weight has no foreign key back to its object, so it
 	// outlives the row unless removed here — and an orphan still counts.
 	if err := weights.DeleteForObject(ctx, pool, row.workshopID, row.id); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`delete from public.%s where id = $1`, kind.Table), row.id); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	audit.Record(ctx, pool, user.ID, kind.Key+".deleted", kind.Key, row.id, row.state, "deleted",
@@ -559,7 +559,7 @@ func ReviewObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if currentState == "draft" {
@@ -577,7 +577,7 @@ func ReviewObject(w http.ResponseWriter, r *http.Request) {
 	if _, err := pool.Exec(r2.Context(), fmt.Sprintf(
 		`update public.%s set state = $2, reviewed_by = $3, reviewed_at = now(), review_note = $4 where id = $1`,
 		kind.Table), objectID, newState, user.ID, note); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -643,7 +643,7 @@ func loadObjectForWrite(w http.ResponseWriter, r *http.Request) (
 		return nil, nil, nil, nil, empty, false
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return nil, nil, nil, nil, empty, false
 	}
 	return ctx, pool, kind, user, row, true

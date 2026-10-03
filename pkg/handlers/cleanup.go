@@ -118,7 +118,7 @@ func RunCleanup(w http.ResponseWriter, r *http.Request) {
 	// §12.21, counted before any provider call is made — same as ExecuteAI.
 	used, err := aiRequestsThisHour(ctx, pool, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if limit := limitForRole(role); used >= limit {
@@ -129,7 +129,7 @@ func RunCleanup(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(ctx, pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	stage := m.StageByKey(body.StageKey)
@@ -145,7 +145,7 @@ func RunCleanup(w http.ResponseWriter, r *http.Request) {
 	// its own context rather than using buildAIContext's per-stage slice.
 	notes, err := cleanupCandidates(ctx, pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if len(notes) < 2 {
@@ -186,7 +186,7 @@ func RunCleanup(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("%s for %s", prompt.Name, wkName), nullableString(body.StageKey), ai.Model(),
 	).Scan(&sessionID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -216,7 +216,7 @@ func RunCleanup(w http.ResponseWriter, r *http.Request) {
 		sessionID, prompt.FunctionKey, string(contentJSON), prompt.PromptVersion, user.ID,
 	).Scan(&outputID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	_, _ = pool.Exec(ctx, `
@@ -227,7 +227,7 @@ func RunCleanup(w http.ResponseWriter, r *http.Request) {
 	run, err := applyCleanup(ctx, pool, m, workshopID, user.ID, body.StageKey, outputID,
 		proposedChanges(result.Parsed), notes)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -614,7 +614,7 @@ func ListCleanupRuns(w http.ResponseWriter, r *http.Request) {
 
 	runs, err := loadCleanupRuns(ctx, pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	response.OK(w, runs)
@@ -718,7 +718,7 @@ func UndoCleanupChange(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(ctx, pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -728,7 +728,7 @@ func UndoCleanupChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if msg != "" {
@@ -769,7 +769,7 @@ func UndoCleanupRun(w http.ResponseWriter, r *http.Request) {
 	if err := pool.QueryRow(ctx,
 		`select exists(select 1 from public.board_cleanup_runs where id = $1 and workshop_id = $2)`,
 		runID, workshopID).Scan(&exists); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if !exists {
@@ -779,7 +779,7 @@ func UndoCleanupRun(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(ctx, pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -787,7 +787,7 @@ func UndoCleanupRun(w http.ResponseWriter, r *http.Request) {
 		select id::text from public.board_cleanup_changes
 		where run_id = $1 and undone_at is null order by created_at desc`, runID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	ids := []string{}
@@ -795,7 +795,7 @@ func UndoCleanupRun(w http.ResponseWriter, r *http.Request) {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		ids = append(ids, id)
@@ -807,7 +807,7 @@ func UndoCleanupRun(w http.ResponseWriter, r *http.Request) {
 	for _, id := range ids {
 		ok, msg, err := undoOne(ctx, pool, m, workshopID, user.ID, id)
 		if err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		if ok {
@@ -823,7 +823,7 @@ func UndoCleanupRun(w http.ResponseWriter, r *http.Request) {
 		if _, err := pool.Exec(ctx, `
 			update public.board_cleanup_runs set undone_at = now(), undone_by = $2
 			where id = $1 and undone_at is null`, runID, user.ID); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 	}

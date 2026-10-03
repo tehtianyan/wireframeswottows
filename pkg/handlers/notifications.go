@@ -152,7 +152,7 @@ func ListNotifications(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := pool.Query(r2.Context(), query, args...)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -163,7 +163,7 @@ func ListNotifications(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		if err := rows.Scan(&n.ID, &n.Type, &n.Title, &n.Body, &n.ObjectType, &n.ObjectID,
 			&n.WorkshopID, &n.IsRead, &createdAt); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		n.CreatedAt = createdAt.Format(time.RFC3339)
@@ -191,7 +191,7 @@ func MarkNotificationRead(w http.ResponseWriter, r *http.Request) {
 		update public.notifications set is_read = true, read_at = now()
 		where id = $1 and recipient_id = $2`, id, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -216,7 +216,7 @@ func MarkAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
 		update public.notifications set is_read = true, read_at = now()
 		where recipient_id = $1 and is_read = false`, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	response.OK(w, map[string]int64{"marked": tag.RowsAffected()})
@@ -237,7 +237,7 @@ func DeleteNotification(w http.ResponseWriter, r *http.Request) {
 	tag, err := pool.Exec(r2.Context(),
 		`delete from public.notifications where id = $1 and recipient_id = $2`, id, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -299,7 +299,7 @@ func ListAdminUsers(w http.ResponseWriter, r *http.Request) {
 		       p.created_at
 		from public.profiles p order by p.email`)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -310,7 +310,7 @@ func ListAdminUsers(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.GlobalRole, &u.Status,
 			&u.Workshops, &createdAt); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		u.CreatedAt = createdAt.Format(time.RFC3339)
@@ -363,7 +363,7 @@ func UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	tag, err := pool.Exec(r.Context(),
 		`update public.profiles set global_role = $2 where id = $1`, userID, body.GlobalRole)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -412,7 +412,7 @@ func SetUserStatus(w http.ResponseWriter, r *http.Request) {
 	tag, err := pool.Exec(r.Context(),
 		`update public.profiles set status = $2 where id = $1`, userID, body.Status)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -457,7 +457,7 @@ func ListAuditEvents(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := pool.Query(r.Context(), query, args...)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -467,7 +467,7 @@ func ListAuditEvents(w http.ResponseWriter, r *http.Request) {
 		var e ActivityEvent
 		var createdAt time.Time
 		if err := rows.Scan(&e.Action, &e.ObjectType, &e.ActorName, &e.NewState, &createdAt); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		e.CreatedAt = createdAt.Format(time.RFC3339)

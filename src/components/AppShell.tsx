@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { BookMarked, ChevronLeft, Gauge, LayoutDashboard, Layers, Moon, Shield, SignalHigh, Sun } from "lucide-react";
+import { SkinPicker } from "@/components/SkinPicker";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   DropdownMenu,
@@ -83,6 +84,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Button>
 
         <NotificationBell />
+
+        <SkinPicker />
 
         <Button
           variant="ghost"

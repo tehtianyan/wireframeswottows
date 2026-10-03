@@ -100,7 +100,7 @@ func GetExecutiveBrief(w http.ResponseWriter, r *http.Request) {
 		out.Themes, err = execItems(r2, pool, user.ID, syn.Table, "synthesis",
 			`(select count(*) from public.synthesis_factors sf where sf.synthesis_id = o.id)`, "", 6)
 		if err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 	}
@@ -109,7 +109,7 @@ func GetExecutiveBrief(w http.ResponseWriter, r *http.Request) {
 		`(select count(*) from public.insight_syntheses isy where isy.insight_id = o.id)`,
 		"coalesce(o.strategic_significance, '')", 6)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -119,7 +119,7 @@ func GetExecutiveBrief(w http.ResponseWriter, r *http.Request) {
 		`(select count(*) from public.recommendation_insights ri where ri.recommendation_id = o.id)`,
 		`coalesce(o.priority, '')`, 8)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 

@@ -97,7 +97,7 @@ func GetVotes(w http.ResponseWriter, r *http.Request) {
 
 	budget, err := voteBudget(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -108,7 +108,7 @@ func GetVotes(w http.ResponseWriter, r *http.Request) {
 		where workshop_id = $1 and user_id = $2 and weight_key = 'vote'`,
 		workshopID, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -118,7 +118,7 @@ func GetVotes(w http.ResponseWriter, r *http.Request) {
 		var a VoteAllocation
 		var value float64
 		if err := rows.Scan(&a.FactorID, &value); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		// A vote's scale is integral by configuration, and this endpoint's
@@ -179,7 +179,7 @@ func SetVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if factorState == "rejected" {
@@ -189,7 +189,7 @@ func SetVote(w http.ResponseWriter, r *http.Request) {
 
 	def, err := voteDefinition(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if def == nil || def.ConstraintTotal == nil {
@@ -205,7 +205,7 @@ func SetVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if msg, err := def.CheckBudget(r2.Context(), pool, workshopID, factorID, user.ID, value); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	} else if msg != "" {
 		response.Fail(w, response.CodeValidationError, msg)
@@ -221,7 +221,7 @@ func SetVote(w http.ResponseWriter, r *http.Request) {
 		err = weights.Set(r2.Context(), pool, workshopID, def, "factor", factorID, user.ID, value)
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -232,7 +232,7 @@ func SetVote(w http.ResponseWriter, r *http.Request) {
 		select coalesce(sum(value), 0) from public.weights
 		where workshop_id = $1 and user_id = $2 and weight_key = 'vote'`,
 		workshopID, user.ID).Scan(&used); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 

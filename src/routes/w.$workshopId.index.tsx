@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { PanelHeading } from "@/components/workshop-ui";
 import { AiInlineActions } from "@/components/methodology/AiInlineActions";
+import { ArchiveWorkshopControl } from "@/components/ArchiveWorkshopControl";
 import { ParticipantsPanel } from "@/components/ParticipantsPanel";
 import { cn } from "@/lib/utils";
 import {
@@ -85,7 +86,15 @@ function WorkshopOverview() {
               you: {workshop.my_role}
             </span>
           </div>
-          <h1 className="mt-1.5 text-xl font-semibold md:text-2xl">{workshop.name}</h1>
+          <div className="mt-1.5 flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-xl font-semibold md:text-2xl">{workshop.name}</h1>
+            {/* Archiving ends a workshop's working life, so it sits with the
+                workshop rather than buried in admin — a facilitator finishing
+                a workshop should not need an administrator. */}
+            {workshop.my_role === "facilitator" && (
+              <ArchiveWorkshopControl workshopId={workshop.id} status={workshop.status} />
+            )}
+          </div>
           {workshop.objective && (
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{workshop.objective}</p>
           )}
@@ -95,6 +104,17 @@ function WorkshopOverview() {
             {workshop.votes_per_participant > 0 && ` · ${workshop.votes_per_participant} votes per participant`}
           </p>
         </section>
+
+        {workshop.status === "archived" && (
+          <section className="console-panel border-warning/40 bg-warning/5 px-4 py-3" data-build="live">
+            <p className="text-sm text-foreground">This workshop is archived and read-only.</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Its reports, themes and knowledge stay fully readable — archiving ends the work, it
+              does not hide it. Nothing can be captured, voted on or reviewed until a facilitator
+              un-archives it, and that is enforced by the database rather than by this screen.
+            </p>
+          </section>
+        )}
 
         {summaryQuery.data && <SummaryPanels summary={summaryQuery.data} />}
 
@@ -108,8 +128,8 @@ function WorkshopOverview() {
             actual workshop role, not a UI toggle. */}
         <ParticipantsPanel
           workshopId={workshop.id}
-          voteAllocation={workshop.votes_per_participant}
           canManage={workshop.my_role === "facilitator"}
+          readOnly={workshop.status === "archived"}
         />
 
         <section className="console-panel" data-build="live">

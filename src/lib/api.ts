@@ -938,8 +938,95 @@ export interface AdminUser {
   created_at: string;
 }
 
+// ---- Participants (now through Go, not PostgREST) ----
+
+export type WorkshopRoleKey =
+  | "facilitator"
+  | "participant"
+  | "analyst"
+  | "executive_viewer"
+  | "observer";
+
+export interface Participant {
+  user_id: string;
+  email: string;
+  name: string;
+  role: WorkshopRoleKey;
+  invited_at: string | null;
+  joined_at: string | null;
+  /**
+   * Whether they have ever actually opened the workshop. Distinct from being on
+   * the roster, and distinct again from being online right now — the panel used
+   * to conflate all three and so reported everyone present at all times.
+   */
+  has_signed_in: boolean;
+  factors_created: number;
+  weights_set: number;
+  /** False means the invite did not grant workspace access, so they are locked out. */
+  in_workspace: boolean;
+}
+
+/** What an invite returns: a one-time link for the inviter to pass on. */
+export interface InviteResult {
+  user_id: string;
+  email: string;
+  role: WorkshopRoleKey;
+  new_account: boolean;
+  invite_link?: string;
+  link_type?: "invite" | "recovery";
+  /** Set when access was granted but no link could be minted — says so plainly. */
+  link_error?: string;
+}
+
+export const participantsApi = {
+  list: (workshopId: string) =>
+    apiGet<Participant[]>(`/workshops/${workshopId}/participants`),
+  invite: (workshopId: string, input: { email: string; name?: string; role: WorkshopRoleKey }) =>
+    apiPost<InviteResult>(`/workshops/${workshopId}/participants`, input),
+  setRole: (workshopId: string, userId: string, role: WorkshopRoleKey) =>
+    apiPatch<{ user_id: string; role: WorkshopRoleKey }>(
+      `/workshops/${workshopId}/participants/${userId}`, { role }),
+  revoke: (workshopId: string, userId: string) =>
+    apiDelete<{ user_id: string; state: string }>(
+      `/workshops/${workshopId}/participants/${userId}`),
+
+  archive: (workshopId: string) =>
+    apiPost<{ id: string; status: string }>(`/workshops/${workshopId}/archive`, {}),
+  unarchive: (workshopId: string, status?: string) =>
+    apiPost<{ id: string; status: string }>(
+      `/workshops/${workshopId}/unarchive`, status ? { status } : {}),
+};
+
+// ---- Platform IAM ----
+
+export interface AdminWorkshop {
+  id: string;
+  name: string;
+  status: string;
+  workspace_name: string;
+  methodology: string;
+  facilitators: number;
+  members: number;
+  archived_at: string | null;
+  created_at: string;
+}
+
+export interface ResetLinkResult {
+  id: string;
+  email: string;
+  reset_link: string;
+  expires_note: string;
+}
+
 export const adminApi = {
   users: () => apiGet<AdminUser[]>("/admin/users"),
+  createUser: (input: { email: string; name?: string; global_role?: string }) =>
+    apiPost<InviteResult>("/admin/users", input),
+  resetPassword: (userId: string) =>
+    apiPost<ResetLinkResult>(`/admin/users/${userId}/reset-password`, {}),
+  workshops: () => apiGet<AdminWorkshop[]>("/admin/workshops"),
+  workshopParticipants: (workshopId: string) =>
+    apiGet<Participant[]>(`/admin/workshops/${workshopId}/participants`),
   setRole: (userId: string, global_role: string) =>
     apiPut<{ id: string; global_role: string }>(`/admin/users/${userId}/role`, { global_role }),
   setStatus: (userId: string, status: "active" | "disabled") =>

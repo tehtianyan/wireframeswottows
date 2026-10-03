@@ -180,7 +180,7 @@ func SearchKnowledge(w http.ResponseWriter, r *http.Request) {
 
 		rows, err := pool.Query(r2.Context(), query, args...)
 		if err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		for rows.Next() {
@@ -190,7 +190,7 @@ func SearchKnowledge(w http.ResponseWriter, r *http.Request) {
 			if err := rows.Scan(&h.ObjectID, &h.Title, &h.Snippet, &h.State,
 				&h.WorkshopID, &h.WorkshopName, &createdAt, &h.KnowledgeID, &rank); err != nil {
 				rows.Close()
-				response.Fail(w, response.CodeServerError, err.Error())
+				failDB(w, err)
 				return
 			}
 			h.ObjectKind = k.Kind
@@ -277,7 +277,7 @@ func TraceKnowledge(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		supports := map[string][]SectionItem{}
 		if err := expandEvidence(r2.Context(), pool, workshopID, kind, objectID, supports, 0); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		for citeKind, items := range supports {
@@ -431,7 +431,7 @@ func ListKnowledgeAssets(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := pool.Query(r2.Context(), query, args...)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -443,7 +443,7 @@ func ListKnowledgeAssets(w http.ResponseWriter, r *http.Request) {
 		var publishedAt *time.Time
 		if err := rows.Scan(&a.ID, &a.WorkspaceID, &a.ObjectKind, &a.ObjectID, &a.Title,
 			&a.Summary, &a.State, &a.Tags, &a.WorkshopName, &promotedAt, &publishedAt); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		a.PromotedAt = promotedAt.Format(time.RFC3339)
@@ -505,7 +505,7 @@ func PromoteKnowledge(w http.ResponseWriter, r *http.Request) {
 	var workspaceID string
 	if err := pool.QueryRow(r2.Context(),
 		`select workspace_id from public.workshops where id = $1`, workshopID).Scan(&workspaceID); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -528,7 +528,7 @@ func PromoteKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -574,7 +574,7 @@ func PublishKnowledge(w http.ResponseWriter, r *http.Request) {
 		update public.knowledge_assets
 		set state = 'published', published_by = $2, published_at = now()
 		where id = $1`, assetID, user.ID); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -611,7 +611,7 @@ func RemoveKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := pool.Exec(r2.Context(), `delete from public.knowledge_assets where id = $1`, assetID); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	audit.Record(r2.Context(), pool, user.ID, "knowledge.removed", "knowledge_asset", assetID, "", "deleted", nil)

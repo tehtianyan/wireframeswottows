@@ -50,7 +50,7 @@ func GetReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	response.OK(w, detail)
@@ -136,7 +136,7 @@ func UpdateReportSections(w http.ResponseWriter, r *http.Request) {
 		if _, err := pool.Exec(ctx, `
 			update public.report_sections set sort_order = $2, included = $3
 			where id = $1 and report_id = $4`, s.ID, s.SortOrder, s.Included, reportID); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 	}
@@ -192,7 +192,7 @@ func UpdateReportSection(w http.ResponseWriter, r *http.Request) {
 		set body = $2, generated_by = $3, edited_by = $4, edited_at = now()
 		where id = $1 and report_id = $5`,
 		sectionID, body.Body, newGeneratedBy, user.ID, reportID); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -268,7 +268,7 @@ func ReviewReport(w http.ResponseWriter, r *http.Request) {
 			where id = $1`, reportID, newState, user.ID, note)
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -324,7 +324,7 @@ func PublishReport(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -347,7 +347,7 @@ func PublishReport(w http.ResponseWriter, r *http.Request) {
 	}
 	snapJSON, err := json.Marshal(snapshot)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -359,7 +359,7 @@ func PublishReport(w http.ResponseWriter, r *http.Request) {
 		set snapshot = $2, snapshot_taken_at = now(),
 		    state = 'published', published_by = $3, published_at = now()
 		where id = $1`, reportID, string(snapJSON), user.ID); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -448,7 +448,7 @@ func CreateReportVersion(w http.ResponseWriter, r *http.Request) {
 		returning id`,
 		workshopID, title, reportType, user.ID, rootID, reportID, newMajor, newMinor,
 	).Scan(&newID); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -461,7 +461,7 @@ func CreateReportVersion(w http.ResponseWriter, r *http.Request) {
 		select $1, workshop_id, title, section_key, section_type, sort_order, included,
 		       source, body, generated_by, source_ai_output_id, edited_by, edited_at
 		from public.report_sections where report_id = $2`, newID, reportID); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -499,7 +499,7 @@ func ExportReportHTML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -508,7 +508,7 @@ func ExportReportHTML(w http.ResponseWriter, r *http.Request) {
 
 	tmpl, err := template.New("report").Parse(reportHTMLTemplate)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 

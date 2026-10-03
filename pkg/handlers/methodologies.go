@@ -41,7 +41,7 @@ func ListMethodologies(w http.ResponseWriter, r *http.Request) {
 		where m.is_active = true
 		order by m.name`)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -50,7 +50,7 @@ func ListMethodologies(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m MethodologySummary
 		if err := rows.Scan(&m.ID, &m.Key, &m.Name, &m.Description, &m.Version, &m.CategoryCount, &m.StageCount); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		out = append(out, m)

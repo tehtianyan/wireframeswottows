@@ -192,7 +192,7 @@ func ListReportTypes(w http.ResponseWriter, r *http.Request) {
 	}
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	types, _ := reportTypesFor(m)
@@ -300,7 +300,7 @@ func ListReports(w http.ResponseWriter, r *http.Request) {
 		`select %s from public.reports where workshop_id = $1
 		 order by root_id, version_major desc, version_minor desc`, reportCols), workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -309,7 +309,7 @@ func ListReports(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		s, err := scanReportSummary(rows)
 		if err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		out = append(out, *s)
@@ -350,7 +350,7 @@ func CreateReport(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	types, _ := reportTypesFor(m)
@@ -390,12 +390,12 @@ func CreateReport(w http.ResponseWriter, r *http.Request) {
 		select fresh.id, fresh.id, $1, $2, $3, 'draft', $4, 'human' from fresh
 		returning id`, workshopID, title, chosen.Key, user.ID).Scan(&reportID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
 	if err := seedSections(r2.Context(), pool, reportID, workshopID, chosen); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 

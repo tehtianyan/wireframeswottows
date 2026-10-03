@@ -56,7 +56,7 @@ func ListWorkshops(w http.ResponseWriter, r *http.Request) {
 	user := httpctx.UserFromContext(r2.Context())
 	pool, err := db.Pool(r2.Context())
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -70,7 +70,7 @@ func ListWorkshops(w http.ResponseWriter, r *http.Request) {
 		where wm.user_id = $1
 		order by w.created_at desc`, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -81,7 +81,7 @@ func ListWorkshops(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		if err := rows.Scan(&wk.ID, &wk.WorkspaceID, &wk.MethodologyID, &wk.Name, &wk.Description,
 			&wk.Objective, &wk.FacilitatorID, &wk.Status, &wk.VotesPerParticipant, &createdAt); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		wk.CreatedAt = createdAt.Format(time.RFC3339)
@@ -105,6 +105,15 @@ func GetWorkshop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pool, _ := db.Pool(r2.Context())
+
+	// Opening a workshop is what "joined" means. It used to be written by the
+	// CLIENT — participants.ts called it "activate" — and by the seed, so every
+	// person on the roster read as joined whether they had ever signed in or
+	// not. That is why the Participants panel reported the whole room present
+	// at all times. Now it is a server-side fact, stamped once, on first real
+	// access, and no client can set it.
+	MarkJoined(r2.Context(), pool, id, user.ID)
+
 	var wk Workshop
 	var createdAt time.Time
 	err = pool.QueryRow(r2.Context(), `
@@ -121,7 +130,7 @@ func GetWorkshop(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.Load(r2.Context(), pool, wk.MethodologyID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -180,7 +189,7 @@ func CreateWorkshop(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.Load(r2.Context(), pool, methodologyID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -204,7 +213,7 @@ func CreateWorkshop(w http.ResponseWriter, r *http.Request) {
 		body.WorkspaceID, methodologyID, body.Name, body.Description, body.Objective, user.ID, votesPerParticipant,
 	).Scan(&id)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -212,7 +221,7 @@ func CreateWorkshop(w http.ResponseWriter, r *http.Request) {
 		insert into public.workshop_members (workshop_id, user_id, role, joined_at)
 		values ($1, $2, 'facilitator', now())`, id, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -224,7 +233,7 @@ func CreateWorkshop(w http.ResponseWriter, r *http.Request) {
 			insert into public.activities (workshop_id, stage_id, title, sequence_number, status)
 			values ($1, $2, $3, $4, 'not_started')`,
 			id, s.ID, s.Name, s.SequenceNumber); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 	}
@@ -277,7 +286,7 @@ func TransitionWorkshop(toStatusOverride string) http.HandlerFunc {
 
 		_, err := pool.Exec(r2.Context(), `update public.workshops set status = $1, updated_at = now() where id = $2`, target, id)
 		if err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 
@@ -341,7 +350,7 @@ func CompleteWorkshop(w http.ResponseWriter, r *http.Request) {
 
 	_, err := pool.Exec(r2.Context(), `update public.workshops set status = 'completed', updated_at = now() where id = $1`, id)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 

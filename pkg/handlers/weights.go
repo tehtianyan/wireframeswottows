@@ -82,7 +82,7 @@ func GetWeights(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -90,12 +90,12 @@ func GetWeights(w http.ResponseWriter, r *http.Request) {
 
 	mine, err := weights.LoadValues(r2.Context(), pool, workshopID, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	totals, err := weights.LoadAggregates(r2.Context(), pool, workshopID, defs)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -113,7 +113,7 @@ func GetWeights(w http.ResponseWriter, r *http.Request) {
 
 	participation, err := weights.LoadParticipation(r2.Context(), pool, workshopID, defs)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -179,7 +179,7 @@ func setWeightFor(w http.ResponseWriter, r *http.Request, kindSegment, objectID 
 
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defs := applyWorkshopBudgetOverride(r2.Context(), pool, workshopID, m.Weights)
@@ -211,7 +211,7 @@ func setWeightFor(w http.ResponseWriter, r *http.Request, kindSegment, objectID 
 
 	if body.Value == nil {
 		if err := weights.Clear(r2.Context(), pool, workshopID, def, objectID, user.ID); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		auditWeight(r2, pool, user.ID, kindKey, objectID, workshopID, weightKey, nil)
@@ -224,7 +224,7 @@ func setWeightFor(w http.ResponseWriter, r *http.Request, kindSegment, objectID 
 		return
 	}
 	if msg, err := def.CheckBudget(r2.Context(), pool, workshopID, objectID, user.ID, *body.Value); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	} else if msg != "" {
 		response.Fail(w, response.CodeValidationError, msg)
@@ -233,7 +233,7 @@ func setWeightFor(w http.ResponseWriter, r *http.Request, kindSegment, objectID 
 
 	if err := weights.Set(r2.Context(), pool, workshopID, def,
 		kindKey, objectID, user.ID, *body.Value); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -294,7 +294,7 @@ func writeWeightSummary(w http.ResponseWriter, r *http.Request, pool *pgxpool.Po
 		select coalesce(sum(value), 0) from public.weights
 		where workshop_id = $1 and weight_key = $2 and user_id = $3`,
 		workshopID, def.Key, userID).Scan(&used); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 

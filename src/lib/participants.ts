@@ -1,85 +1,65 @@
 import { queryOptions } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { inviteParticipantFn } from "./participants.functions";
+import { participantsApi, type Participant, type WorkshopRoleKey } from "./api";
 
-export type ParticipantRole = "participant" | "analyst" | "facilitator" | "executive_viewer" | "observer";
-export type ParticipantStatus = "active" | "invited";
-
-export interface ParticipantRecord {
-  id: string;
-  name: string;
-  email: string;
-  role: ParticipantRole;
-  status: ParticipantStatus;
-  votes_used: number;
-  artifacts_count: number;
-  comments_count: number;
-  joined_at: string | null;
-}
-
-// Every function here takes the workshop it operates on.
+// Participant management, through the Go API.
 //
-// They used to call a getSeedWorkshopId() helper that did
-// `from("workshops").select("id").limit(1).single()` — the FIRST workshop row
-// in the table, whichever that happened to be — left over from when there was
-// only one. The visible symptom was that a newly created workshop showed the
-// demo workshop's roster: people who are not members of it and have no access
-// to it. The unseen half was worse: changing a role, activating or removing a
-// participant all wrote to that other workshop instead.
+// IT USED TO WRITE POSTGREST DIRECTLY, and that was a security hole rather than
+// a style problem. The RLS policies on workshop_members authorised on
+// MEMBERSHIP, not on role:
+//
+//   UPDATE ... USING is_workshop_member(workshop_id)
+//
+// so any participant could `update workshop_members set role='facilitator'`
+// against themselves, and delete the facilitator. Both were confirmed
+// exploitable on the development project before 20261003110000 removed the
+// write policies. The UI only offered those controls to a facilitator, which is
+// an affordance, not a boundary.
+//
+// Membership is a permission grant, so it now goes where every other permission
+// decision is made: pkg/handlers/participants.go, which checks the role, keeps
+// the last facilitator in place, grants workspace access alongside workshop
+// access, and writes an audit row.
+//
+// An earlier bug worth not repeating: these functions once called a
+// getSeedWorkshopId() helper that took the FIRST workshop row in the table, so
+// a new workshop showed another workshop's roster and every change wrote to the
+// wrong one. Every function here takes the workshop it operates on.
+
+export type ParticipantRole = WorkshopRoleKey;
+export type { Participant };
+
 export function participantsQueryOptions(workshopId: string) {
   return queryOptions({
     queryKey: ["workshop-participants", workshopId],
-    queryFn: async (): Promise<ParticipantRecord[]> => {
-      const { data, error } = await supabase
-        .from("workshop_roster")
-        .select("*")
-        .eq("workshop_id", workshopId)
-        .order("name", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as ParticipantRecord[];
-    },
+    queryFn: () => participantsApi.list(workshopId),
     enabled: Boolean(workshopId),
   });
 }
 
-export async function inviteParticipant(
+export function inviteParticipant(
   workshopId: string,
-  input: { name: string; email: string; role: ParticipantRole },
+  input: { name?: string; email: string; role: ParticipantRole },
 ) {
-  await inviteParticipantFn({ data: { workshopId, ...input } });
+  return participantsApi.invite(workshopId, input);
 }
 
-export async function updateParticipantRole(workshopId: string, id: string, role: ParticipantRole) {
-  const { error } = await supabase
-    .from("workshop_members")
-    .update({ role })
-    .eq("workshop_id", workshopId)
-    .eq("user_id", id);
-  if (error) throw error;
+export function updateParticipantRole(
+  workshopId: string,
+  userId: string,
+  role: ParticipantRole,
+) {
+  return participantsApi.setRole(workshopId, userId, role);
 }
 
-export async function activateParticipant(workshopId: string, id: string) {
-  const { error } = await supabase
-    .from("workshop_members")
-    .update({ joined_at: new Date().toISOString() })
-    .eq("workshop_id", workshopId)
-    .eq("user_id", id);
-  if (error) throw error;
-}
-
-export async function removeParticipant(workshopId: string, id: string) {
-  const { error } = await supabase
-    .from("workshop_members")
-    .delete()
-    .eq("workshop_id", workshopId)
-    .eq("user_id", id);
-  if (error) throw error;
+export function removeParticipant(workshopId: string, userId: string) {
+  return participantsApi.revoke(workshopId, userId);
 }
 
 export function initials(name: string) {
   return name
-    .split(" ")
+    .split(/\s+/)
     .map((n) => n[0])
+    .filter(Boolean)
     .join("")
     .slice(0, 2)
     .toUpperCase();
@@ -92,3 +72,12 @@ export const roleLabels: Record<ParticipantRole, string> = {
   executive_viewer: "Executive",
   observer: "Observer",
 };
+
+/** Roles a facilitator may assign, in the order the picker shows them. */
+export const assignableRoles: ParticipantRole[] = [
+  "participant",
+  "analyst",
+  "facilitator",
+  "executive_viewer",
+  "observer",
+];

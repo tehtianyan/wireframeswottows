@@ -42,7 +42,7 @@ func ListActivities(w http.ResponseWriter, r *http.Request) {
 		where a.workshop_id = $1
 		order by ms.sequence_number`, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -51,7 +51,7 @@ func ListActivities(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var a Activity
 		if err := rows.Scan(&a.ID, &a.StageKey, &a.Title, &a.Status); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		activities = append(activities, a)

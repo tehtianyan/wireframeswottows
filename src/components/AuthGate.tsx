@@ -62,10 +62,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
             {loading && <Loader2 className="size-3.5 animate-spin" />}
             Sign in
           </Button>
-          <p className="text-center text-[11px] text-muted-foreground">
-            Demo accounts share the password <span className="font-mono">SwotDemo2026!</span> — try
-            jane.smith@example.com
-          </p>
+          {/* DEV ONLY. This shipped ungated, so the PUBLIC production sign-in
+              page printed the shared demo password next to a facilitator's
+              address — anyone who found the URL could sign in as a facilitator
+              and read every workshop. Convenient on dev, where the seeded
+              accounts live and the data is disposable; indefensible in
+              production. `vite build` runs in production mode, so the deployed
+              bundle omits this entirely rather than merely hiding it. */}
+          {import.meta.env.MODE === "dev" && (
+            <p className="text-center text-[11px] text-muted-foreground">
+              Demo accounts share the password <span className="font-mono">SwotDemo2026!</span> —
+              try jane.smith@example.com
+            </p>
+          )}
         </form>
       </div>
     );

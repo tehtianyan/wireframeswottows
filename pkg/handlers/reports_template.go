@@ -52,7 +52,7 @@ func loadReportForWrite(w http.ResponseWriter, r *http.Request) (
 		return nil, nil, nil, "", "", "", false
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return nil, nil, nil, "", "", "", false
 	}
 	return ctx, pool, user, workshopID, reportID, state, true

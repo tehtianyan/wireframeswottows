@@ -110,7 +110,7 @@ func GetAIStatus(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -229,7 +229,7 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 	// §12.21 rate limiting, counted before any provider call is made.
 	used, err := aiRequestsThisHour(r2.Context(), pool, user.ID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if limit := limitForRole(role); used >= limit {
@@ -240,7 +240,7 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	stage := m.StageByKey(body.StageKey)
@@ -288,7 +288,7 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 	} else {
 		promptCtx, err = buildAIContext(r2.Context(), pool, m, stage, workshopID)
 		if err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 	}
@@ -323,7 +323,7 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("%s for %s", prompt.Name, wkName), nullableString(body.StageKey), ai.Model(),
 	).Scan(&sessionID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -368,7 +368,7 @@ func ExecuteAI(w http.ResponseWriter, r *http.Request) {
 		sessionID, prompt.FunctionKey, string(contentJSON), prompt.PromptVersion,
 	).Scan(&outputID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 
@@ -458,7 +458,7 @@ func ListAIOutputs(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := pool.Query(r2.Context(), query, args...)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	defer rows.Close()
@@ -470,7 +470,7 @@ func ListAIOutputs(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		if err := rows.Scan(&o.ID, &o.SessionID, &o.OutputType, &content, &o.ReviewStatus,
 			&o.PromptVersion, &o.StageKey, &createdAt, &o.ConvertedType, &o.ConvertedID); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		_ = json.Unmarshal(content, &o.Content)
@@ -534,7 +534,7 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	if status != "pending" {
@@ -546,7 +546,7 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 		if _, err := pool.Exec(r2.Context(), `
 			update public.ai_outputs set human_review_status = 'rejected', reviewed_by = $2, reviewed_at = now()
 			where id = $1`, outputID, user.ID); err != nil {
-			response.Fail(w, response.CodeServerError, err.Error())
+			failDB(w, err)
 			return
 		}
 		audit.Record(r2.Context(), pool, user.ID, "ai.rejected", "ai_output", outputID, "pending", "rejected",
@@ -567,7 +567,7 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 	}
 	m, err := methodology.LoadForWorkshop(r2.Context(), pool, workshopID)
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	stage := m.StageByKey(effectiveStageKey)
@@ -631,7 +631,7 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	finishAIAccept(r2.Context(), w, pool, user.ID, workshopID, outputID, kind.Key, id, body.Overrides != nil)
@@ -649,7 +649,7 @@ func finishAIAccept(ctx context.Context, w http.ResponseWriter, pool *pgxpool.Po
 		set human_review_status = $2, reviewed_by = $3, reviewed_at = now(),
 		    converted_object_type = $4, converted_object_id = $5
 		where id = $1`, outputID, status, userID, objectType, objectID); err != nil {
-		response.Fail(w, response.CodeServerError, err.Error())
+		failDB(w, err)
 		return
 	}
 	audit.Record(ctx, pool, userID, "ai."+status, "ai_output", outputID, "pending", status,
