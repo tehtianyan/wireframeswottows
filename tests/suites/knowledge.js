@@ -10,6 +10,7 @@ runSuite("knowledge", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
   const { facilitator: F, analyst: A, participant: P } = await clients(baseUrl, ["facilitator", "analyst", "participant"]);
 
   const seeded = [];
+  let priorRoles = [];
   let assetId = null;
 
   try {
@@ -124,11 +125,29 @@ runSuite("knowledge", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
 
     await c.query('delete from public.factors where id=$1', [pf.data.id]);
     r.section('administration is gated on global_role (spec 11.29)');
-    const denied = await F('GET', '/admin/users');
-    r.ok(!denied.success && denied.error.code === 'FORBIDDEN',
-      'an ordinary user cannot list users', denied.error && denied.error.message);
+
+    // Every global_role is snapshotted so the cleanup can put back exactly
+    // what it found. This used to end with a blanket
+    // `set global_role='user'` across the whole table, which silently
+    // DEMOTED every real platform administrator on whatever database the
+    // suite ran against.
+    priorRoles = (
+      await c.query("select id::text id, global_role from public.profiles")
+    ).rows;
 
     const jane = (await c.query(`select id from public.profiles where email='jane.smith@example.com'`)).rows[0].id;
+
+    // Forced to an ordinary role FIRST, so the refusal below proves the gate
+    // works rather than merely reflecting whatever this database happened to
+    // have. It passed for years only because the seed had no admins — the
+    // moment one existed for real, this check failed and looked like a bug in
+    // the gate.
+    await c.query(`update public.profiles set global_role='user' where id=$1`, [jane]);
+    const denied = await F('GET', '/admin/users');
+    r.ok(!denied.success && denied.error.code === 'FORBIDDEN',
+      'an ordinary user cannot list users — asserted against a role this test SET, not an ambient one',
+      denied.error && denied.error.message);
+
     await c.query(`update public.profiles set global_role='platform_admin' where id=$1`, [jane]);
     const F2 = client(baseUrl, await token(ACCOUNTS.facilitator));
 
@@ -163,8 +182,11 @@ runSuite("knowledge", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     for (const [t, id] of seeded.reverse()) await c.query(`delete from public.${t} where id=$1`, [id]);
     await c.query("delete from public.factors where title like 'P5 %'");
     await c.query("delete from public.notifications");
-    await c.query("update public.profiles set global_role='user'");
-    r.note('seeded rows, assets and notifications removed; roles reset');
+    // Restored row by row, never blanket-reset.
+    for (const row of priorRoles) {
+      await c.query('update public.profiles set global_role=$2 where id=$1', [row.id, row.global_role]);
+    }
+    r.note(`seeded rows, assets and notifications removed; ${priorRoles.length} roles restored as found`);
     await c.end();
   }
 });

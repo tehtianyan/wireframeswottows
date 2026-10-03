@@ -40,12 +40,17 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+// `error` is typed `unknown` by the router, not `Error` — anything can be
+// thrown. It is narrowed once here rather than cast, so a thrown string or
+// object still reports something useful instead of producing "undefined" in
+// the error report.
+function ErrorComponent({ error, reset }: { error: unknown; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  const asError = error instanceof Error ? error : new Error(String(error));
   useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
+    reportLovableError(asError, { boundary: "tanstack_root_error_component" });
+  }, [asError]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
