@@ -28,6 +28,8 @@ const suites = [
   ["reporting", "Phase 4 — reports, versioning, export"],
   ["knowledge", "Phase 5 — knowledge, notifications, admin"],
   ["executive", "Phase 5 — executive dashboard"],
+  ["skins", "Presentation — the five skins, in both modes"],
+  ["iam", "Security — participants, identity management, archiving"],
   ["scoping", "Security — workspace scoping"],
   ["genericity", "Architecture — PESTLE needs no code"],
 ];

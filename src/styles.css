@@ -246,6 +246,310 @@
   --shadow-console: 0 1px 2px 0 oklch(0 0 0 / 5%), 0 12px 30px -22px oklch(0 0 0 / 30%);
 }
 
+/* ============================================================
+   SKINS
+   ============================================================
+
+   A skin repaints the console; the dark/day toggle still decides which end of
+   it you get. Both have to keep working independently, so each skin defines
+   BOTH modes and the two axes never fight:
+
+     html[data-skin="boardroom"].dark   -> that skin's night palette
+     html[data-skin="boardroom"].light  -> that skin's day palette
+
+   Both selectors are specificity (0,2,0), which beats the `:root` night
+   defaults and the `.light` day defaults (both (0,1,0)) regardless of source
+   order — so a skin cannot be half-applied by an ordering accident, and the
+   mode classes ui-prefs.tsx already toggles keep doing exactly what they did.
+
+   A skin overrides only what carries its identity: the neutral surfaces, the
+   accents and the chrome. Semantic colours (success, warning, destructive) and
+   the SWOT / category hues are inherited ON PURPOSE — green meaning "approved"
+   and red meaning "threat" should not change because somebody picked a warmer
+   palette, and a methodology's category colours are part of reading the
+   content rather than part of the branding.
+
+   `--shadow-console` and the grid texture are redefined per mode here too.
+   Without that, a light skin gets the night build's 60%-black 40px shadow and
+   white grid lines on near-white paper, which is how a "light skin" ends up
+   looking broken rather than light.
+
+   The default skin ("console") deliberately has no block: it IS the `:root`
+   and `.light` palettes above, so choosing it is the absence of an override
+   and nothing can drift out of step with it.
+
+   Keep the swatches in src/lib/skins.ts in step with the primary / accent /
+   background of each block below — they are what the picker previews.
+   ============================================================ */
+
+/* ---- 2. Boardroom — navy and brass. Blue-chip, understated, the palette of
+     a printed strategy document rather than a product UI. ---- */
+
+html[data-skin="boardroom"].dark {
+  --background: oklch(0.17 0.02 265);
+  --foreground: oklch(0.94 0.008 260);
+  --card: oklch(0.215 0.022 265);
+  --card-foreground: oklch(0.94 0.008 260);
+  --elevated: oklch(0.26 0.024 265);
+  --popover: oklch(0.215 0.022 265);
+  --popover-foreground: oklch(0.94 0.008 260);
+  --primary: oklch(0.76 0.11 85);
+  --primary-foreground: oklch(0.18 0.02 265);
+  --secondary: oklch(0.285 0.024 265);
+  --secondary-foreground: oklch(0.93 0.008 260);
+  --muted: oklch(0.265 0.022 265);
+  --muted-foreground: oklch(0.72 0.018 262);
+  --accent: oklch(0.70 0.10 250);
+  --accent-foreground: oklch(0.17 0.02 265);
+  --border: oklch(0.30 0.022 265);
+  --border-strong: oklch(0.40 0.026 265);
+  --input: oklch(0.30 0.022 265);
+  --ring: oklch(0.76 0.11 85);
+  --sidebar: oklch(0.145 0.018 265);
+  --sidebar-foreground: oklch(0.90 0.012 260);
+  --sidebar-primary: oklch(0.76 0.11 85);
+  --sidebar-primary-foreground: oklch(0.18 0.02 265);
+  --sidebar-accent: oklch(0.245 0.022 265);
+  --sidebar-accent-foreground: oklch(0.94 0.008 260);
+  --sidebar-border: oklch(0.265 0.02 265);
+  --sidebar-ring: oklch(0.76 0.11 85);
+}
+
+html[data-skin="boardroom"].light {
+  --background: oklch(0.975 0.006 85);
+  --foreground: oklch(0.22 0.025 265);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.025 265);
+  --elevated: oklch(0.955 0.008 85);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.025 265);
+  --primary: oklch(0.50 0.085 80);
+  --primary-foreground: oklch(0.99 0.004 85);
+  --secondary: oklch(0.935 0.009 85);
+  --secondary-foreground: oklch(0.26 0.025 265);
+  --muted: oklch(0.945 0.008 85);
+  --muted-foreground: oklch(0.47 0.022 262);
+  --accent: oklch(0.43 0.10 255);
+  --accent-foreground: oklch(0.99 0.004 85);
+  --border: oklch(0.88 0.010 85);
+  --border-strong: oklch(0.79 0.014 85);
+  --input: oklch(0.88 0.010 85);
+  --ring: oklch(0.50 0.085 80);
+  --sidebar: oklch(0.99 0.004 85);
+  --sidebar-foreground: oklch(0.26 0.025 265);
+  --sidebar-primary: oklch(0.50 0.085 80);
+  --sidebar-primary-foreground: oklch(0.99 0.004 85);
+  --sidebar-accent: oklch(0.935 0.009 85);
+  --sidebar-accent-foreground: oklch(0.22 0.025 265);
+  --sidebar-border: oklch(0.89 0.010 85);
+  --sidebar-ring: oklch(0.50 0.085 80);
+}
+
+/* ---- 3. Studio — ink on paper, with a burnt-orange marker and a sage
+     counterpoint. The workshop-materials palette: flipcharts and sticky
+     notes rather than dashboards. ---- */
+
+html[data-skin="studio"].dark {
+  --background: oklch(0.175 0.012 40);
+  --foreground: oklch(0.945 0.008 60);
+  --card: oklch(0.22 0.014 40);
+  --card-foreground: oklch(0.945 0.008 60);
+  --elevated: oklch(0.265 0.016 40);
+  --popover: oklch(0.22 0.014 40);
+  --popover-foreground: oklch(0.945 0.008 60);
+  --primary: oklch(0.73 0.145 52);
+  --primary-foreground: oklch(0.18 0.015 40);
+  --secondary: oklch(0.29 0.016 40);
+  --secondary-foreground: oklch(0.935 0.008 60);
+  --muted: oklch(0.27 0.014 40);
+  --muted-foreground: oklch(0.72 0.016 55);
+  --accent: oklch(0.76 0.10 150);
+  --accent-foreground: oklch(0.18 0.015 40);
+  --border: oklch(0.31 0.014 40);
+  --border-strong: oklch(0.41 0.018 40);
+  --input: oklch(0.31 0.014 40);
+  --ring: oklch(0.73 0.145 52);
+  --sidebar: oklch(0.15 0.011 40);
+  --sidebar-foreground: oklch(0.90 0.010 60);
+  --sidebar-primary: oklch(0.73 0.145 52);
+  --sidebar-primary-foreground: oklch(0.18 0.015 40);
+  --sidebar-accent: oklch(0.25 0.014 40);
+  --sidebar-accent-foreground: oklch(0.945 0.008 60);
+  --sidebar-border: oklch(0.27 0.013 40);
+  --sidebar-ring: oklch(0.73 0.145 52);
+}
+
+html[data-skin="studio"].light {
+  --background: oklch(0.965 0.013 75);
+  --foreground: oklch(0.235 0.018 40);
+  --card: oklch(0.995 0.005 75);
+  --card-foreground: oklch(0.235 0.018 40);
+  --elevated: oklch(0.945 0.015 75);
+  --popover: oklch(0.995 0.005 75);
+  --popover-foreground: oklch(0.235 0.018 40);
+  --primary: oklch(0.53 0.145 46);
+  --primary-foreground: oklch(0.99 0.005 75);
+  --secondary: oklch(0.93 0.016 75);
+  --secondary-foreground: oklch(0.28 0.018 40);
+  --muted: oklch(0.94 0.014 75);
+  --muted-foreground: oklch(0.47 0.020 50);
+  --accent: oklch(0.44 0.09 152);
+  --accent-foreground: oklch(0.99 0.005 75);
+  --border: oklch(0.885 0.015 75);
+  --border-strong: oklch(0.79 0.018 75);
+  --input: oklch(0.885 0.015 75);
+  --ring: oklch(0.53 0.145 46);
+  --sidebar: oklch(0.98 0.010 75);
+  --sidebar-foreground: oklch(0.28 0.018 40);
+  --sidebar-primary: oklch(0.53 0.145 46);
+  --sidebar-primary-foreground: oklch(0.99 0.005 75);
+  --sidebar-accent: oklch(0.93 0.016 75);
+  --sidebar-accent-foreground: oklch(0.235 0.018 40);
+  --sidebar-border: oklch(0.895 0.014 75);
+  --sidebar-ring: oklch(0.53 0.145 46);
+}
+
+/* ---- 4. Signal — almost no hue in the neutrals, so the one accent carries
+     everything. For analysis-heavy screens where the data should be the only
+     coloured thing on the page. ---- */
+
+html[data-skin="signal"].dark {
+  --background: oklch(0.165 0.004 285);
+  --foreground: oklch(0.955 0.002 285);
+  --card: oklch(0.215 0.005 285);
+  --card-foreground: oklch(0.955 0.002 285);
+  --elevated: oklch(0.26 0.006 285);
+  --popover: oklch(0.215 0.005 285);
+  --popover-foreground: oklch(0.955 0.002 285);
+  --primary: oklch(0.71 0.18 295);
+  --primary-foreground: oklch(0.17 0.008 285);
+  --secondary: oklch(0.285 0.006 285);
+  --secondary-foreground: oklch(0.945 0.002 285);
+  --muted: oklch(0.265 0.005 285);
+  --muted-foreground: oklch(0.72 0.005 285);
+  --accent: oklch(0.81 0.15 95);
+  --accent-foreground: oklch(0.18 0.01 285);
+  --border: oklch(0.30 0.005 285);
+  --border-strong: oklch(0.41 0.006 285);
+  --input: oklch(0.30 0.005 285);
+  --ring: oklch(0.71 0.18 295);
+  --sidebar: oklch(0.14 0.004 285);
+  --sidebar-foreground: oklch(0.90 0.003 285);
+  --sidebar-primary: oklch(0.71 0.18 295);
+  --sidebar-primary-foreground: oklch(0.17 0.008 285);
+  --sidebar-accent: oklch(0.245 0.005 285);
+  --sidebar-accent-foreground: oklch(0.955 0.002 285);
+  --sidebar-border: oklch(0.265 0.005 285);
+  --sidebar-ring: oklch(0.71 0.18 295);
+}
+
+html[data-skin="signal"].light {
+  --background: oklch(0.98 0.002 285);
+  --foreground: oklch(0.215 0.006 285);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.215 0.006 285);
+  --elevated: oklch(0.96 0.003 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.215 0.006 285);
+  --primary: oklch(0.51 0.20 295);
+  --primary-foreground: oklch(0.99 0.002 285);
+  --secondary: oklch(0.945 0.003 285);
+  --secondary-foreground: oklch(0.255 0.006 285);
+  --muted: oklch(0.955 0.003 285);
+  --muted-foreground: oklch(0.46 0.006 285);
+  --accent: oklch(0.56 0.13 85);
+  --accent-foreground: oklch(0.99 0.002 285);
+  --border: oklch(0.90 0.004 285);
+  --border-strong: oklch(0.81 0.005 285);
+  --input: oklch(0.90 0.004 285);
+  --ring: oklch(0.51 0.20 295);
+  --sidebar: oklch(0.995 0.001 285);
+  --sidebar-foreground: oklch(0.255 0.006 285);
+  --sidebar-primary: oklch(0.51 0.20 295);
+  --sidebar-primary-foreground: oklch(0.99 0.002 285);
+  --sidebar-accent: oklch(0.945 0.003 285);
+  --sidebar-accent-foreground: oklch(0.215 0.006 285);
+  --sidebar-border: oklch(0.91 0.004 285);
+  --sidebar-ring: oklch(0.51 0.20 295);
+}
+
+/* ---- 5. Meridian — deep teal with warm sand. Reads as operations and
+     sustainability work rather than finance, and is the one skin here with no
+     blue-grey anywhere in it. ---- */
+
+html[data-skin="meridian"].dark {
+  --background: oklch(0.175 0.022 195);
+  --foreground: oklch(0.945 0.010 190);
+  --card: oklch(0.22 0.024 195);
+  --card-foreground: oklch(0.945 0.010 190);
+  --elevated: oklch(0.265 0.026 195);
+  --popover: oklch(0.22 0.024 195);
+  --popover-foreground: oklch(0.945 0.010 190);
+  --primary: oklch(0.77 0.12 172);
+  --primary-foreground: oklch(0.18 0.025 195);
+  --secondary: oklch(0.29 0.026 195);
+  --secondary-foreground: oklch(0.935 0.010 190);
+  --muted: oklch(0.27 0.024 195);
+  --muted-foreground: oklch(0.72 0.020 190);
+  --accent: oklch(0.81 0.12 72);
+  --accent-foreground: oklch(0.18 0.025 195);
+  --border: oklch(0.305 0.024 195);
+  --border-strong: oklch(0.405 0.028 195);
+  --input: oklch(0.305 0.024 195);
+  --ring: oklch(0.77 0.12 172);
+  --sidebar: oklch(0.15 0.020 195);
+  --sidebar-foreground: oklch(0.90 0.012 190);
+  --sidebar-primary: oklch(0.77 0.12 172);
+  --sidebar-primary-foreground: oklch(0.18 0.025 195);
+  --sidebar-accent: oklch(0.25 0.024 195);
+  --sidebar-accent-foreground: oklch(0.945 0.010 190);
+  --sidebar-border: oklch(0.27 0.022 195);
+  --sidebar-ring: oklch(0.77 0.12 172);
+}
+
+html[data-skin="meridian"].light {
+  --background: oklch(0.97 0.009 170);
+  --foreground: oklch(0.225 0.028 195);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.225 0.028 195);
+  --elevated: oklch(0.95 0.011 170);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.225 0.028 195);
+  --primary: oklch(0.46 0.095 175);
+  --primary-foreground: oklch(0.99 0.004 170);
+  --secondary: oklch(0.935 0.012 170);
+  --secondary-foreground: oklch(0.265 0.028 195);
+  --muted: oklch(0.945 0.010 170);
+  --muted-foreground: oklch(0.465 0.024 190);
+  --accent: oklch(0.53 0.105 68);
+  --accent-foreground: oklch(0.99 0.004 170);
+  --border: oklch(0.885 0.013 170);
+  --border-strong: oklch(0.79 0.016 170);
+  --input: oklch(0.885 0.013 170);
+  --ring: oklch(0.46 0.095 175);
+  --sidebar: oklch(0.99 0.005 170);
+  --sidebar-foreground: oklch(0.265 0.028 195);
+  --sidebar-primary: oklch(0.46 0.095 175);
+  --sidebar-primary-foreground: oklch(0.99 0.004 170);
+  --sidebar-accent: oklch(0.935 0.012 170);
+  --sidebar-accent-foreground: oklch(0.225 0.028 195);
+  --sidebar-border: oklch(0.895 0.012 170);
+  --sidebar-ring: oklch(0.46 0.095 175);
+}
+
+/* ---- Chrome that has to follow the mode, not the skin ----
+
+   These are keyed on `.light` / `.dark` alone and apply to every skin,
+   including ones added later. Writing them per skin would mean five chances to
+   forget one, and a forgotten one is how a light skin ends up with white grid
+   lines on white paper or a night-weight shadow in daylight. */
+
+.dark .grid-backdrop {
+  background-image:
+    linear-gradient(oklch(1 0 0 / 3%) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(1 0 0 / 3%) 1px, transparent 1px);
+}
+
 html {
   scroll-behavior: smooth;
 }
