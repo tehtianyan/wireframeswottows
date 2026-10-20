@@ -512,10 +512,35 @@ func MarkJoined(ctx context.Context, pool *pgxpool.Pool, workshopID, userID stri
 
 // siteURL is where an invite or reset link should land. Falls back to empty,
 // which lets Supabase use the project's configured Site URL.
+// siteURL is where an invite or reset link should land.
+//
+// TWO BUGS LIVED HERE, and together they made every invite useless:
+//
+//  1. It appended "/auth/callback", a route this app does not have. Ten routes
+//     exist and none of them is that, so a correctly configured deployment
+//     would still have dropped the invitee on a 404. The link now targets the
+//     site ROOT, which AuthGate owns: it reads the recovery fragment and shows
+//     the set-a-password screen.
+//
+//  2. When neither variable was set it returned "", which makes Supabase fall
+//     back to the PROJECT's Site URL — a dashboard setting this code cannot
+//     see. Production's was still "http://localhost:3000" from early
+//     development, so real invitees were sent to their own machine, where
+//     nothing is running. That is why the first invite to a real address could
+//     not be opened.
+//
+// Returning "" is still the documented fallback, because a deployment that has
+// set its Site URL correctly should be allowed to rely on it. But
+// PUBLIC_SITE_URL is now set in Vercel so the server states the destination
+// itself rather than depending on a setting nobody checks.
 func siteURL() string {
-	for _, k := range []string{"PUBLIC_SITE_URL", "VITE_SITE_URL"} {
+	// SITE_URL first: Vercel reserves the PUBLIC_ prefix for variables it
+	// exposes to the browser and refuses it on production, and this one is
+	// read only by Go. The prefixed names stay as fallbacks so a deployment
+	// that already set either keeps working.
+	for _, k := range []string{"SITE_URL", "PUBLIC_SITE_URL", "VITE_SITE_URL"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-			return strings.TrimRight(v, "/") + "/auth/callback"
+			return strings.TrimRight(v, "/") + "/"
 		}
 	}
 	return ""

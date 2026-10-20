@@ -5,12 +5,19 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { SetPasswordScreen, useRecoveryLanding } from "@/components/SetPasswordGate";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // An invite or reset link lands here with a token in the fragment. The client
+  // turns that into a session, so without this the person would be dropped
+  // straight into the app having never chosen a password — and the one session
+  // the link granted would be the only one they ever got.
+  const { needsPassword, done } = useRecoveryLanding();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -78,6 +85,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
         </form>
       </div>
     );
+  }
+
+  // Checked AFTER the session exists, because the link has already signed them
+  // in by this point — the question is not whether they are authenticated but
+  // whether they hold a credential they can use again.
+  if (needsPassword) {
+    return <SetPasswordScreen {...(session.user?.email ? { email: session.user.email } : {})} onDone={done} />;
   }
 
   return <>{children}</>;

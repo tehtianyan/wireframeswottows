@@ -477,11 +477,11 @@ is where the before-text has to be visible.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| GEN-60 | F | Open a **PESTLE** workshop's capture stage | **No Merge and Fix panel.** PESTLE has no cleanup prompt configured |
-| GEN-61 | F | Same for Five Forces, Capability, Risk, Business Model, Transformation | No panel on any of them |
-| GEN-62 | F | Open the SWOT **Reporting** stage | No panel — the prompt is keyed to capture stages |
+| GEN-66 | F | Open a **PESTLE** workshop's capture stage | **No Merge and Fix panel.** PESTLE has no cleanup prompt configured |
+| GEN-67 | F | Same for Five Forces, Capability, Risk, Business Model, Transformation | No panel on any of them |
+| GEN-68 | F | Open the SWOT **Reporting** stage | No panel — the prompt is keyed to capture stages |
 
-> **GEN-60..62 failing is Critical.** The button exists because SWOT-TOWS has
+> **GEN-66..68 failing is Critical.** The button exists because SWOT-TOWS has
 > one row in `methodology_ai_prompts`. If another methodology shows it, the
 > feature has been wired to a stage *type* in code instead of to configuration,
 > and every methodology has inherited an action nobody configured for it.
@@ -663,20 +663,38 @@ Four separate complaints, one of which turned out to be a vulnerability.
 
 Use a real address you control that has **never** been in this system.
 
+> **Check this first, or every case below fails.** The link's destination comes from
+> `SITE_URL` on the server, falling back to the Supabase project's own **Site URL**. Production's
+> was `http://localhost:3000` until 2026-10-20, so invite links sent real people to *their own*
+> machine, where nothing is running. In the Supabase dashboard → **Authentication → URL
+> Configuration**, Site URL must be the real site and the Redirect URLs must allow it:
+>
+> | Project | Site URL | Redirect URLs |
+> | --- | --- | --- |
+> | production `azbqapefetexjqefcdep` | `https://wireframeswottows.vercel.app` | `https://wireframeswottows.vercel.app/**` |
+> | dev `gjeatgmgjkhxfrfonkit` | `http://localhost:8080` | `http://localhost:8080/**` |
+
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
 | IAM-10 | F | Participants → **Invite**, enter the address, pick a role, Invite | "Account created…" and a **one-time link** shown with a Copy button. No email is sent — that is deliberate; see the note below |
-| IAM-11 | F | Copy the link and open it in a private window | You are asked to set a password, then land in the app |
+| IAM-10a | F | Read the link before sending it | It points at the **real site**, not `localhost` and not a `/auth/callback` path. Both were wrong until 2026-10-20 and are the reason the first real invite could not be opened |
+| IAM-11 | F | Copy the link and open it in a private window | A **Choose a password** screen, naming the address. Setting one signs you in |
+| IAM-11a | F | Look at the address bar on that screen | The `#access_token=…` fragment is **gone**. Until used it is a credential for that account, and it must not sit in browser history |
+| IAM-11b | F | Sign out, then sign in with the password you just set | It works. Before the password screen existed, the link granted exactly **one** session and the person was then locked out for good |
 | IAM-12 | — | As that new person, open the workshop | **It works.** Previously an invited person was refused everywhere, because the invite granted workshop access without workspace access |
 | IAM-13 | F | Look at the roster before they have opened it | "Has not signed in yet", in amber |
 | IAM-14 | F | Look again after they have | "Last joined <date>" |
 | IAM-15 | F | Invite the SAME address again, to any workshop | Succeeds, reusing their account. It used to fail with "already registered", so nobody could join a second workshop |
 | IAM-16 | F | Invite a malformed address, e.g. `bob@` | Refused with a clear message, nothing created |
+| IAM-17 | F | Use an invite link **twice** | The second use is refused by Supabase. One-time means one time |
 
 > **Why no email.** Supabase's built-in sender is heavily rate-limited and on newer projects
 > only delivers to the project owners' own addresses — so mail to a client domain can vanish
 > with no error, and you would believe somebody had been invited. A link always exists and you
 > can send it however you already talk to them. Treat it like a password.
+
+> **IAM-11b is the regression case.** The password screen is the only thing standing between an
+> invitation and a person who can never sign in again.
 
 ## I.3 Servicing a user (admin)
 
