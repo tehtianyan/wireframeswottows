@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -182,15 +183,63 @@ const (
 // `firstTime` does not change the mechanism, only what the caller tells the
 // person: somebody new is setting their first password, somebody returning is
 // replacing one. The returned LinkType reflects that meaning.
-func SignInLinkFor(ctx context.Context, email, redirectTo string, firstTime bool) (string, LinkType, error) {
+// The third return value is a WARNING for the person doing the inviting, empty
+// when all is well. See RedirectWarning: Supabase silently rewrites a
+// redirect_to it does not recognise, and somebody has to be told.
+func SignInLinkFor(ctx context.Context, email, redirectTo string, firstTime bool) (string, LinkType, string, error) {
 	link, err := GenerateLink(ctx, LinkRecovery, email, redirectTo)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
+	warn := RedirectWarning(redirectTo, link)
 	if firstTime {
-		return link, LinkInvite, nil
+		return link, LinkInvite, warn, nil
 	}
-	return link, LinkRecovery, nil
+	return link, LinkRecovery, warn, nil
+}
+
+// RedirectWarning reports when Supabase did not honour the redirect we asked
+// for, in words the person doing the inviting can act on.
+//
+// WHY THIS EXISTS. A `redirect_to` that is not in the project's Redirect URLs
+// list is **silently discarded** and replaced with the project's Site URL. No
+// error, no field, nothing in the response to say it happened. Production's
+// Site URL was still `http://localhost:3000`, so every invite link pointed at
+// the invitee's own machine — and because the API returned a perfectly
+// well-formed link, nothing anywhere noticed. It surfaced only when a real
+// person could not open one, and even then it looked like a code bug: the
+// server was sending the right value and being overruled.
+//
+// The server can see what it asked for and what came back, so it can say so.
+// A misconfigured project now announces itself to whoever is inviting, instead
+// of to the one person who cannot get in.
+//
+// Pure, so it is tested without a network call: see supaadmin_test.go.
+func RedirectWarning(requested, actionLink string) string {
+	if requested == "" {
+		// Nothing was asked for, so the project's Site URL is the intended
+		// answer and there is nothing to compare against.
+		return ""
+	}
+	u, err := url.Parse(actionLink)
+	if err != nil {
+		return ""
+	}
+	got := u.Query().Get("redirect_to")
+	if got == "" || sameTarget(requested, got) {
+		return ""
+	}
+	return fmt.Sprintf(
+		"This link will send them to %s, not %s. Supabase replaced the destination because "+
+			"%s is not in the project's Redirect URLs — add it (with a /** suffix) under "+
+			"Authentication → URL Configuration, then invite again.",
+		got, strings.TrimRight(requested, "/"), strings.TrimRight(requested, "/"))
+}
+
+// sameTarget compares two redirect URLs ignoring a trailing slash, which
+// Supabase adds and drops inconsistently and which means nothing here.
+func sameTarget(a, b string) bool {
+	return strings.EqualFold(strings.TrimRight(a, "/"), strings.TrimRight(b, "/"))
 }
 
 // GenerateLink mints a one-time link without sending any email.

@@ -219,7 +219,7 @@ func CreateAdminUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link, linkType, linkErr := supaadmin.SignInLinkFor(ctx, email, siteURL(), isNew)
+	link, linkType, linkWarn, linkErr := supaadmin.SignInLinkFor(ctx, email, siteURL(), isNew)
 
 	audit.Record(ctx, pool, actor, "user.created", "profile", userID, "", role,
 		map[string]interface{}{"email": email, "new_account": isNew})
@@ -232,6 +232,9 @@ func CreateAdminUser(w http.ResponseWriter, r *http.Request) {
 	} else {
 		out["invite_link"] = link
 		out["link_type"] = string(linkType)
+		if linkWarn != "" {
+			out["link_warning"] = linkWarn
+		}
 	}
 	response.Created(w, out)
 }
@@ -279,6 +282,7 @@ func ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 		failDB(w, err)
 		return
 	}
+	linkWarn := supaadmin.RedirectWarning(siteURL(), link)
 
 	// The LINK IS NOT LOGGED — it is a bearer credential for that account, and
 	// an audit trail readable by every admin is the wrong place for one. Only
@@ -286,10 +290,14 @@ func ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 	audit.Record(ctx, pool, actor, "user.password_reset_issued", "profile", targetID, "", "",
 		map[string]interface{}{"email": email})
 
-	response.OK(w, map[string]interface{}{
+	reset := map[string]interface{}{
 		"id": targetID, "email": email, "reset_link": link,
 		"expires_note": "This link can be used once, and expires according to the project's auth settings.",
-	})
+	}
+	if linkWarn != "" {
+		reset["link_warning"] = linkWarn
+	}
+	response.OK(w, reset)
 }
 
 // ---- Workshops an admin may service ----

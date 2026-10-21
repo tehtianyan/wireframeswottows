@@ -35,7 +35,13 @@ function AdminPage() {
   // once; the server never records it, because until it is used it IS a
   // credential for that account.
   const [link, setLink] = useState<
-    { email: string; link?: string; kind?: "invite" | "recovery"; error?: string } | null
+    {
+      email: string;
+      link?: string;
+      kind?: "invite" | "recovery";
+      error?: string;
+      warning?: string;
+    } | null
   >(null);
 
   const usersQuery = useQuery({
@@ -74,6 +80,7 @@ function AdminPage() {
         ...(r.invite_link ? { link: r.invite_link } : {}),
         ...(r.link_type ? { kind: r.link_type } : {}),
         ...(r.link_error ? { error: r.link_error } : {}),
+        ...(r.link_warning ? { warning: r.link_warning } : {}),
       });
       toast.success(
         r.new_account ? `Account created for ${r.email}` : `${r.email} already had an account`,
@@ -85,7 +92,12 @@ function AdminPage() {
   const resetPassword = useMutation({
     mutationFn: (id: string) => adminApi.resetPassword(id),
     onSuccess: (r: ResetLinkResult) => {
-      setLink({ email: r.email, link: r.reset_link, kind: "recovery" });
+      setLink({
+        email: r.email,
+        link: r.reset_link,
+        kind: "recovery",
+        ...(r.link_warning ? { warning: r.link_warning } : {}),
+      });
       toast.success(`Reset link ready for ${r.email}`);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -202,6 +214,7 @@ function AdminPage() {
               {...(link.link ? { link: link.link } : {})}
               {...(link.kind ? { kind: link.kind } : {})}
               {...(link.error ? { error: link.error } : {})}
+              {...(link.warning ? { warning: link.warning } : {})}
               onDismiss={() => setLink(null)}
             />
           )}

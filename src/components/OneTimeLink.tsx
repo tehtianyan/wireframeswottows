@@ -20,6 +20,7 @@ export function OneTimeLink({
   link,
   kind,
   error,
+  warning,
   onDismiss,
 }: {
   email: string;
@@ -27,6 +28,12 @@ export function OneTimeLink({
   kind?: "invite" | "recovery";
   /** Set when access was granted but no link could be minted. */
   error?: string;
+  /**
+   * Set when the link exists but points somewhere unintended, because Supabase
+   * overruled the destination. Shown ABOVE the link rather than below it: the
+   * whole failure mode is somebody copying a link that looks fine.
+   */
+  warning?: string;
   onDismiss: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -50,6 +57,11 @@ export function OneTimeLink({
 
   return (
     <div className="space-y-1.5 border-b border-border bg-elevated/40 px-3.5 py-2.5">
+      {warning && (
+        <p className="rounded-sm border border-warning/50 bg-warning/10 p-2 text-[11px] leading-snug text-foreground">
+          <span className="font-semibold">Do not send this yet.</span> {warning}
+        </p>
+      )}
       <p className="label-caps">
         {kind === "recovery" ? "Sign-in link" : "Invite link"} for {email}
       </p>

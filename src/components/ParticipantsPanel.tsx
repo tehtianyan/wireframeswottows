@@ -256,6 +256,7 @@ export function ParticipantsPanel({
           {...(lastInvite.invite_link ? { link: lastInvite.invite_link } : {})}
           {...(lastInvite.link_type ? { kind: lastInvite.link_type } : {})}
           {...(lastInvite.link_error ? { error: lastInvite.link_error } : {})}
+          {...(lastInvite.link_warning ? { warning: lastInvite.link_warning } : {})}
           onDismiss={() => setLastInvite(null)}
         />
       )}

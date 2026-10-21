@@ -109,6 +109,19 @@ runSuite("iam", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
       "reported as a first-time invite, which is what the person experiences",
       invited.data.link_type);
 
+    // The destination has to be the one the server asked for. Supabase
+    // SILENTLY replaces a redirect_to that is not in the project's Redirect
+    // URLs with the project's Site URL — production's was still
+    // http://localhost:3000, so every invite pointed at the invitee's own
+    // machine while the API returned a perfectly well-formed link.
+    const dest = new URL(invited.data.invite_link).searchParams.get("redirect_to");
+    r.ok(Boolean(dest) && !/\/auth\/callback/.test(dest),
+      "the link targets the app root, not the /auth/callback route that never existed",
+      dest);
+    r.ok(!invited.data.link_warning,
+      "and no destination warning on a correctly configured project — a warning that cries wolf is worse than none",
+      invited.data.link_warning ?? "(none)");
+
     // THE BUG THAT MADE EVERY PREVIOUS INVITE USELESS. The old invite inserted
     // workshop_members only, and authz joins workspace_members, so an invited
     // person was refused everywhere.

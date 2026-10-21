@@ -976,6 +976,13 @@ export interface InviteResult {
   link_type?: "invite" | "recovery";
   /** Set when access was granted but no link could be minted — says so plainly. */
   link_error?: string;
+  /**
+   * Set when Supabase SILENTLY rewrote the link's destination because ours is
+   * not in the project's Redirect URLs. The link is real but goes to the wrong
+   * place, which is indistinguishable from a working invite until the person
+   * cannot open it — so it is surfaced to whoever is inviting.
+   */
+  link_warning?: string;
 }
 
 export const participantsApi = {
@@ -1016,6 +1023,8 @@ export interface ResetLinkResult {
   email: string;
   reset_link: string;
   expires_note: string;
+  /** See InviteResult.link_warning — a destination Supabase overruled. */
+  link_warning?: string;
 }
 
 export const adminApi = {

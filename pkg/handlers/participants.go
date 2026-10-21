@@ -278,7 +278,7 @@ func InviteParticipant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link, linkType, linkErr := supaadmin.SignInLinkFor(ctx, email, siteURL(), isNew)
+	link, linkType, linkWarn, linkErr := supaadmin.SignInLinkFor(ctx, email, siteURL(), isNew)
 
 	audit.Record(ctx, pool, actor.ID, "participant.invited", "workshop_member", userID, "", role,
 		map[string]interface{}{
@@ -295,6 +295,12 @@ func InviteParticipant(w http.ResponseWriter, r *http.Request) {
 	} else {
 		out["invite_link"] = link
 		out["link_type"] = string(linkType)
+		// Surfaced to the inviter, not swallowed: Supabase silently rewrites a
+		// redirect it does not recognise, so without this the link looks
+		// correct to everyone except the person who cannot open it.
+		if linkWarn != "" {
+			out["link_warning"] = linkWarn
+		}
 	}
 	response.Created(w, out)
 }
