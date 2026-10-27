@@ -35,6 +35,17 @@ var ErrInsufficientRole = errors.New("insufficient role")
 // inside it: their stale workshop_members row kept working indefinitely.
 // CLAUDE.md claimed the 3-level check was enforced while level 1 never was;
 // the scoping test now proves it is.
+// A disabled account is refused here too. "Disabled" used to be a column and
+// nothing else: SetUserStatus wrote profiles.status, nothing read it, and
+// pkg/supaadmin.SetUserBanned — written for exactly this — had no callers. So
+// a disabled person kept every workshop they had, and could sign in again to
+// get a fresh token. That is the same shape of bug as the missing
+// workspace_members join above: a revocation that does not revoke.
+//
+// The join is LEFT with a coalesce rather than inner, so it denies only an
+// account explicitly marked disabled. An inner join would additionally deny
+// anyone whose profile row is missing for some unrelated reason, which is a
+// lockout this check has no business causing.
 func WorkshopRole(ctx context.Context, pool *pgxpool.Pool, userID, workshopID string) (string, error) {
 	var role string
 	err := pool.QueryRow(ctx, `
@@ -43,7 +54,9 @@ func WorkshopRole(ctx context.Context, pool *pgxpool.Pool, userID, workshopID st
 		join public.workshops w on w.id = wm.workshop_id
 		join public.workspace_members wsm
 		     on wsm.workspace_id = w.workspace_id and wsm.user_id = wm.user_id
-		where wm.workshop_id = $1 and wm.user_id = $2`,
+		left join public.profiles p on p.id = wm.user_id
+		where wm.workshop_id = $1 and wm.user_id = $2
+		  and coalesce(p.status, 'active') <> 'disabled'`,
 		workshopID, userID,
 	).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -59,8 +72,12 @@ func WorkshopRole(ctx context.Context, pool *pgxpool.Pool, userID, workshopID st
 // ErrForbidden if they are not a member.
 func WorkspaceRole(ctx context.Context, pool *pgxpool.Pool, userID, workspaceID string) (string, error) {
 	var role string
-	err := pool.QueryRow(ctx,
-		`select role from public.workspace_members where workspace_id = $1 and user_id = $2`,
+	err := pool.QueryRow(ctx, `
+		select wsm.role
+		from public.workspace_members wsm
+		left join public.profiles p on p.id = wsm.user_id
+		where wsm.workspace_id = $1 and wsm.user_id = $2
+		  and coalesce(p.status, 'active') <> 'disabled'`,
 		workspaceID, userID,
 	).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -88,6 +105,51 @@ func RequireWorkshopRole(ctx context.Context, pool *pgxpool.Pool, userID, worksh
 		}
 	}
 	return role, ErrInsufficientRole
+}
+
+// PlatformAdminRole is the ONE name for the platform administrator role.
+//
+// It was two names — 'admin' and 'platform_admin' — honoured by different
+// checks, so the role worked on one screen and was refused on the next.
+// Migration 20261026100000 narrowed the column's CHECK to match this constant;
+// if you ever add a second name, these two must not be allowed to drift apart
+// again, which is why there is one constant and one function below.
+const PlatformAdminRole = "admin"
+
+// IsPlatformAdmin is the single answer to "may this account administer the
+// platform?" — held here rather than in pkg/handlers because two handler
+// packages asked the question separately and answered it differently.
+//
+// An ACTIVE account is required. A disabled administrator who kept their
+// powers would be the most consequential version of the cosmetic-disable bug
+// described on WorkshopRole.
+func IsPlatformAdmin(ctx context.Context, pool *pgxpool.Pool, userID string) (bool, error) {
+	var ok bool
+	err := pool.QueryRow(ctx, `
+		select global_role = $2 and status = 'active'
+		from public.profiles where id = $1`, userID, PlatformAdminRole).Scan(&ok)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("checking platform role: %w", err)
+	}
+	return ok, nil
+}
+
+// PlatformAdminCount counts the active platform administrators.
+//
+// Used on the REFUSAL path so that "administration is restricted" can say
+// something useful when the answer is that nobody holds the role at all —
+// otherwise the page tells you to ask an administrator who does not exist.
+func PlatformAdminCount(ctx context.Context, pool *pgxpool.Pool) int {
+	var n int
+	if err := pool.QueryRow(ctx, `
+		select count(*) from public.profiles
+		where global_role = $1 and status = 'active'`, PlatformAdminRole).Scan(&n); err != nil {
+		return -1 // unknown; callers must not read -1 as "none"
+	}
+	return n
 }
 
 // WorkshopIDForActivity resolves the owning workshop for an activity, factor,

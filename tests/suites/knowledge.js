@@ -148,7 +148,11 @@ runSuite("knowledge", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
       'an ordinary user cannot list users — asserted against a role this test SET, not an ambient one',
       denied.error && denied.error.message);
 
-    await c.query(`update public.profiles set global_role='platform_admin' where id=$1`, [jane]);
+    // 'admin' is the ONE name for this role. This line said 'platform_admin',
+    // which the column used to admit and which /admin used to accept —
+    // so this suite was passing through a code path that participant
+    // management refused. Migration 20261026100000 removed the second name.
+    await c.query(`update public.profiles set global_role='admin' where id=$1`, [jane]);
     const F2 = client(baseUrl, await token(ACCOUNTS.facilitator));
 
     const users = await F2('GET', '/admin/users');

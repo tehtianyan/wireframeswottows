@@ -478,10 +478,12 @@ func canManageParticipants(ctx context.Context, pool *pgxpool.Pool, w http.Respo
 	}
 	// A platform admin can service any workshop — including one whose
 	// facilitator has left, which is the case the admin screen exists for.
-	var isAdmin bool
-	if qErr := pool.QueryRow(ctx,
-		`select coalesce(global_role, '') = 'admin' from public.profiles where id = $1`,
-		actorID).Scan(&isAdmin); qErr == nil && isAdmin {
+	// Through authz, not a query of its own. This check and the one guarding
+	// /admin used to ask the same question separately and answer it
+	// differently — this one accepted 'admin' only, the other accepted
+	// 'platform_admin' too — so a "Platform admin" could open the
+	// administration page and then be refused every action on it.
+	if isAdmin, qErr := authz.IsPlatformAdmin(ctx, pool, actorID); qErr == nil && isAdmin {
 		return true
 	}
 	writeAuthzErr(w, err)

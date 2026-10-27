@@ -932,7 +932,9 @@ export interface AdminUser {
   id: string;
   email: string;
   display_name: string | null;
-  global_role: "user" | "admin" | "platform_admin";
+  // Two names for one role were a defect, not a hierarchy — see migration
+  // 20261026100000. "Admin" is the platform administrator.
+  global_role: "user" | "admin";
   status: "active" | "disabled";
   workshop_count: number;
   created_at: string;

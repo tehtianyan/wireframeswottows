@@ -344,6 +344,104 @@ runSuite("iam", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     r.ok(auditHasNoLink === 0,
       "the link is NOT written to the audit trail — until used it is a credential for that account",
       auditHasNoLink);
+
+    // ---- one name for the platform role ----
+    //
+    // 'platform_admin' used to be accepted by the column's CHECK and by the
+    // /admin gate, but NOT by participant management, and the admin page
+    // offered it in a dropdown. So an administrator could hand somebody a
+    // role that opened the page and was refused on every action in it.
+    r.section("the platform role has exactly one name");
+
+    const secondName = await A("PUT", `/admin/users/${fUid}/role`, { global_role: "platform_admin" });
+    r.ok(!secondName.success && secondName.error.code === "VALIDATION_ERROR",
+      "'platform_admin' is refused — the second name for this role is gone",
+      secondName.error?.message);
+
+    const dbRefuses = await c
+      .query("update public.profiles set global_role='platform_admin' where id=$1", [fUid])
+      .then(() => null, (err) => err.message);
+    r.ok(dbRefuses !== null,
+      "and the CHECK constraint refuses it too, so it cannot be set behind Go's back",
+      dbRefuses);
+
+    // The two checks that disagreed now answer through one function, so a
+    // platform admin who can open /admin can also act on the workshop
+    // endpoints it drives.
+    //
+    // The condition is CONSTRUCTED rather than searched for. Looking for "a
+    // workshop this account is not in" found none on dev, so the assertion
+    // silently did not run — which is the same defect as one passing for the
+    // wrong reason, just quieter. Dropping the admin's own membership from
+    // this suite's own probe workshop makes it hold on any database.
+    // Asserted on a WRITE, because the writes are what canManageParticipants
+    // guards. Reading the roster is deliberately members-only — the admin
+    // page reads it through /admin/workshops/{id}/participants instead — so
+    // using the read here failed and said so, which is the assertion doing
+    // its job rather than a bug in the gate.
+    await c.query("delete from public.workshop_members where workshop_id=$1 and user_id=$2",
+      [probeWorkshop, fUid]);
+
+    // The REFUSAL goes first, deliberately. The invite below adds the
+    // participant to this workshop, and once they are a member the refusal
+    // would be about their role rather than about having no claim on the
+    // workshop at all — a pass, for the wrong reason.
+    const noClaim = await P("POST", `/workshops/${probeWorkshop}/participants`, {
+      email: PROBE_EMAIL,
+      role: "participant",
+    });
+    r.ok(!noClaim.success,
+      "a non-member without the platform role cannot add participants",
+      noClaim.status);
+
+    // Invites an EXISTING demo account rather than a fresh address: an invite
+    // that succeeds with a new address leaves a real auth user behind on the
+    // shared dev project every time the suite runs.
+    const adminInvites = await A("POST", `/workshops/${probeWorkshop}/participants`, {
+      email: ACCOUNTS.participant,
+      role: "participant",
+    });
+    r.ok(adminInvites.success,
+      "while a platform admin can, on a workshop they are NOT a member of — the check that used to disagree with the /admin gate",
+      adminInvites.error?.message);
+
+    // ---- "disabled" has to disable ----
+    //
+    // SetUserStatus wrote profiles.status and nothing read it; authz never
+    // joined profiles and supaadmin.SetUserBanned had no callers at all. So a
+    // disabled person kept every workshop they had.
+    r.section("a disabled account loses access, not just a column");
+
+    const pTokenBefore = await token(ACCOUNTS.participant);
+    const Pd = client(baseUrl, pTokenBefore);
+    const beforeDisable = await Pd("GET", `/workshops/${WS}`);
+    r.ok(beforeDisable.success,
+      "the participant can read the workshop before being disabled",
+      beforeDisable.error?.message);
+
+    await c.query("update public.profiles set status='disabled' where id=$1", [pUid]);
+    const afterDisable = await Pd("GET", `/workshops/${WS}`);
+    r.ok(!afterDisable.success,
+      "and is refused on the SAME token once disabled — this SUCCEEDED before authz joined profiles",
+      afterDisable.status);
+    await c.query("update public.profiles set status='active' where id=$1", [pUid]);
+
+    const backAgain = await Pd("GET", `/workshops/${WS}`);
+    r.ok(backAgain.success,
+      "re-enabling restores access, so disabling is reversible rather than destructive",
+      backAgain.error?.message);
+
+    // No "last administrator cannot be disabled" check, because there is no
+    // such guard and there must not be one: it would be unreachable. An
+    // active administrator reaching this endpoint is either disabling
+    // somebody else — so not the last — or themselves, which the
+    // self-disable refusal below already covers. Asserting it here would
+    // have passed on the self-disable refusal and reported a guard that does
+    // not exist as working.
+    const selfOff = await A("POST", `/admin/users/${fUid}/status`, { status: "disabled" });
+    r.ok(!selfOff.success,
+      "an admin cannot disable their own account — which is what keeps one administrator standing",
+      selfOff.error?.message);
   } finally {
     // Restored UNCONDITIONALLY, not behind a flag. An earlier version only
     // restored when it believed it had demoted somebody, so a run that failed

@@ -50,6 +50,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <h1 className="font-display text-lg font-semibold">SWOT·TOWS Strategy Console</h1>
             <p className="mt-1 text-sm text-muted-foreground">Sign in to continue.</p>
           </div>
+          {/* They arrived on an invite or reset link and it did not sign them
+              in — the link was already used, or it has expired. Saying so
+              matters: this form is otherwise indistinguishable from a normal
+              visit, so somebody who cannot possibly know their password is
+              asked for it with no explanation. That silence is exactly what a
+              broken invite looked like from the invitee's side. */}
+          {needsPassword && (
+            <p className="rounded-sm border border-warning/50 bg-warning/10 p-2 text-[11px] leading-snug">
+              That link did not sign you in — a one-time link works once and then expires. Ask
+              whoever invited you for a fresh one.
+            </p>
+          )}
           <div className="space-y-1.5">
             <p className="label-caps">Email</p>
             <Input

@@ -128,9 +128,18 @@ function AdminPage() {
           <section className="console-panel p-6 text-center" data-build="live">
             <ShieldAlert className="mx-auto size-6 text-muted-foreground" />
             <h1 className="mt-3 text-lg font-semibold">Administration is restricted</h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Your account is not a platform administrator. Ask an administrator if you need
-              access to user management.
+            {/*
+              The server's own sentence, not a fixed one. There are two
+              different refusals here — "you are not an administrator" and
+              "nobody is" — and only the server can tell them apart. Printing
+              a hardcoded "ask an administrator" over the second one is how
+              production came to tell fifteen people to go and ask somebody
+              who did not exist.
+            */}
+            <p className="mt-1.5 whitespace-pre-line text-sm text-muted-foreground">
+              {usersQuery.error instanceof Error && usersQuery.error.message
+                ? usersQuery.error.message
+                : "Your account is not a platform administrator. Ask an administrator if you need access to user management."}
             </p>
           </section>
         </div>
@@ -319,7 +328,6 @@ function UserRow({
         >
           <option value="user">User</option>
           <option value="admin">Admin</option>
-          <option value="platform_admin">Platform admin</option>
         </select>
       </td>
       <td className="px-4 py-2.5 font-mono text-muted-foreground">{user.workshop_count}</td>

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { landedOnRecoveryLink } from "@/lib/recovery-landing";
 
 // "Set your password" — the screen an invite link lands on.
 //
@@ -19,41 +20,36 @@ import { supabase } from "@/integrations/supabase/client";
 // bearer credential for the account; leaving it in the URL leaves it in history
 // and in anything that logs a referrer.
 
-/** True when the current URL fragment is a recovery / invite landing. */
-function hashIsRecovery(): boolean {
-  if (typeof window === "undefined") return false;
-  const h = window.location.hash;
-  // `type=recovery` is what both invite and reset links carry, because the
-  // server mints both through GoTrue's recovery endpoint — `invite` is refused
-  // for an account that already exists. See pkg/supaadmin.SignInLinkFor.
-  return h.includes("type=recovery") || h.includes("type=invite");
-}
-
 /** Removes the token fragment without reloading or adding a history entry. */
 function stripHash() {
   if (typeof window === "undefined") return;
+  if (!window.location.hash) return;
   const { pathname, search } = window.location;
   window.history.replaceState(null, "", pathname + search);
 }
 
 export function useRecoveryLanding() {
-  const [needsPassword, setNeedsPassword] = useState(false);
+  // Read from the module-load snapshot, NOT from the URL now. By the time this
+  // runs the fragment may already be gone — supabase-js removes it when it
+  // exchanges the token — and asking too late is how this screen came to never
+  // appear at all. See src/lib/recovery-landing.ts for the full account.
+  const [needsPassword, setNeedsPassword] = useState(landedOnRecoveryLink);
 
   useEffect(() => {
-    if (hashIsRecovery()) {
-      setNeedsPassword(true);
-      // Cleared immediately, not after the password is set: the token has
-      // already been exchanged for a session by this point, so keeping it in
-      // the URL buys nothing and costs a credential sitting in history.
-      stripHash();
-    }
-    // supabase-js also announces it, which covers a client that consumed the
-    // fragment before this effect ran.
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setNeedsPassword(true);
-        stripHash();
-      }
+    // Touching supabase.auth is what CONSTRUCTS the client, which is what
+    // makes it read the fragment and establish the session. Doing it here,
+    // with nothing stripped beforehand, is the fix: the client must see the
+    // URL before anybody tidies it.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") setNeedsPassword(true);
+      // Tidy the address bar only once a session exists, i.e. once the token
+      // has been exchanged and is spent. Stripping before that threw away the
+      // credential unused. It is worth stripping at all because until it is
+      // used the token is a bearer credential for the account, and the URL
+      // ends up in history and in anything that logs a referrer — supabase-js
+      // normally clears it itself, so this is a safety net rather than the
+      // mechanism.
+      if (session) stripHash();
     });
     return () => sub.subscription.unsubscribe();
   }, []);

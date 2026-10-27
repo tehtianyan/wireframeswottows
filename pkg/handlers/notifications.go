@@ -18,8 +18,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"swot-tows/pkg/audit"
+	"swot-tows/pkg/authz"
 	"swot-tows/pkg/httpctx"
 	"swot-tows/pkg/response"
+	"swot-tows/pkg/supaadmin"
 )
 
 type Notification struct {
@@ -274,13 +276,21 @@ func requirePlatformAdmin(w http.ResponseWriter, r *http.Request) (*pgxpool.Pool
 	if pool == nil {
 		return nil, "", false
 	}
-	var role string
-	if err := pool.QueryRow(r2.Context(),
-		`select global_role from public.profiles where id = $1`, user.ID).Scan(&role); err != nil {
+	admin, err := authz.IsPlatformAdmin(r2.Context(), pool, user.ID)
+	if err != nil {
 		response.Fail(w, response.CodeForbidden, "administration is restricted")
 		return nil, "", false
 	}
-	if role != "admin" && role != "platform_admin" {
+	if !admin {
+		// Say which of the two refusals this is. With no administrator
+		// designated at all, "ask an administrator" is advice nobody can
+		// act on — and that was production's actual state: fifteen
+		// accounts, every one of them 'user'.
+		if authz.PlatformAdminCount(r2.Context(), pool) == 0 {
+			response.Fail(w, response.CodeForbidden,
+				"No platform administrator has been designated yet. The first one is granted from the server with: go run ./cmd/grantadmin -email <address>")
+			return nil, "", false
+		}
 		response.Fail(w, response.CodeForbidden, "administration is restricted to platform administrators")
 		return nil, "", false
 	}
@@ -337,10 +347,10 @@ func UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch body.GlobalRole {
-	case "user", "admin", "platform_admin":
+	case "user", authz.PlatformAdminRole:
 	default:
 		response.Fail(w, response.CodeValidationError,
-			`global_role must be "user", "admin" or "platform_admin"`)
+			`global_role must be "user" or "admin"`)
 		return
 	}
 
@@ -349,7 +359,8 @@ func UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 		var otherAdmins int
 		pool.QueryRow(r.Context(), `
 			select count(*) from public.profiles
-			where global_role in ('admin','platform_admin') and id <> $1`, actorID).Scan(&otherAdmins)
+			where global_role = $2 and status = 'active' and id <> $1`,
+			actorID, authz.PlatformAdminRole).Scan(&otherAdmins)
 		if otherAdmins == 0 {
 			response.Fail(w, response.CodeValidationError,
 				"You are the only administrator — promote someone else before removing your own access.")
@@ -406,6 +417,14 @@ func SetUserStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// There is deliberately NO "last administrator" guard here, unlike on the
+	// demotion path. It would be unreachable: to reach this handler at all the
+	// caller is an active administrator, so either the target is somebody else
+	// — leaving the caller, so never the last — or the target is the caller,
+	// which the check above already refuses. The self-disable guard carries the
+	// whole invariant, and a second guard that cannot fire would only read as
+	// protection that was never tested.
+
 	var previous string
 	pool.QueryRow(r.Context(), `select status from public.profiles where id = $1`, userID).Scan(&previous)
 
@@ -418,6 +437,25 @@ func SetUserStatus(w http.ResponseWriter, r *http.Request) {
 	if tag.RowsAffected() == 0 {
 		response.Fail(w, response.CodeNotFound, "user not found")
 		return
+	}
+
+	// Stop them SIGNING IN, not just reading this column.
+	//
+	// Until now this handler wrote profiles.status and nothing else: authz
+	// never read it and supaadmin.SetUserBanned — written for precisely this
+	// call — had no callers at all. So "Disable" disabled nothing. The authz
+	// join closes the existing-session half; this closes the other half, or
+	// the person simply signs in again and gets a fresh token.
+	//
+	// Reported rather than swallowed: a disable that only half applied is
+	// exactly the kind of thing an administrator must not be told succeeded.
+	if supaadmin.Configured() {
+		if err := supaadmin.SetUserBanned(r.Context(), userID, body.Status == "disabled"); err != nil {
+			response.Fail(w, response.CodeServerError, fmt.Sprintf(
+				"Access was %s in this application, but their sign-in could not be changed: %v",
+				map[bool]string{true: "withdrawn", false: "restored"}[body.Status == "disabled"], err))
+			return
+		}
 	}
 
 	audit.Record(r.Context(), pool, actorID, "user.status_changed", "profile", userID,

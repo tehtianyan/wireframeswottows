@@ -22,10 +22,9 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
+	"swot-tows/pkg/envfile"
 	"swot-tows/pkg/router"
 )
 
@@ -34,7 +33,7 @@ func main() {
 	port := flag.String("port", "3001", "port to listen on")
 	flag.Parse()
 
-	loaded, err := loadEnv(*envFile)
+	loaded, err := envfile.Load(*envFile)
 	if err != nil {
 		log.Fatalf("reading %s: %v", *envFile, err)
 	}
@@ -81,33 +80,4 @@ func devCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// loadEnv parses a dotenv file and sets each variable, overwriting whatever is
-// already in the environment. Overwriting is deliberate: the point of naming a
-// file is that the file wins.
-func loadEnv(file string) (int, error) {
-	raw, err := os.ReadFile(filepath.Clean(file))
-	if err != nil {
-		return 0, err
-	}
-	n := 0
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		i := strings.Index(line, "=")
-		if i <= 0 {
-			continue
-		}
-		key := strings.TrimSpace(line[:i])
-		val := strings.TrimSpace(line[i+1:])
-		val = strings.Trim(val, `"'`)
-		if err := os.Setenv(key, val); err != nil {
-			return n, err
-		}
-		n++
-	}
-	return n, nil
 }
