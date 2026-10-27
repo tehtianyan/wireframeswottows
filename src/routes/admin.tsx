@@ -41,6 +41,8 @@ function AdminPage() {
       kind?: "invite" | "recovery";
       error?: string;
       warning?: string;
+      emailed?: boolean;
+      deliveryError?: string;
     } | null
   >(null);
 
@@ -81,9 +83,15 @@ function AdminPage() {
         ...(r.link_type ? { kind: r.link_type } : {}),
         ...(r.link_error ? { error: r.link_error } : {}),
         ...(r.link_warning ? { warning: r.link_warning } : {}),
+        ...(r.delivery === "emailed" ? { emailed: true } : {}),
+        ...(r.delivery_error ? { deliveryError: r.delivery_error } : {}),
       });
       toast.success(
-        r.new_account ? `Account created for ${r.email}` : `${r.email} already had an account`,
+        r.delivery === "emailed"
+          ? `Invitation emailed to ${r.email}`
+          : r.new_account
+            ? `Account created for ${r.email}`
+            : `${r.email} already had an account`,
       );
     },
     onError: (e: Error) => toast.error(e.message),
@@ -197,9 +205,10 @@ function AdminPage() {
                 <option value="admin">Admin</option>
               </select>
               <p className="text-[11px] leading-snug text-muted-foreground">
-                Works with a real email address. No mail is sent — you get a one-time link to pass
-                on, and they choose their own password. Add them to a workshop from its
-                Participants panel, or from the Workshops list below.
+                Works with a real email address. They are emailed a one-time link and choose their
+                own password. If mail is not configured on this project you get the link to pass on
+                instead, and it says so. Add them to a workshop from its Participants panel, or
+                from the Workshops list below.
               </p>
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setAddOpen(false)}>
@@ -224,6 +233,8 @@ function AdminPage() {
               {...(link.kind ? { kind: link.kind } : {})}
               {...(link.error ? { error: link.error } : {})}
               {...(link.warning ? { warning: link.warning } : {})}
+              {...(link.emailed ? { emailed: true } : {})}
+              {...(link.deliveryError ? { deliveryError: link.deliveryError } : {})}
               onDismiss={() => setLink(null)}
             />
           )}

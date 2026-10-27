@@ -1,6 +1,7 @@
 package supaadmin
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -80,5 +81,42 @@ func TestRedirectWarningIsQuietOnUnusableInput(t *testing.T) {
 	}
 	if w := RedirectWarning(sent, "::not a url::"); w != "" {
 		t.Fatalf("unparseable link should not warn: %s", w)
+	}
+}
+
+// A fallback message must not name a cause the server did not report. The
+// first version blamed missing SMTP unconditionally, and the first real run
+// was a rate limit — so it stated the wrong cause with full confidence.
+func TestExplainMailFailureDoesNotGuessWrong(t *testing.T) {
+	rateLimited := explainMailFailure(errors.New(
+		"supabase admin: For security purposes, you can only request this after 59 seconds."))
+	if strings.Contains(strings.ToLower(rateLimited), "smtp") {
+		t.Errorf("a rate limit must not be reported as an SMTP problem: %s", rateLimited)
+	}
+	if !strings.Contains(strings.ToLower(rateLimited), "rate-limit") {
+		t.Errorf("a rate limit should say so: %s", rateLimited)
+	}
+	if !strings.Contains(strings.ToLower(rateLimited), "nothing is misconfigured") {
+		t.Errorf("and should say nothing needs changing: %s", rateLimited)
+	}
+
+	notConfigured := explainMailFailure(ErrNotConfigured)
+	if !strings.Contains(notConfigured, "no Supabase admin credentials") {
+		t.Errorf("missing credentials should be named exactly: %s", notConfigured)
+	}
+
+	// The generic case must still carry the server's own words, so a cause
+	// nobody anticipated is at least visible.
+	other := explainMailFailure(errors.New("supabase admin: Error sending recovery email"))
+	if !strings.Contains(other, "Error sending recovery email") {
+		t.Errorf("the server's own message must survive: %s", other)
+	}
+
+	// Every branch has to offer the link, since that is the whole point of
+	// falling back rather than failing.
+	for _, m := range []string{rateLimited, notConfigured, other} {
+		if !strings.Contains(strings.ToLower(m), "link") {
+			t.Errorf("a fallback must mention the link it is giving you: %s", m)
+		}
 	}
 }

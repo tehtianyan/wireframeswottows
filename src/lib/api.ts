@@ -974,6 +974,20 @@ export interface InviteResult {
   email: string;
   role: WorkshopRoleKey;
   new_account: boolean;
+  /**
+   * How the credential actually reached them. "emailed" carries NO
+   * invite_link, on purpose: GoTrue keeps one token per user, so showing a
+   * second link would invalidate the one already in their inbox.
+   */
+  delivery?: "emailed" | "link";
+  /** Set when delivery was "emailed". */
+  emailed_to?: string;
+  /**
+   * Set when an email was asked for and could not be sent, so a link was
+   * produced instead. The invite still worked — but somebody has to be told
+   * the mail did not go, or they will assume it did and say nothing.
+   */
+  delivery_error?: string;
   invite_link?: string;
   link_type?: "invite" | "recovery";
   /** Set when access was granted but no link could be minted — says so plainly. */

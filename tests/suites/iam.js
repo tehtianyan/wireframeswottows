@@ -91,8 +91,13 @@ runSuite("iam", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     // ---- inviting a real address ----
     r.section("an invite actually grants access");
 
+    // `deliver: "link"` explicitly. Invites are emailed by default now, and
+    // PROBE_EMAIL is an @example.invalid address on purpose — asking the
+    // project to mail it would depend on SMTP being configured and on how the
+    // provider rejects an undeliverable domain. The link path is the one these
+    // checks are about, so they ask for it rather than relying on mail failing.
     const invited = await F("POST", `/workshops/${WS}/participants`, {
-      email: PROBE_EMAIL, name: "IAM Probe Person", role: "analyst",
+      email: PROBE_EMAIL, name: "IAM Probe Person", role: "analyst", deliver: "link",
     });
     if (!r.ok(invited.success, "invite a new email address", invited.error?.message)) return;
     invitedUserID = invited.data.user_id;
@@ -163,12 +168,64 @@ runSuite("iam", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     // old implementation called createUser unconditionally and errored with
     // "already registered", so a person could never join a second workshop.
     const again = await F("POST", `/workshops/${WS}/participants`, {
-      email: PROBE_EMAIL, role: "participant",
+      email: PROBE_EMAIL, role: "participant", deliver: "link",
     });
     r.ok(again.success && again.data.new_account === false,
       "re-inviting an existing address reuses the account instead of failing",
       again.error?.message ?? `new_account=${again.data?.new_account}`);
     r.ok(again.data?.user_id === invitedUserID, "and it is the same person", again.data?.user_id === invitedUserID);
+
+    // ---- how the credential is delivered ----
+    //
+    // Invites are emailed by default. The properties below must hold whether
+    // or not this project has custom SMTP configured, because the suite runs
+    // against projects in both states — so none of them asserts "an email was
+    // sent", which would silently skip wherever mail is not set up.
+    r.section("an invitation is delivered exactly one way, and says which");
+
+    r.ok(invited.data.delivery === "link",
+      "asking for a link gives a link, and the response names the delivery",
+      invited.data.delivery);
+    r.ok(!invited.data.emailed_to,
+      "and claims no email was sent, because none was");
+
+    const emailed = await F("POST", `/workshops/${WS}/participants`, {
+      email: PROBE_EMAIL, role: "participant",
+    });
+    r.ok(emailed.success,
+      "inviting with no explicit delivery succeeds — email is the default and must not be able to fail the invitation",
+      emailed.error?.message);
+
+    // THE INVARIANT. GoTrue keeps ONE token per user per type and clears the
+    // previous one when it writes a new one, so a response that both mailed a
+    // link and displayed one would be showing a link that had just killed the
+    // mailed one. Exactly one, always — true in both SMTP states.
+    const d = emailed.data ?? {};
+    const hasLink = typeof d.invite_link === "string";
+    const wasEmailed = d.delivery === "emailed";
+    r.ok(hasLink !== wasEmailed,
+      "exactly ONE of {emailed, link returned} — showing a second link would invalidate the mailed one",
+      `delivery=${d.delivery} link=${hasLink}`);
+
+    // And whichever happened, the invitation produced SOMETHING usable. The
+    // failure this guards is an invite that reports success while leaving the
+    // person no way in at all.
+    r.ok(hasLink || wasEmailed,
+      "and the invitation always yields a way in, never neither",
+      `delivery=${d.delivery}`);
+
+    // If it fell back to a link, the inviter must be TOLD the mail did not go.
+    // An inviter who believes an email was sent tells the invitee nothing, and
+    // that silence is how the invite flow stayed broken for weeks.
+    if (!wasEmailed) {
+      r.ok(typeof d.delivery_error === "string" && d.delivery_error.length > 0,
+        "a fallback to a link explains why the email did not go, rather than looking like a plain link invite",
+        d.delivery_error ?? "(nothing said)");
+    } else {
+      r.ok(!d.delivery_error,
+        "a successful email reports no delivery error",
+        d.delivery_error ?? "(none)");
+    }
 
     const badEmail = await F("POST", `/workshops/${WS}/participants`, { email: "not-an-email", role: "participant" });
     r.ok(!badEmail.success, "a malformed address is refused", badEmail.error?.message);

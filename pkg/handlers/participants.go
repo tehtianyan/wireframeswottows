@@ -137,13 +137,19 @@ type inviteBody struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	Role  string `json:"role"`
+	// Deliver is "email" (the default) or "link". Default-by-absence means
+	// email, so an existing caller that sends neither gets the behaviour the
+	// feature was asked for — and falls back to a link if mail is not working,
+	// so nothing breaks before SMTP is configured.
+	Deliver string `json:"deliver"`
 }
 
 // InviteParticipant — POST /workshops/{id}/participants
 //
-// Returns a one-time invite link for the caller to pass on. Nothing is emailed:
-// see pkg/supaadmin for why a minted link beats a mail Supabase may silently
-// drop.
+// Emails a one-time sign-in link, or returns one for the caller to pass on by
+// hand, and never both for one invitation — see supaadmin.DeliverSignInLink
+// for why those are mutually exclusive and why the email path falls back
+// rather than failing.
 func InviteParticipant(w http.ResponseWriter, r *http.Request) {
 	r2, ok := httpctx.RequireAuth(w, r)
 	if !ok {
@@ -278,29 +284,47 @@ func InviteParticipant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link, linkType, linkWarn, linkErr := supaadmin.SignInLinkFor(ctx, email, siteURL(), isNew)
+	byEmail := strings.TrimSpace(strings.ToLower(body.Deliver)) != "link"
+	inv, linkErr := supaadmin.DeliverSignInLink(ctx, email, siteURL(), isNew, byEmail)
 
+	// The audit row records HOW it was delivered, because "we emailed it" and
+	// "somebody copied a link" are different facts about how an account came
+	// to be reachable, and only one of them leaves a trace anywhere else.
 	audit.Record(ctx, pool, actor.ID, "participant.invited", "workshop_member", userID, "", role,
 		map[string]interface{}{
 			"workshop_id": workshopID, "email": email, "role": role, "new_account": isNew,
+			"delivery": string(inv.Delivery),
 		})
 
 	out := map[string]interface{}{
 		"user_id": userID, "email": email, "role": role, "new_account": isNew,
+		"delivery": string(inv.Delivery),
 	}
 	if linkErr != nil {
-		// The membership is real even when the link could not be minted, so
+		// The membership is real even when no credential could be produced, so
 		// this says exactly that rather than implying the invite failed.
 		out["link_error"] = "They now have access, but a sign-in link could not be generated: " + linkErr.Error()
+	} else if inv.Delivery == supaadmin.DeliveredByEmail {
+		// Deliberately NO link in the response. GoTrue keeps one token per
+		// user, so minting one to display here would invalidate the one now
+		// sitting in their inbox.
+		out["emailed_to"] = email
+		out["link_type"] = string(inv.LinkType)
 	} else {
-		out["invite_link"] = link
-		out["link_type"] = string(linkType)
+		out["invite_link"] = inv.Link
+		out["link_type"] = string(inv.LinkType)
 		// Surfaced to the inviter, not swallowed: Supabase silently rewrites a
 		// redirect it does not recognise, so without this the link looks
 		// correct to everyone except the person who cannot open it.
-		if linkWarn != "" {
-			out["link_warning"] = linkWarn
+		if inv.Warning != "" {
+			out["link_warning"] = inv.Warning
 		}
+	}
+	// Reported even on the successful-fallback path: an inviter who asked for
+	// an email and got a link must be told the email did not go, or they will
+	// assume it did and say nothing to the invitee.
+	if inv.FellBack != "" {
+		out["delivery_error"] = inv.FellBack
 	}
 	response.Created(w, out)
 }

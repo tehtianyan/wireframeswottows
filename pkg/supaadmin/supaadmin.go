@@ -198,6 +198,108 @@ func SignInLinkFor(ctx context.Context, email, redirectTo string, firstTime bool
 	return link, LinkRecovery, warn, nil
 }
 
+// Delivery says how an invitation actually reached the person.
+type Delivery string
+
+const (
+	DeliveredByEmail Delivery = "emailed"
+	DeliveredAsLink  Delivery = "link"
+)
+
+// Invitation is the outcome of getting a credential to one person.
+type Invitation struct {
+	Delivery Delivery
+	// Link is set ONLY for DeliveredAsLink. It is deliberately empty when the
+	// link was mailed: showing a second link would invalidate the mailed one.
+	Link     string
+	LinkType LinkType
+	// Warning is the redirect-destination warning, available only on the link
+	// path — see the note in DeliverSignInLink.
+	Warning string
+	// FellBack says why the email path was not used, when it was asked for.
+	// Empty when nothing went wrong.
+	FellBack string
+}
+
+// DeliverSignInLink mails a one-time sign-in link, or returns one to pass on
+// by hand, and NEVER does both for the same invitation.
+//
+// Falling back is the important part. An invitation that silently fails is the
+// worst outcome this code has: the inviter believes somebody was invited and
+// that person never hears anything. So if the mail cannot be sent — no custom
+// SMTP configured, provider rejected it, rate limit hit — this does not fail
+// the invitation. It mints a link instead and reports WHY the email was not
+// used, so whoever is inviting can pass the link on and knows to go and fix
+// the mail setup.
+//
+// One honest limitation of the email path: `RedirectWarning` cannot be
+// computed, because no link comes back to inspect. It is tempting to mint one
+// first just to read the destination Supabase honoured, but `generate_link`
+// stamps `recovery_sent_at`, which can rate-limit the recovery mail that
+// follows — trading a warning for the delivery itself. So the destination is
+// verified on the link path only, and the email path is verified the way it
+// has to be: by sending the first one to yourself.
+func DeliverSignInLink(ctx context.Context, email, redirectTo string, firstTime, byEmail bool) (Invitation, error) {
+	kind := LinkRecovery
+	if firstTime {
+		kind = LinkInvite
+	}
+
+	fellBack := ""
+	if byEmail {
+		err := SendRecoveryEmail(ctx, email, redirectTo)
+		if err == nil {
+			return Invitation{Delivery: DeliveredByEmail, LinkType: kind}, nil
+		}
+		fellBack = explainMailFailure(err)
+	}
+
+	link, linkType, warn, err := SignInLinkFor(ctx, email, redirectTo, firstTime)
+	if err != nil {
+		return Invitation{FellBack: fellBack}, err
+	}
+	return Invitation{
+		Delivery: DeliveredAsLink,
+		Link:     link,
+		LinkType: linkType,
+		Warning:  warn,
+		FellBack: fellBack,
+	}, nil
+}
+
+// explainMailFailure turns a send failure into something the inviter can act
+// on, WITHOUT guessing when the server already said what was wrong.
+//
+// The first version of this blamed missing SMTP in every case ("most often
+// because the project has no custom SMTP configured"). The very first run hit
+// a rate limit instead, so the message confidently named the wrong cause and
+// would have sent somebody to reconfigure a working mail setup. A guess that
+// reads like a diagnosis is worse than no diagnosis.
+//
+// Pure, so the wording is tested without a network call.
+func explainMailFailure(err error) string {
+	if errors.Is(err, ErrNotConfigured) {
+		return "No email could be sent: this server has no Supabase admin credentials. Here is a link to pass on instead."
+	}
+	msg := err.Error()
+	low := strings.ToLower(msg)
+
+	// GoTrue rate-limits messages per address, and separately caps auth mail
+	// per hour. Both are temporary and neither means anything is misconfigured.
+	if strings.Contains(low, "for security purposes") || strings.Contains(low, "rate limit") ||
+		strings.Contains(low, "too many requests") || strings.Contains(low, "only request this after") {
+		return "Not emailed — Supabase is rate-limiting messages to this address (" + msg +
+			"). Nothing is misconfigured; wait and invite again, or just pass this link on."
+	}
+
+	// Anything else: report what the server said, and name the likeliest
+	// cause as a possibility rather than a conclusion.
+	return "The invitation could not be emailed (" + msg +
+		"). If that mentions sending or SMTP, the project may still be on Supabase's built-in sender, " +
+		"which only delivers to pre-authorised addresses — configure custom SMTP under " +
+		"Authentication → Emails. Here is a link to pass on meanwhile."
+}
+
 // RedirectWarning reports when Supabase did not honour the redirect we asked
 // for, in words the person doing the inviting can act on.
 //
@@ -240,6 +342,33 @@ func RedirectWarning(requested, actionLink string) string {
 // Supabase adds and drops inconsistently and which means nothing here.
 func sameTarget(a, b string) bool {
 	return strings.EqualFold(strings.TrimRight(a, "/"), strings.TrimRight(b, "/"))
+}
+
+// SendRecoveryEmail asks Supabase to MAIL a one-time sign-in link, instead of
+// returning one for somebody to pass on by hand.
+//
+// Recovery for everyone, new account or not, for the same reason
+// SignInLinkFor uses it: GoTrue's `invite` refuses an address that already has
+// an account, including one created moments earlier by this very handler.
+//
+// **THIS AND GenerateLink ARE MUTUALLY EXCLUSIVE FOR ONE INVITATION.** GoTrue
+// stores ONE token per user per type and clears the previous one when it
+// writes a new one, so minting a link to display after mailing one would
+// silently kill the link that is already in the person's inbox. Whichever runs
+// last is the only one that works. Callers must do one or the other — never
+// both — which is why there is no "mail it and also show it" helper here.
+//
+// It needs working SMTP on the project. Supabase's built-in sender delivers
+// only to pre-authorised addresses at a couple of messages an hour, so without
+// custom SMTP configured this fails for a real invitee — and failing is the
+// point: the caller falls back to a link rather than reporting a delivery that
+// never happened.
+func SendRecoveryEmail(ctx context.Context, email, redirectTo string) error {
+	path := "/auth/v1/recover"
+	if redirectTo != "" {
+		path += "?redirect_to=" + urlQueryEscape(redirectTo)
+	}
+	return do(ctx, http.MethodPost, path, map[string]interface{}{"email": email}, nil)
 }
 
 // GenerateLink mints a one-time link without sending any email.

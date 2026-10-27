@@ -145,6 +145,8 @@ type createUserBody struct {
 	Name  string `json:"name"`
 	// GlobalRole is optional; defaults to the ordinary `user`.
 	GlobalRole string `json:"global_role"`
+	// Deliver is "email" (the default) or "link". See inviteBody.Deliver.
+	Deliver string `json:"deliver"`
 }
 
 // CreateAdminUser — POST /admin/users
@@ -219,22 +221,36 @@ func CreateAdminUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link, linkType, linkWarn, linkErr := supaadmin.SignInLinkFor(ctx, email, siteURL(), isNew)
+	// Same delivery rules as a workshop invite — emailed by default, falling
+	// back to a link rather than failing. Creating an account from here and
+	// inviting somebody to a workshop are the same act from the person's side:
+	// either way they need a way in.
+	byEmail := strings.TrimSpace(strings.ToLower(body.Deliver)) != "link"
+	inv, linkErr := supaadmin.DeliverSignInLink(ctx, email, siteURL(), isNew, byEmail)
 
 	audit.Record(ctx, pool, actor, "user.created", "profile", userID, "", role,
-		map[string]interface{}{"email": email, "new_account": isNew})
+		map[string]interface{}{
+			"email": email, "new_account": isNew, "delivery": string(inv.Delivery),
+		})
 
 	out := map[string]interface{}{
 		"id": userID, "email": email, "global_role": role, "new_account": isNew,
+		"delivery": string(inv.Delivery),
 	}
 	if linkErr != nil {
 		out["link_error"] = "The account exists, but a sign-in link could not be generated: " + linkErr.Error()
+	} else if inv.Delivery == supaadmin.DeliveredByEmail {
+		out["emailed_to"] = email
+		out["link_type"] = string(inv.LinkType)
 	} else {
-		out["invite_link"] = link
-		out["link_type"] = string(linkType)
-		if linkWarn != "" {
-			out["link_warning"] = linkWarn
+		out["invite_link"] = inv.Link
+		out["link_type"] = string(inv.LinkType)
+		if inv.Warning != "" {
+			out["link_warning"] = inv.Warning
 		}
+	}
+	if inv.FellBack != "" {
+		out["delivery_error"] = inv.FellBack
 	}
 	response.Created(w, out)
 }
