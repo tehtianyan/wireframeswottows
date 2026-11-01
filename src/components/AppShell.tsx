@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { NotificationBell } from "@/components/NotificationBell";
+import { BrandMark, useBrand } from "@/components/BrandMark";
 import { useUiPrefs } from "@/lib/ui-prefs";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -36,6 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const { theme, toggleTheme, showBuildStatus, toggleBuildStatus } = useUiPrefs();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const brand = useBrand();
 
   const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
@@ -57,12 +59,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-background">
       <header className="print:hidden sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-sidebar/95 px-3 backdrop-blur md:px-4">
         <Link to="/" className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-md bg-primary font-display text-sm font-bold text-primary-foreground">
-            ST
-          </span>
-          <span className="hidden font-display text-sm font-semibold tracking-tight sm:inline">
-            SWOT·TOWS Console
-          </span>
+          <BrandMark brand={brand} size={8} />
+          {/* Hidden when a logo is set: a wordmark image already carries the
+              name, and printing it again beside the logo is the classic
+              doubled-branding look. With the initials tile it is the only
+              thing naming the product, so it stays. */}
+          {!brand.logoUrl && (
+            <span className="hidden font-display text-sm font-semibold tracking-tight sm:inline">
+              {brand.shortName}
+            </span>
+          )}
         </Link>
 
         <GlobalSearch />

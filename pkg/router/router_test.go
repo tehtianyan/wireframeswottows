@@ -80,6 +80,15 @@ func TestRoutePrecedence(t *testing.T) {
 		{"GET", "/api/v1/admin/workshops", "/api/v1/admin/workshops"},
 		{"GET", "/api/v1/admin/workshops/w1/participants", "/api/v1/admin/workshops/{id}/participants"},
 
+		// Branding: the read is open to any authenticated caller and the
+		// write is administration, so they sit at different paths. A routing
+		// slip that merged them would put a facilitator in charge of the
+		// client's report cover.
+		{"GET", "/api/v1/branding", "/api/v1/branding"},
+		{"GET", "/api/v1/admin/organizations", "/api/v1/admin/organizations"},
+		{"PUT", "/api/v1/admin/organizations/o1/branding",
+			"/api/v1/admin/organizations/{orgId}/branding"},
+
 		{"GET", "/api/v1/dashboard", "/api/v1/dashboard"},
 
 		{"GET", "/api/v1/executive", "/api/v1/executive"},

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { SetPasswordScreen, useRecoveryLanding } from "@/components/SetPasswordGate";
+import { BrandMark } from "@/components/BrandMark";
+import { BUILD_BRAND } from "@/lib/brand";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -47,7 +49,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
           }}
         >
           <div>
-            <h1 className="font-display text-lg font-semibold">SWOT·TOWS Strategy Console</h1>
+            {/* BUILD_BRAND, not the organization's. Nobody is signed in yet,
+                so there is no organization to resolve one from — per-client
+                branding on this screen needs the hostname, which is Tier 3.
+                Using the deployment brand here is the honest answer rather
+                than a flash of the wrong client's logo. */}
+            {BUILD_BRAND.logoUrl && (
+              <BrandMark brand={BUILD_BRAND} size={10} className="mb-3" />
+            )}
+            <h1 className="font-display text-lg font-semibold">{BUILD_BRAND.name}</h1>
             <p className="mt-1 text-sm text-muted-foreground">Sign in to continue.</p>
           </div>
           {/* They arrived on an invite or reset link and it did not sign them

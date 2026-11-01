@@ -506,6 +506,29 @@ func ExportReportHTML(w http.ResponseWriter, r *http.Request) {
 	var workshopName string
 	_ = pool.QueryRow(r2.Context(), `select name from public.workshops where id = $1`, workshopID).Scan(&workshopName)
 
+	// The client's branding, through the workshop's workspace to its
+	// organization. Best-effort: an unbranded organization, or a failure
+	// here, must not stop a report being exported.
+	var brandLogo, brandName *string
+	_ = pool.QueryRow(r2.Context(), `
+		select o.logo_data_uri, coalesce(o.display_name, o.name)
+		  from public.workshops ws
+		  join public.workspaces sp on sp.id = ws.workspace_id
+		  join public.organizations o on o.id = sp.organization_id
+		 where ws.id = $1`, workshopID).Scan(&brandLogo, &brandName)
+
+	// template.URL, not a plain string. html/template treats src= as a URL
+	// context and rewrites anything that is not http/https/mailto to
+	// "#ZgotmplZ" — so a data URI passed as a string would silently not
+	// render, with no error anywhere. Bypassing that filter is safe here for
+	// one specific reason: validateLogoDataURI decoded these bytes as a PNG
+	// or JPEG and refused SVG, so this cannot be a script-bearing document.
+	// If that validation is ever weakened, this line becomes unsafe.
+	var logoURL template.URL
+	if brandLogo != nil {
+		logoURL = template.URL(*brandLogo)
+	}
+
 	tmpl, err := template.New("report").Parse(reportHTMLTemplate)
 	if err != nil {
 		failDB(w, err)
@@ -521,6 +544,8 @@ func ExportReportHTML(w http.ResponseWriter, r *http.Request) {
 		"Report":      detail,
 		"Workshop":    workshopName,
 		"GeneratedAt": time.Now().UTC().Format("2 January 2006"),
+		"BrandLogo":   logoURL,
+		"BrandName":   derefOr(brandName, ""),
 	}
 	if err := tmpl.Execute(w, data); err != nil {
 		// Headers are already sent; nothing useful to return to the client.

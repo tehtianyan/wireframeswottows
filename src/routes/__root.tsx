@@ -15,6 +15,12 @@ import { AppShell } from "@/components/AppShell";
 import { AuthGate } from "@/components/AuthGate";
 import { Toaster } from "@/components/ui/sonner";
 import { UiPrefsProvider } from "@/lib/ui-prefs";
+import { BUILD_BRAND } from "@/lib/brand";
+
+// Read once at module load, like the rest of BUILD_BRAND: an env-driven
+// favicon path, or null to keep the tracked public/favicon.ico.
+const BUILD_BRAND_FAVICON =
+  (import.meta.env as Record<string, string | undefined>)["VITE_BRAND_FAVICON"]?.trim() || null;
 
 
 
@@ -88,6 +94,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      // There was no title here at all, so the browser tab fell back to
+      // whatever the bundler produced. It is part of the brand, so it comes
+      // from the same place as the header and the sign-in screen.
+      { title: BUILD_BRAND.name },
       { name: "author", content: "Data Teller" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -100,7 +110,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=DM+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap",
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      // VITE_BRAND_FAVICON lets a deployment swap the tab icon without
+      // replacing a tracked binary in public/. Note that public/ is NOT
+      // fingerprinted by Vite, so overwriting favicon.ico in place can be
+      // served stale from a CDN — a distinct filename is the reliable swap.
+      BUILD_BRAND_FAVICON
+        ? { rel: "icon", href: BUILD_BRAND_FAVICON }
+        : { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
   shellComponent: RootShell,

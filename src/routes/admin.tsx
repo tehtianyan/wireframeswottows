@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AdminWorkshops } from "@/components/admin/AdminWorkshops";
+import { BrandingPanel } from "@/components/BrandingPanel";
 import { OneTimeLink } from "@/components/OneTimeLink";
 import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
@@ -163,7 +164,7 @@ function AdminPage() {
         <div>
           <h1 className="text-xl font-semibold md:text-2xl">Administration</h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Platform-wide user management and the audit trail.
+            Platform-wide user management, branding and the audit trail.
           </p>
         </div>
 
@@ -267,6 +268,11 @@ function AdminPage() {
         </section>
 
         <AdminWorkshops />
+
+        {/* White labelling. Platform-admin only, like everything else here —
+            a facilitator must not be able to restyle the report that goes to
+            the client's board. */}
+        <BrandingPanel />
 
         <section className="console-panel" data-build="live">
           <PanelHeading

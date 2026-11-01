@@ -29,6 +29,11 @@ func New() http.Handler {
 		// "What needs me today?" across every workshop the caller belongs to.
 		r.Get("/dashboard", handlers.GetDashboard)
 
+		// White-label branding for the caller's organization. Readable by any
+		// authenticated caller because the app chrome needs it on every page;
+		// the WRITE is platform-admin only, below.
+		r.Get("/branding", handlers.GetBranding)
+
 		// Executive Dashboard — cross-workshop, read-only, approved output only.
 		r.Get("/executive", handlers.GetExecutiveBrief)
 
@@ -61,6 +66,11 @@ func New() http.Handler {
 		// roster without first joining it.
 		r.Get("/admin/workshops", handlers.ListAdminWorkshops)
 		r.Get("/admin/workshops/{id}/participants", handlers.ListAdminWorkshopParticipants)
+		// White labelling. The write is here rather than under /branding
+		// because it is administration: a facilitator must not be able to
+		// restyle the report that goes to the client's board.
+		r.Get("/admin/organizations", handlers.ListAdminOrganizations)
+		r.Put("/admin/organizations/{orgId}/branding", handlers.UpdateBranding)
 		r.Get("/audit-events", handlers.ListAuditEvents)
 
 		r.Route("/workshops", func(r chi.Router) {

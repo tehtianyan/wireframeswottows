@@ -74,6 +74,11 @@ const reportHTMLTemplate = `<!doctype html>
          background: #fff; margin: 0 auto; max-width: 860px; padding: 32px 24px; }
   header.cover { border-bottom: 2px solid #1a1a1a; padding-bottom: 18px; margin-bottom: 28px; }
   header.cover h1 { font-size: 26pt; margin: 0 0 6px; line-height: 1.2; }
+  /* The client's logo, embedded as a data URI so the file stays standalone.
+     Height-constrained with width free: a wordmark is wider than tall, and
+     forcing it square would distort somebody's brand. */
+  header.cover img.brand { display: block; height: 40px; width: auto;
+                           max-width: 220px; object-fit: contain; margin: 0 0 14px; }
   .meta { font: 9pt/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: #555;
           text-transform: uppercase; letter-spacing: .05em; }
   nav.toc { margin: 0 0 32px; padding: 14px 18px; background: #f5f5f4; border-radius: 4px; }
@@ -113,6 +118,7 @@ const reportHTMLTemplate = `<!doctype html>
 <body>
 
 <header class="cover">
+  {{if .BrandLogo}}<img class="brand" src="{{.BrandLogo}}" alt="{{.BrandName}}">{{end}}
   <h1>{{.Report.Title}}</h1>
   <p class="meta">{{.Workshop}} &middot; {{.Report.Version}} &middot; {{.Report.State}}</p>
 </header>

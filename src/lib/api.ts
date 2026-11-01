@@ -2,6 +2,7 @@
 // Supabase client used for auth/participants — this is Go's API, which is
 // its own trust boundary and does its own authorization.
 import { supabase } from "@/integrations/supabase/client";
+import type { OrgBranding } from "@/lib/brand";
 
 interface Envelope<T> {
   success: boolean;
@@ -1043,8 +1044,36 @@ export interface ResetLinkResult {
   link_warning?: string;
 }
 
+/** An organization plus its branding, for the admin picker. */
+export interface AdminOrganization extends OrgBranding {
+  workspace_count: number;
+}
+
+export const brandingApi = {
+  /** The caller's brand. Empty organization_id means no single brand applies
+   *  — they belong to several organizations, or to none. */
+  mine: () => apiGet<OrgBranding>("/branding"),
+  forWorkshop: (workshopId: string) =>
+    apiGet<OrgBranding>(`/branding?workshop_id=${encodeURIComponent(workshopId)}`),
+};
+
 export const adminApi = {
   users: () => apiGet<AdminUser[]>("/admin/users"),
+  organizations: () => apiGet<AdminOrganization[]>("/admin/organizations"),
+  /**
+   * Null clears a field; omitting it leaves it alone. That distinction is the
+   * reason the Go body uses pointers — "rename without touching the logo"
+   * has to be expressible, and an absent field silently erasing content is a
+   * bug this codebase has shipped once already (see cleanup's description).
+   */
+  setBranding: (
+    orgId: string,
+    input: {
+      display_name?: string | null;
+      logo_data_uri?: string | null;
+      logo_filename?: string | null;
+    },
+  ) => apiPut<OrgBranding>(`/admin/organizations/${orgId}/branding`, input),
   createUser: (input: { email: string; name?: string; global_role?: string }) =>
     apiPost<InviteResult>("/admin/users", input),
   resetPassword: (userId: string) =>
