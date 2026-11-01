@@ -30,6 +30,7 @@ const suites = [
   ["executive", "Phase 5 — executive dashboard"],
   ["skins", "Presentation — the five skins, in both modes"],
   ["branding", "White labelling — per-organization name and logo"],
+  ["brand-display", "White labelling — the brand is actually DISPLAYED"],
   ["invite-landing", "Security — where an invite link lands, and in what order"],
   ["iam", "Security — participants, identity management, archiving"],
   ["scoping", "Security — workspace scoping"],

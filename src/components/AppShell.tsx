@@ -39,6 +39,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const brand = useBrand();
 
+  // The browser tab, too. __root's head() can only use the BUILD brand — it
+  // runs before anybody is signed in, so no organization is known yet — which
+  // meant setting a Display Name left the tab reading the old product name.
+  // Same complaint, same cause, so it is fixed in the same place.
+  useEffect(() => {
+    if (typeof document !== "undefined") document.title = brand.name;
+  }, [brand.name]);
+
   const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? null));
@@ -60,11 +68,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="print:hidden sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-sidebar/95 px-3 backdrop-blur md:px-4">
         <Link to="/" className="flex items-center gap-2">
           <BrandMark brand={brand} size={8} />
-          {/* Hidden when a logo is set: a wordmark image already carries the
-              name, and printing it again beside the logo is the classic
-              doubled-branding look. With the initials tile it is the only
-              thing naming the product, so it stays. */}
-          {!brand.logoUrl && (
+          {/* showWordmark, NOT !logoUrl. Gating on the logo meant the Display
+              Name field silently did nothing once a logo was uploaded — a
+              typed value with no visible effect anywhere. See Brand.showWordmark
+              for the rule; brand.test.js pins all four combinations. */}
+          {brand.showWordmark && (
             <span className="hidden font-display text-sm font-semibold tracking-tight sm:inline">
               {brand.shortName}
             </span>

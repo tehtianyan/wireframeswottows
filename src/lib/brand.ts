@@ -36,6 +36,26 @@ export interface Brand {
    * it gets a real description rather than alt="".
    */
   logoAlt: string;
+  /**
+   * Whether the header prints `shortName` beside the mark.
+   *
+   * THE RULE: explicit text is always honoured; IMPLIED text is suppressed
+   * when a logo already speaks for the product.
+   *
+   *   logo + a display name you typed  -> logo AND the name
+   *   logo + no display name           -> logo alone
+   *   no logo + a display name         -> initials AND the name
+   *   no logo + no display name        -> initials AND the organization name
+   *
+   * The first line is a BUG FIX. This used to be `!logoUrl`, on the theory
+   * that a logo is a wordmark and printing the name beside it double-brands.
+   * That is true of some logos and false of every symbol mark — and, far
+   * worse, it meant the Display Name field silently did nothing as soon as a
+   * logo was uploaded. A field that quietly stops working depending on
+   * another field is exactly the silent no-op this codebase keeps deleting.
+   * A client whose logo IS a wordmark now simply leaves Display Name empty.
+   */
+  showWordmark: boolean;
 }
 
 const env = import.meta.env as Record<string, string | undefined>;
@@ -57,12 +77,20 @@ function fromEnv(key: string, fallback: string): string {
  * visibility, so add these with --no-sensitive. They are public by design —
  * they ship in the browser bundle.
  */
+const buildLogo = env["VITE_BRAND_LOGO_URL"]?.trim() || null;
+// Was a name GIVEN, as opposed to defaulted? Same question the organization
+// layer asks of display_name, and it gets the same answer.
+const buildNameGiven =
+  (env["VITE_BRAND_NAME"]?.trim() ?? "") !== "" ||
+  (env["VITE_BRAND_SHORT_NAME"]?.trim() ?? "") !== "";
+
 export const BUILD_BRAND: Brand = {
   name: fromEnv("VITE_BRAND_NAME", "SWOT·TOWS Strategy Console"),
   shortName: fromEnv("VITE_BRAND_SHORT_NAME", "SWOT·TOWS Console"),
   initials: fromEnv("VITE_BRAND_INITIALS", "ST").slice(0, 3),
-  logoUrl: env["VITE_BRAND_LOGO_URL"]?.trim() || null,
+  logoUrl: buildLogo,
   logoAlt: fromEnv("VITE_BRAND_NAME", "SWOT·TOWS Strategy Console"),
+  showWordmark: !buildLogo || buildNameGiven,
 };
 
 /** What GET /branding returns. Empty strings mean "not set" — the FALLBACK is
@@ -87,9 +115,12 @@ export interface OrgBranding {
 export function resolveBrand(org: OrgBranding | null | undefined): Brand {
   if (!org || !org.organization_id) return BUILD_BRAND;
 
-  // display_name is the white-label product name; the organization's own
-  // name is the sensible second choice, since it is always present.
-  const name = org.display_name.trim() || org.name.trim() || BUILD_BRAND.name;
+  // display_name is the white-label product name somebody TYPED; the
+  // organization's own name is the sensible second choice, since it is always
+  // present. Which of the two we ended up with decides whether the header
+  // prints it beside a logo — see Brand.showWordmark.
+  const typed = org.display_name.trim();
+  const name = typed || org.name.trim() || BUILD_BRAND.name;
   const logo = org.logo_data_uri.trim() || null;
 
   return {
@@ -100,6 +131,7 @@ export function resolveBrand(org: OrgBranding | null | undefined): Brand {
     // the brand that is actually in force.
     initials: logo ? "" : initialsFor(name),
     logoAlt: name,
+    showWordmark: !logo || typed !== "",
   };
 }
 

@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { adminApi, type AdminOrganization } from "@/lib/api";
-import { BUILD_BRAND, resolveBrand, type OrgBranding } from "@/lib/brand";
+import { BUILD_BRAND, resolveBrand, type Brand, type OrgBranding } from "@/lib/brand";
 import { PanelHeading } from "@/components/workshop-ui";
 
 /** Mirrors the Go cap and the column's CHECK. Checked here too so an obvious
@@ -283,9 +283,19 @@ export function BrandingPanel() {
           <span className="text-xs font-medium text-muted-foreground">Preview</span>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <PreviewHeader mode="dark" brandName={preview.shortName} logoUrl={preview.logoUrl} initials={preview.initials} />
-            <PreviewHeader mode="light" brandName={preview.shortName} logoUrl={preview.logoUrl} initials={preview.initials} />
+            <PreviewHeader mode="dark" brand={preview} />
+            <PreviewHeader mode="light" brand={preview} />
           </div>
+          {/* Said plainly, because it is the one rule that is not obvious from
+              looking at the form: clearing the name is how a client whose logo
+              is already a wordmark avoids showing it twice. */}
+          {preview.logoUrl && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {preview.showWordmark
+                ? "The display name is shown beside the logo. If your logo already includes the name, clear the display name to show the logo on its own."
+                : "The logo is shown on its own. Type a display name above to show it beside the logo."}
+            </p>
+          )}
 
           <div className="rounded-md border border-border bg-white p-4 text-[#1a1a1a]">
             <div className="flex items-start justify-between gap-3 border-b-2 border-[#1a1a1a] pb-2">
@@ -311,19 +321,16 @@ export function BrandingPanel() {
 }
 
 /** A miniature of the real header, forced to one mode regardless of the
- *  administrator's own theme — the point is to see the mode you are NOT in. */
-function PreviewHeader({
-  mode,
-  brandName,
-  logoUrl,
-  initials,
-}: {
-  mode: "dark" | "light";
-  brandName: string;
-  logoUrl: string | null;
-  initials: string;
-}) {
+ *  administrator's own theme — the point is to see the mode you are NOT in.
+ *
+ *  It takes the whole resolved Brand rather than loose strings, so it cannot
+ *  drift from AppShell's rule about when the wordmark shows. It drifted once
+ *  already: both hid the name when a logo was set, so the preview faithfully
+ *  reproduced the bug and gave no warning that the Display Name field was
+ *  doing nothing. */
+function PreviewHeader({ mode, brand }: { mode: "dark" | "light"; brand: Brand }) {
   const dark = mode === "dark";
+  const { shortName: brandName, logoUrl, initials, showWordmark } = brand;
   return (
     <div
       className="rounded-md border p-3"
@@ -349,7 +356,7 @@ function PreviewHeader({
             {initials}
           </span>
         )}
-        {!logoUrl && (
+        {showWordmark && (
           <span
             className="text-xs font-semibold"
             style={{ color: dark ? "oklch(0.95 0.004 250)" : "oklch(0.25 0.02 258)" }}
