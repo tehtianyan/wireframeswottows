@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { MAX_FACTOR_TITLE } from "@/lib/limits";
 import { PanelHeading } from "@/components/workshop-ui";
 import { FactorCard } from "./FactorCard";
 import { workshopsApi, type FactorCategory, type WorkshopRole } from "@/lib/api";
@@ -105,7 +106,7 @@ export function CaptureCanvas({
             placeholder={`e.g. ${category.guidance_text.split(",")[0] || category.name}`}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            maxLength={120}
+            maxLength={MAX_FACTOR_TITLE}
             disabled={createFactor.isPending}
           />
           <Textarea

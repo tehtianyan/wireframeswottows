@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
+import { MAX_OBJECT_TITLE } from "@/lib/limits";
 import { AiNarrativeView } from "./AiNarrativeView";
 import {
   aiApi,
@@ -365,7 +366,12 @@ function SuggestionEditor({
     <div className="space-y-2 bg-elevated/40 px-3.5 py-3">
       <p className="label-caps">Edit before adding</p>
 
-      <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} autoFocus />
+      <Input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        maxLength={MAX_OBJECT_TITLE}
+        autoFocus
+      />
       <Textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}

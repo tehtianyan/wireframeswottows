@@ -483,7 +483,13 @@ func ListAIOutputs(w http.ResponseWriter, r *http.Request) {
 type reviewAIBody struct {
 	Action string `json:"action"` // "accept" | "reject"
 	// Index of the suggestion within the output's list.
-	Index int `json:"index"`
+	//
+	// A POINTER, because absent and 0 are different requests: "Dismiss all"
+	// sends no index and decides the whole output, while index 0 decides the
+	// first suggestion and leaves the rest open. Read as a plain int the two
+	// were indistinguishable, which is half of why accepting one suggestion
+	// used to close the batch.
+	Index *int `json:"index"`
 	// Optional human edits. Their presence records the decision as "edited"
 	// rather than "accepted" (App Spec §12.19 distinguishes the two).
 	Overrides *writeObjectBody `json:"overrides"`
@@ -537,20 +543,99 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 		failDB(w, err)
 		return
 	}
-	if status != "pending" {
-		response.Fail(w, response.CodeInvalidStateTransition, "This suggestion has already been reviewed.")
+	// WHY THIS IS NOT A SIMPLE `status != "pending"` CHECK ANY MORE.
+	//
+	// One ai_outputs row holds N suggestions, and `human_review_status` is one
+	// column. Accepting the first suggestion therefore marked the whole output
+	// reviewed, and every other suggestion in the same batch was refused with
+	// "This suggestion has already been reviewed" — a correct message about
+	// the wrong subject. The per-suggestion record lives in ai_output_items;
+	// the output-level column keeps its own meaning, the output AS A WHOLE,
+	// and so is only decisive for a batch with nothing to itemise.
+	//
+	// A whole-output decision (Dismiss all, or a narrative) still reads the
+	// output-level column, because for those the output IS the unit.
+	if body.Index == nil && status != "pending" {
+		response.Fail(w, response.CodeInvalidStateTransition,
+			"This output has already been reviewed.")
 		return
 	}
+	if body.Index != nil {
+		var itemStatus string
+		err := pool.QueryRow(r2.Context(), `
+			select review_status from public.ai_output_items
+			where ai_output_id = $1 and item_index = $2`, outputID, *body.Index,
+		).Scan(&itemStatus)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			failDB(w, err)
+			return
+		}
+		if err == nil {
+			// Says which decision was already taken, so "already reviewed"
+			// cannot be mistaken for the batch-wide refusal it used to be.
+			if itemStatus == "rejected" {
+				response.Fail(w, response.CodeInvalidStateTransition,
+					"You have already dismissed this suggestion.")
+			} else {
+				response.Fail(w, response.CodeInvalidStateTransition,
+					"You have already added this suggestion. The other suggestions are still available.")
+			}
+			return
+		}
+	}
 
-	if body.Action == "reject" {
-		if _, err := pool.Exec(r2.Context(), `
-			update public.ai_outputs set human_review_status = 'rejected', reviewed_by = $2, reviewed_at = now()
-			where id = $1`, outputID, user.ID); err != nil {
+	if body.Action == "reject" && body.Index != nil {
+		if err := recordItemDecision(r2.Context(), pool, outputID, *body.Index,
+			"rejected", user.ID, nil, nil); err != nil {
+			failDB(w, err)
+			return
+		}
+		if err := settleOutputStatus(r2.Context(), pool, outputID, len(suggestionCount(contentRaw))); err != nil {
 			failDB(w, err)
 			return
 		}
 		audit.Record(r2.Context(), pool, user.ID, "ai.rejected", "ai_output", outputID, "pending", "rejected",
-			map[string]interface{}{"workshop_id": workshopID})
+			map[string]interface{}{"workshop_id": workshopID, "item_index": *body.Index})
+		response.OK(w, map[string]interface{}{
+			"id": outputID, "item_index": *body.Index, "human_review_status": "rejected",
+		})
+		return
+	}
+
+	if body.Action == "reject" {
+		// "Dismiss all" means dismiss what is STILL OPEN, not undo what was
+		// already added. Without this, dismissing a batch after accepting one
+		// suggestion marked the output rejected while an acceptance sat
+		// underneath it — a record that contradicts itself, and one that would
+		// read in the audit trail as though the accepted object had been
+		// withdrawn. Rows already decided are left exactly as they are; the
+		// unique constraint makes that automatic.
+		open := suggestionCount(contentRaw)
+		if len(open) > 0 {
+			// One statement, and `do nothing` is what makes it skip the
+			// already-decided rows rather than fail on the first of them.
+			if _, err := pool.Exec(r2.Context(), `
+				insert into public.ai_output_items
+					(ai_output_id, item_index, review_status, reviewed_by)
+				select $1, i, 'rejected', $2 from generate_series(0, $3::int - 1) as i
+				on conflict (ai_output_id, item_index) do nothing`,
+				outputID, user.ID, len(open)); err != nil {
+				failDB(w, err)
+				return
+			}
+			if err := settleOutputStatus(r2.Context(), pool, outputID, len(open)); err != nil {
+				failDB(w, err)
+				return
+			}
+		} else if _, err := pool.Exec(r2.Context(), `
+			update public.ai_outputs set human_review_status = 'rejected', reviewed_by = $2, reviewed_at = now()
+			where id = $1`, outputID, user.ID); err != nil {
+			// A narrative has no items to itemise, so the output IS the unit.
+			failDB(w, err)
+			return
+		}
+		audit.Record(r2.Context(), pool, user.ID, "ai.rejected", "ai_output", outputID, "pending", "rejected",
+			map[string]interface{}{"workshop_id": workshopID, "dismissed_remaining": len(open)})
 		response.OK(w, map[string]string{"id": outputID, "human_review_status": "rejected"})
 		return
 	}
@@ -591,11 +676,19 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 			"This is something to read, not a suggestion to add. Dismiss it when you are done with it.")
 		return
 	}
-	if body.Index < 0 || body.Index >= len(items) {
+	// Accepting is always about ONE suggestion, so an accept with no index is
+	// a malformed request rather than "the first one".
+	if body.Index == nil {
+		response.Fail(w, response.CodeValidationError,
+			"Say which suggestion to add — this output holds several.")
+		return
+	}
+	index := *body.Index
+	if index < 0 || index >= len(items) {
 		response.Fail(w, response.CodeValidationError, "That suggestion no longer exists in this output.")
 		return
 	}
-	item, _ := items[body.Index].(map[string]interface{})
+	item, _ := items[index].(map[string]interface{})
 	if item == nil {
 		response.Fail(w, response.CodeValidationError, "That suggestion is not in a usable shape.")
 		return
@@ -609,7 +702,8 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 			response.Fail(w, response.CodeValidationError, msg)
 			return
 		}
-		finishAIAccept(r2.Context(), w, pool, user.ID, workshopID, outputID, "factor", id, body.Overrides != nil)
+		finishAIAccept(r2.Context(), w, pool, user.ID, workshopID, outputID, index, len(items),
+			"factor", id, body.Overrides != nil)
 		return
 	}
 
@@ -634,34 +728,141 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 		failDB(w, err)
 		return
 	}
-	finishAIAccept(r2.Context(), w, pool, user.ID, workshopID, outputID, kind.Key, id, body.Overrides != nil)
+	finishAIAccept(r2.Context(), w, pool, user.ID, workshopID, outputID, index, len(items),
+		kind.Key, id, body.Overrides != nil)
 }
 
 func finishAIAccept(ctx context.Context, w http.ResponseWriter, pool *pgxpool.Pool,
-	userID, workshopID, outputID, objectType, objectID string, edited bool) {
+	userID, workshopID, outputID string, index, itemCount int,
+	objectType, objectID string, edited bool) {
 
 	status := "accepted"
 	if edited {
 		status = "edited"
 	}
-	if _, err := pool.Exec(ctx, `
-		update public.ai_outputs
-		set human_review_status = $2, reviewed_by = $3, reviewed_at = now(),
-		    converted_object_type = $4, converted_object_id = $5
-		where id = $1`, outputID, status, userID, objectType, objectID); err != nil {
+	if err := recordItemDecision(ctx, pool, outputID, index, status, userID, &objectType, &objectID); err != nil {
 		failDB(w, err)
 		return
 	}
+	if err := settleOutputStatus(ctx, pool, outputID, itemCount); err != nil {
+		failDB(w, err)
+		return
+	}
+
 	audit.Record(ctx, pool, userID, "ai."+status, "ai_output", outputID, "pending", status,
 		map[string]interface{}{
-			"workshop_id": workshopID, "converted_object_type": objectType, "converted_object_id": objectID,
+			"workshop_id": workshopID, "item_index": index,
+			"converted_object_type": objectType, "converted_object_id": objectID,
 		})
 	response.Created(w, map[string]interface{}{
 		"id":                    outputID,
+		"item_index":            index,
 		"human_review_status":   status,
 		"converted_object_type": objectType,
 		"converted_object_id":   objectID,
 		// Stated explicitly so no client mistakes acceptance for approval.
 		"object_state": "submitted",
 	})
+}
+
+// recordItemDecision writes the human decision on ONE suggestion.
+//
+// The unique constraint on (ai_output_id, item_index) is the real guard: the
+// handler checks first so it can give a useful sentence, but a race between
+// two facilitators clicking the same suggestion is settled here, by the
+// database, rather than by whichever request happened to read first.
+func recordItemDecision(ctx context.Context, pool *pgxpool.Pool,
+	outputID string, index int, status, userID string, objectType, objectID *string) error {
+
+	_, err := pool.Exec(ctx, `
+		insert into public.ai_output_items
+			(ai_output_id, item_index, review_status, reviewed_by,
+			 converted_object_type, converted_object_id)
+		values ($1, $2, $3, $4, $5, $6)`,
+		outputID, index, status, userID, objectType, objectID)
+	return err
+}
+
+// settleOutputStatus brings ai_outputs.human_review_status into line with the
+// item decisions underneath it.
+//
+// The column keeps its original meaning — the output AS A WHOLE — so it stays
+// `pending` while any suggestion is still undecided. That is what lets every
+// existing reader (the outputs list, the executive view, the audit trail) go
+// on being right without knowing about item rows at all.
+//
+// Once every suggestion has been decided: `rejected` if all were dismissed,
+// `edited` if any was accepted with changes, otherwise `accepted`. "Any
+// edited" wins over "any accepted" because §12.19's distinction is about
+// whether a human altered what the model produced, and one alteration makes
+// that true of the batch.
+func settleOutputStatus(ctx context.Context, pool *pgxpool.Pool, outputID string, itemCount int) error {
+	if itemCount <= 0 {
+		return nil
+	}
+	var decided, accepted, edited int
+	if err := pool.QueryRow(ctx, `
+		select count(*),
+		       count(*) filter (where review_status = 'accepted'),
+		       count(*) filter (where review_status = 'edited')
+		from public.ai_output_items where ai_output_id = $1`, outputID,
+	).Scan(&decided, &accepted, &edited); err != nil {
+		return err
+	}
+	if decided < itemCount {
+		return nil // still open — leave it pending
+	}
+
+	status := "rejected"
+	if edited > 0 {
+		status = "edited"
+	} else if accepted > 0 {
+		status = "accepted"
+	}
+
+	// converted_object_* on the output cannot hold N objects, so it names the
+	// FIRST one this output produced and the item rows carry the rest. Written
+	// only when still empty, so it does not drift to whichever suggestion was
+	// accepted last.
+	_, err := pool.Exec(ctx, `
+		update public.ai_outputs o
+		set human_review_status = $2,
+		    reviewed_by = coalesce(o.reviewed_by, first.reviewed_by),
+		    reviewed_at = coalesce(o.reviewed_at, now()),
+		    converted_object_type = coalesce(o.converted_object_type, first.converted_object_type),
+		    converted_object_id = coalesce(o.converted_object_id, first.converted_object_id)
+		from (
+			select reviewed_by, converted_object_type, converted_object_id
+			from public.ai_output_items
+			where ai_output_id = $1 and converted_object_id is not null
+			order by item_index limit 1
+		) as first
+		where o.id = $1`, outputID, status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+	}
+	if err != nil {
+		return err
+	}
+	// An all-rejected batch produces no `first` row, so the FROM above matches
+	// nothing and the status would never be written. Handled separately rather
+	// than left as a silently skipped update.
+	if accepted == 0 && edited == 0 {
+		_, err = pool.Exec(ctx, `
+			update public.ai_outputs
+			set human_review_status = 'rejected',
+			    reviewed_at = coalesce(reviewed_at, now())
+			where id = $1`, outputID)
+	}
+	return err
+}
+
+// suggestionCount re-reads how many suggestions a stored output holds, for the
+// paths that have the raw content but have not unmarshalled it.
+func suggestionCount(contentRaw []byte) []interface{} {
+	var content map[string]interface{}
+	if err := json.Unmarshal(contentRaw, &content); err != nil {
+		return nil
+	}
+	return suggestionsArray(content)
 }

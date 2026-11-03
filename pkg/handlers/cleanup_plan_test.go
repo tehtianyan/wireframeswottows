@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -301,17 +302,34 @@ func TestPlanRefusesSelfMergeAndNoOpRewrite(t *testing.T) {
 	}
 }
 
-// 120 characters is the cap CreateFactor and UpdateFactor apply. The AI path
-// has to obey the same rule, or it becomes a way round validation.
+// The AI path has to obey the same title cap CreateFactor and UpdateFactor
+// apply, or it becomes a way round validation.
+//
+// EVERY NUMBER HERE IS DERIVED FROM MaxFactorTitle. The first version of this
+// test wrote 121 and looked for "120" in the refusal, and it failed the day
+// the cap was raised — a correct change breaking a test that was really
+// asserting a magic number. Replacing 120 with 500 would have rebuilt the
+// same trap one cap higher, so it now asserts the RELATIONSHIP: one character
+// over the limit is refused, exactly the limit is allowed, and the refusal
+// names the real figure.
 func TestPlanAppliesTheSameTitleRuleAsAHuman(t *testing.T) {
 	plan, skipped := onlyPlan(t, proposedChange{
-		Type: "reword", FactorID: "f1", Title: strings.Repeat("a", 121),
+		Type: "reword", FactorID: "f1", Title: strings.Repeat("a", MaxFactorTitle+1),
 	})
 	if len(plan) != 0 {
-		t.Fatalf("an over-long title was accepted from the AI path: %+v", plan)
+		t.Fatalf("a title one character over the cap was accepted from the AI path: %+v", plan)
 	}
-	if len(skipped) != 1 || !strings.Contains(skipped[0].Refused, "120") {
-		t.Fatalf("the refusal does not say what the limit is: %+v", skipped)
+	limit := strconv.Itoa(MaxFactorTitle)
+	if len(skipped) != 1 || !strings.Contains(skipped[0].Refused, limit) {
+		t.Fatalf("the refusal does not say what the limit (%s) is: %+v", limit, skipped)
+	}
+
+	// Paired with the positive case, so the refusal above cannot be passing
+	// because rewording is broken outright.
+	atCap := strings.Repeat("b", MaxFactorTitle)
+	plan, skipped = onlyPlan(t, proposedChange{Type: "reword", FactorID: "f1", Title: atCap})
+	if len(plan) != 1 || plan[0].After["title"] != atCap {
+		t.Fatalf("a title exactly at the cap was refused: plan=%+v skipped=%+v", plan, skipped)
 	}
 }
 

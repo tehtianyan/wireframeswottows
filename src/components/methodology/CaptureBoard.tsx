@@ -1,17 +1,34 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Radio, WifiOff } from "lucide-react";
+import {
+  Columns3,
+  Grid2x2,
+  Layers,
+  Loader2,
+  Plus,
+  Radio,
+  WifiOff,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { StickyNote } from "./StickyNote";
+import { MAX_FACTOR_TITLE, MAX_OBJECT_TITLE } from "@/lib/limits";
+import { useBoardDrag, type DropTarget } from "@/lib/useBoardDrag";
+import { StickyNote, type NoteScore } from "./StickyNote";
 import { CleanupPanel } from "./CleanupPanel";
 import { useFactorChannel, type ChannelStatus, type PresentPerson } from "@/lib/useFactorChannel";
 import {
+  objectKindsApi,
+  objectsApi,
   workshopsApi,
   type Factor,
   type FactorCategory,
   type Methodology,
   type MethodologyStage,
+  type WeightDefinition,
+  type WorkObject,
   type WorkshopRole,
 } from "@/lib/api";
 
@@ -24,6 +41,16 @@ import {
 // a strength is — exactly as `category_matrix` works in the report engine.
 //
 // A methodology opts in with `"layout": "board"` on its capture stages.
+//
+// Four things the board must keep doing, each of which UAT found missing:
+//
+//  - EVERY PANEL IS ON SCREEN AT ONCE. The panels scroll INTERNALLY, so a wall
+//    with thirty notes in Strengths does not push Opportunities and Threats
+//    below the fold. A SWOT board whose bottom half needs scrolling to reach
+//    is not a SWOT board; the whole point is seeing the four together.
+//  - OLDEST NOTE AT THE TOP. The wall reads in the order the room produced it.
+//  - THE GROUP'S FIGURE IS ON THE NOTE, with the number of people behind it.
+//  - A THEME IS MADE BY STACKING, the way it is made on a physical wall.
 
 /** Columns for n panels. 4 gives the 2x2 a SWOT board is expected to be. */
 export function boardColumns(n: number): number {
@@ -31,6 +58,34 @@ export function boardColumns(n: number): number {
   if (n <= 4) return 2;
   return 3;
 }
+
+/**
+ * Display order within a category: hand-set position first, then creation
+ * order, OLDEST FIRST.
+ *
+ * The API returns `votes desc, created_at desc`, which the prioritize stage
+ * needs and a capture wall must not have — newest-first means every note the
+ * room adds appears at the top and pushes the session's history down, so the
+ * wall reads backwards against the conversation that produced it.
+ *
+ * A null position means never placed by hand, and sorts after everything
+ * placed: a note added during a session lands at the bottom of its panel,
+ * which is where a new sticky goes.
+ */
+export function compareForBoard(a: Factor, b: Factor): number {
+  const pa = a.board_position ?? null;
+  const pb = b.board_position ?? null;
+  if (pa !== null && pb !== null && pa !== pb) return pa - pb;
+  if (pa !== null && pb === null) return -1;
+  if (pa === null && pb !== null) return 1;
+  const byAge = a.created_at.localeCompare(b.created_at);
+  // The id breaks a tie so the order cannot shuffle between renders — two
+  // notes created in the same millisecond is routine when a board is seeded.
+  return byAge !== 0 ? byAge : a.id.localeCompare(b.id);
+}
+
+type ViewMode = "grid" | "columns";
+const VIEW_KEY = "swot.captureBoard.view";
 
 export function CaptureBoard({
   workshopId,
@@ -46,8 +101,30 @@ export function CaptureBoard({
   me: { user_id: string; name: string } | null;
 }) {
   const queryClient = useQueryClient();
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [view, setView] = useState<ViewMode>("grid");
+  const [pendingTheme, setPendingTheme] = useState<{ ids: string[]; categoryKey: string } | null>(
+    null,
+  );
+
+  // Remembered per browser only — a layout preference is one viewer's reading
+  // comfort, not shared workshop state, and must survive a storage failure
+  // rather than take the board down with it.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(VIEW_KEY);
+      if (saved === "grid" || saved === "columns") setView(saved);
+    } catch {
+      /* private mode, blocked storage: the default is fine */
+    }
+  }, []);
+  const chooseView = (v: ViewMode) => {
+    setView(v);
+    try {
+      window.localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const focusedKey = (stage.config["factor_category_key"] as string | undefined) ?? "";
 
@@ -69,7 +146,42 @@ export function CaptureBoard({
     refetchInterval: status === "live" ? false : 8000,
   });
 
+  // The group's figures. Read through the generic weights endpoint rather than
+  // a `votes` field, so the pill on a note shows whatever weight the
+  // methodology attaches to a factor — votes here, likelihood on a risk board.
+  const weightsQuery = useQuery({
+    queryKey: ["weights", workshopId],
+    queryFn: () => workshopsApi.weights(workshopId),
+  });
+
+  // The object kind a synthesize stage produces, from the registry. This is
+  // what makes stacking into themes configuration rather than SWOT knowledge:
+  // a methodology with no synthesize stage simply has no theme route, and the
+  // board offers no stacking.
+  const kindsQuery = useQuery({
+    queryKey: ["object-kinds"],
+    queryFn: () => objectKindsApi.list(),
+    staleTime: Infinity,
+  });
+  const themeKind = useMemo(
+    () => kindsQuery.data?.find((k) => k.stage_type === "synthesize"),
+    [kindsQuery.data],
+  );
+  const methodologySynthesizes = useMemo(
+    () => methodology.stages.some((s) => s.stage_type === "synthesize"),
+    [methodology.stages],
+  );
+  const themeRoute = methodologySynthesizes ? themeKind?.route : undefined;
+
+  const themesQuery = useQuery({
+    queryKey: ["objects", workshopId, themeRoute],
+    queryFn: () => objectsApi.list(workshopId, themeRoute!),
+    enabled: Boolean(themeRoute),
+  });
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["factors", workshopId] });
+  const invalidateThemes = () =>
+    queryClient.invalidateQueries({ queryKey: ["objects", workshopId] });
 
   const createFactor = useMutation({
     mutationFn: (v: { categoryKey: string; title: string }) =>
@@ -78,13 +190,42 @@ export function CaptureBoard({
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // MOVING IS OPTIMISTIC, and that is the other half of the reported lag.
+  // The note used to stay where it was until a PATCH round-tripped and a
+  // refetch came back — on a live board that is a visible beat between letting
+  // go and the note arriving, which reads as the drag being slow when it is
+  // the network being honest. The cache is written first and rolled back if
+  // the server refuses.
+  //
+  // This is NOT the thing the authorization model forbids. That rule is about
+  // the Realtime socket: a row arriving over the socket must never be rendered
+  // without passing back through Go. This is the client's own mutation, whose
+  // response it is entitled to trust, and a refetch follows regardless.
   const updateFactor = useMutation({
     mutationFn: (v: { id: string; title?: string; description?: string; category_key?: string }) => {
       const { id, ...input } = v;
       return workshopsApi.updateFactor(workshopId, id, input);
     },
-    onSuccess: () => invalidate(),
-    onError: (e: Error) => toast.error(e.message),
+    onMutate: async (v) => {
+      if (!v.category_key) return;
+      const key = ["factors", workshopId, "all"];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<Factor[]>(key);
+      queryClient.setQueryData<Factor[]>(key, (old) =>
+        (old ?? []).map((f) =>
+          // The position is cleared with the move: a note arriving in a new
+          // panel has not been placed by hand there, so it goes to the end
+          // rather than keeping a slot number that means nothing.
+          f.id === v.id ? { ...f, category_key: v.category_key!, board_position: null } : f,
+        ),
+      );
+      return { previous };
+    },
+    onError: (e: Error, _v, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(["factors", workshopId, "all"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => invalidate(),
   });
 
   const deleteFactor = useMutation({
@@ -93,25 +234,152 @@ export function CaptureBoard({
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const setOrder = useMutation({
+    mutationFn: (v: { categoryKey: string; ids: string[] }) =>
+      workshopsApi.setFactorOrder(workshopId, v.categoryKey, v.ids),
+    onMutate: async (v) => {
+      const key = ["factors", workshopId, "all"];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<Factor[]>(key);
+      const at = new Map(v.ids.map((id, i) => [id, i]));
+      queryClient.setQueryData<Factor[]>(key, (old) =>
+        (old ?? []).map((f) => (at.has(f.id) ? { ...f, board_position: at.get(f.id)! } : f)),
+      );
+      return { previous };
+    },
+    onError: (e: Error, _v, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(["factors", workshopId, "all"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => invalidate(),
+  });
+
+  const createTheme = useMutation({
+    mutationFn: (v: { title: string; ids: string[] }) =>
+      objectsApi.create(workshopId, themeRoute!, {
+        title: v.title,
+        evidence: { factor: v.ids },
+      }),
+    onSuccess: () => {
+      invalidateThemes();
+      queryClient.invalidateQueries({ queryKey: ["citable", workshopId] });
+      toast.success("Theme created — it is on the Synthesis stage too, awaiting review");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const retheme = useMutation({
+    mutationFn: (v: { themeId: string; ids: string[] }) =>
+      objectsApi.update(workshopId, themeRoute!, v.themeId, { evidence: { factor: v.ids } }),
+    onSuccess: () => {
+      invalidateThemes();
+      queryClient.invalidateQueries({ queryKey: ["citable", workshopId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const factors = factorsQuery.data ?? [];
+
+  // Which weight to show on a note: the methodology's first factor weight, the
+  // same choice the leaderboard makes. Null for a methodology with none, and
+  // the pill then simply does not appear.
+  const scoreDefinition: WeightDefinition | null = useMemo(() => {
+    const forFactors = (weightsQuery.data?.definitions ?? []).filter(
+      (d) => d.applies_to === "factor",
+    );
+    return forFactors[0] ?? null;
+  }, [weightsQuery.data]);
+
+  const scores = useMemo(() => {
+    const m = new Map<string, NoteScore>();
+    if (!scoreDefinition) return m;
+    const participation = weightsQuery.data?.participation?.[scoreDefinition.key];
+    for (const t of weightsQuery.data?.totals ?? []) {
+      if (t.weight_key !== scoreDefinition.key) continue;
+      // Nothing allocated is not a figure worth putting on a wall; a zero pill
+      // on every note during capture is noise that hides the real ones.
+      if (t.value === 0 && t.voters === 0) continue;
+      m.set(t.object_id, {
+        name: scoreDefinition.name,
+        value: t.value,
+        voters: t.voters,
+        contributors: participation?.contributors ?? 0,
+        perParticipant: scoreDefinition.per_participant,
+        ...(t.label ? { label: t.label } : {}),
+      });
+    }
+    return m;
+  }, [weightsQuery.data, scoreDefinition]);
+
+  // Which theme each note belongs to, and each theme's own note list.
+  const themes = useMemo(() => {
+    const byFactor = new Map<string, WorkObject>();
+    const members = new Map<string, string[]>();
+    for (const t of themesQuery.data ?? []) {
+      if (t.state === "rejected" || t.state === "archived") continue;
+      const ids = t.evidence?.factor ?? [];
+      if (ids.length === 0) continue;
+      members.set(t.id, ids);
+      for (const id of ids) byFactor.set(id, t);
+    }
+    return { byFactor, members };
+  }, [themesQuery.data]);
+
   const byCategory = useMemo(() => {
     const m = new Map<string, Factor[]>();
     for (const c of methodology.factor_categories) m.set(c.key, []);
-    for (const f of factorsQuery.data ?? []) {
+    for (const f of factors) {
       // `archived` is a note "Merge and Fix" folded into a near-duplicate. It
       // is kept so the merge can be undone, but it is off the wall — leaving
       // it visible would make a merge look like it had done nothing.
       if (f.state === "rejected" || f.state === "archived") continue;
       m.get(f.category_key)?.push(f);
     }
+    for (const list of m.values()) list.sort(compareForBoard);
     return m;
-  }, [factorsQuery.data, methodology.factor_categories]);
+  }, [factors, methodology.factor_categories]);
 
-  const columns = boardColumns(methodology.factor_categories.length);
+  /**
+   * One category's wall as a sequence of BLOCKS: a loose note, or a whole
+   * theme group. A theme appears at the position of its earliest member, so
+   * grouping notes does not jump the group to the top of the panel.
+   */
+  const blocksFor = useCallback(
+    (categoryKey: string): Block[] => {
+      const list = byCategory.get(categoryKey) ?? [];
+      const emitted = new Set<string>();
+      const out: Block[] = [];
+      for (const f of list) {
+        const theme = themes.byFactor.get(f.id);
+        if (!theme) {
+          out.push({ kind: "note", factor: f });
+          continue;
+        }
+        if (emitted.has(theme.id)) continue;
+        emitted.add(theme.id);
+        const ids = new Set(themes.members.get(theme.id) ?? []);
+        out.push({
+          kind: "theme",
+          theme,
+          factors: list.filter((x) => ids.has(x.id)),
+        });
+      }
+      return out;
+    },
+    [byCategory, themes],
+  );
+
+  /** The flat id order a reorder sends: every note in the category, in view order. */
+  const flatOrder = useCallback(
+    (categoryKey: string): string[] =>
+      blocksFor(categoryKey).flatMap((b) =>
+        b.kind === "note" ? [b.factor.id] : b.factors.map((f) => f.id),
+      ),
+    [blocksFor],
+  );
 
   function moveTo(factorId: string, categoryKey: string) {
-    const f = (factorsQuery.data ?? []).find((x) => x.id === factorId);
-    setDragging(null);
-    setDropTarget(null);
+    const f = factors.find((x) => x.id === factorId);
     if (!f || f.category_key === categoryKey) return;
     if (f.state === "approved" || f.state === "rejected") {
       toast.error(
@@ -121,6 +389,79 @@ export function CaptureBoard({
     }
     updateFactor.mutate({ id: factorId, category_key: categoryKey });
   }
+
+  function reorder(categoryKey: string, factorId: string, relativeTo: string, after: boolean) {
+    const ids = flatOrder(categoryKey).filter((id) => id !== factorId);
+    const at = ids.indexOf(relativeTo);
+    if (at === -1) return;
+    ids.splice(after ? at + 1 : at, 0, factorId);
+    setOrder.mutate({ categoryKey, ids });
+  }
+
+  function sendToEnd(categoryKey: string, factorId: string) {
+    const ids = flatOrder(categoryKey).filter((id) => id !== factorId);
+    ids.push(factorId);
+    setOrder.mutate({ categoryKey, ids });
+  }
+
+  const handleDrop = useCallback(
+    (source: { factorId: string; categoryKey: string }, target: DropTarget | null) => {
+      if (!target) return;
+      switch (target.kind) {
+        case "panel":
+          if (target.categoryKey === source.categoryKey) {
+            if (facilitator) sendToEnd(source.categoryKey, source.factorId);
+          } else {
+            moveTo(source.factorId, target.categoryKey);
+          }
+          return;
+        case "before":
+        case "after":
+          reorder(
+            target.categoryKey,
+            source.factorId,
+            target.factorId,
+            target.kind === "after",
+          );
+          return;
+        case "stack":
+          // The prompt is the point: a theme with no name is a pile, and the
+          // naming is where the analytical work happens. App Spec treats a
+          // theme as a reviewable object, so it has to arrive with a title.
+          setPendingTheme({
+            ids: [target.factorId, source.factorId],
+            categoryKey: target.categoryKey,
+          });
+          return;
+        case "theme": {
+          const existing = themes.members.get(target.themeId) ?? [];
+          if (existing.includes(source.factorId)) return;
+          retheme.mutate({ themeId: target.themeId, ids: [...existing, source.factorId] });
+          return;
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [facilitator, factors, themes, flatOrder],
+  );
+
+  const dragging = useBoardDrag({
+    onDrop: handleDrop,
+    allow: {
+      move: contributor,
+      // Rearranging the shared wall is the facilitator's job — see the
+      // handler's note on why this one is a boundary, not an affordance.
+      reorder: facilitator,
+      stack: contributor && Boolean(themeRoute),
+    },
+  });
+
+  const draggedFactor = dragging.drag
+    ? factors.find((f) => f.id === dragging.drag!.factorId)
+    : null;
+  const draggedCategory = draggedFactor
+    ? methodology.factor_categories.find((c) => c.key === draggedFactor.category_key)
+    : undefined;
 
   if (factorsQuery.isLoading) {
     return (
@@ -132,6 +473,11 @@ export function CaptureBoard({
     );
   }
 
+  const columns =
+    view === "columns"
+      ? methodology.factor_categories.length
+      : boardColumns(methodology.factor_categories.length);
+
   return (
     <div className="space-y-3">
       <BoardStatus status={status} present={present} facilitator={facilitator} />
@@ -140,34 +486,185 @@ export function CaptureBoard({
           itself entirely when the methodology has no cleanup prompt. */}
       <CleanupPanel workshopId={workshopId} stage={stage} isFacilitator={facilitator} />
 
+      <BoardToolbar
+        view={view}
+        onView={chooseView}
+        categoryCount={methodology.factor_categories.length}
+        canReorder={facilitator}
+        canStack={contributor && Boolean(themeRoute)}
+        themeLabel={themeKind?.label ?? "Theme"}
+      />
+
       <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        className={cn(
+          "gap-3",
+          // Column view scrolls sideways only when the categories genuinely
+          // cannot fit; at four they do, which is the case this was asked for.
+          view === "columns" ? "flex overflow-x-auto pb-1" : "grid",
+        )}
+        {...(view === "grid"
+          ? { style: { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } }
+          : {})}
       >
         {methodology.factor_categories.map((category) => (
           <Quadrant
             key={category.key}
             category={category}
+            view={view}
             focused={category.key === focusedKey}
-            factors={byCategory.get(category.key) ?? []}
+            blocks={blocksFor(category.key)}
+            count={(byCategory.get(category.key) ?? []).length}
             categories={methodology.factor_categories}
+            movable={(byCategory.get(category.key) ?? []).filter(
+              (f) => f.state !== "approved" && f.state !== "rejected",
+            )}
+            scores={scores}
             canAdd={canAddTo(category.key)}
             canMove={contributor}
-            isDropTarget={dropTarget === category.key && dragging !== null}
-            onDragOver={() => setDropTarget(category.key)}
-            onDragLeave={() => setDropTarget((t) => (t === category.key ? null : t))}
-            onDrop={(factorId) => moveTo(factorId, category.key)}
+            drag={dragging.drag}
+            target={dragging.target}
+            onDragHandle={(f, e, el) =>
+              dragging.beginDrag(e, { factorId: f.id, categoryKey: f.category_key }, el)
+            }
             onAdd={(title) => createFactor.mutate({ categoryKey: category.key, title })}
             onSave={(id, input) => updateFactor.mutate({ id, ...input })}
             onDelete={(id) => deleteFactor.mutate(id)}
-            onMoveStart={(id) => setDragging(id)}
             onMoveTo={moveTo}
+            onRemoveFromTheme={(themeId, factorId) => {
+              const rest = (themes.members.get(themeId) ?? []).filter((x) => x !== factorId);
+              if (rest.length === 0) {
+                toast.error(
+                  "A theme needs at least one note. Delete the theme on the Synthesis stage instead.",
+                );
+                return;
+              }
+              retheme.mutate({ themeId, ids: rest });
+            }}
             savingId={updateFactor.isPending ? updateFactor.variables?.id ?? null : null}
             deletingId={deleteFactor.isPending ? deleteFactor.variables ?? null : null}
           />
         ))}
       </div>
+
+      {/* The note in hand. Rendered to the body so no panel's overflow can
+          clip it halfway across the board, which is what happens if it lives
+          inside the column it came from. */}
+      {dragging.drag &&
+        draggedFactor &&
+        createPortal(
+          <div
+            ref={dragging.ghostRef}
+            aria-hidden
+            className="pointer-events-none fixed left-0 top-0 z-[60] will-change-transform"
+            style={{ width: dragging.drag.width, height: dragging.drag.height }}
+          >
+            <GhostNote
+              factor={draggedFactor}
+              category={draggedCategory}
+              target={dragging.target}
+              themeLabel={themeKind?.label ?? "Theme"}
+            />
+          </div>,
+          document.body,
+        )}
+
+      {pendingTheme && (
+        <ThemeTitlePrompt
+          label={themeKind?.label ?? "Theme"}
+          notes={pendingTheme.ids
+            .map((id) => factors.find((f) => f.id === id)?.title ?? "")
+            .filter(Boolean)}
+          busy={createTheme.isPending}
+          onCancel={() => setPendingTheme(null)}
+          onCreate={(title) => {
+            createTheme.mutate(
+              { title, ids: pendingTheme.ids },
+              { onSuccess: () => setPendingTheme(null) },
+            );
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+type Block =
+  | { kind: "note"; factor: Factor }
+  | { kind: "theme"; theme: WorkObject; factors: Factor[] };
+
+function BoardToolbar({
+  view,
+  onView,
+  categoryCount,
+  canReorder,
+  canStack,
+  themeLabel,
+}: {
+  view: ViewMode;
+  onView: (v: ViewMode) => void;
+  categoryCount: number;
+  canReorder: boolean;
+  canStack: boolean;
+  themeLabel: string;
+}) {
+  return (
+    <section className="console-panel flex flex-wrap items-center justify-between gap-3 px-3.5 py-2">
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        {canStack && (
+          <>
+            Drop a note <strong className="font-medium text-foreground">onto another</strong> to
+            group them into a {themeLabel.toLowerCase()}
+            {canReorder ? ", " : "."}
+          </>
+        )}
+        {canReorder && (
+          <>
+            {canStack ? "or " : "Drop "}on the{" "}
+            <strong className="font-medium text-foreground">top or bottom edge</strong> to reorder.
+          </>
+        )}
+        {!canStack && !canReorder && "Drag a note to another panel to recategorise it."}
+      </p>
+
+      {/* A toggle, not a breakpoint: which reads better depends on how much is
+          on the wall, and that changes during a session. */}
+      <div
+        className="inline-flex shrink-0 overflow-hidden rounded-sm border border-border"
+        role="group"
+        aria-label="Board layout"
+      >
+        <button
+          type="button"
+          onClick={() => onView("grid")}
+          aria-pressed={view === "grid"}
+          title={`Grid — all ${categoryCount} panels together`}
+          className={cn(
+            "flex items-center gap-1 px-2 py-1 font-mono text-[10px] uppercase tracking-wider",
+            view === "grid"
+              ? "bg-elevated text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Grid2x2 className="size-3" />
+          Grid
+        </button>
+        <button
+          type="button"
+          onClick={() => onView("columns")}
+          aria-pressed={view === "columns"}
+          title={`Columns — one column per category`}
+          className={cn(
+            "flex items-center gap-1 border-l border-border px-2 py-1 font-mono text-[10px] uppercase tracking-wider",
+            view === "columns"
+              ? "bg-elevated text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Columns3 className="size-3" />
+          Columns
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -246,71 +743,75 @@ function BoardStatus({
 
 function Quadrant({
   category,
+  view,
   focused,
-  factors,
+  blocks,
+  count,
   categories,
+  movable,
+  scores,
   canAdd,
   canMove,
-  isDropTarget,
-  onDragOver,
-  onDragLeave,
-  onDrop,
+  drag,
+  target,
+  onDragHandle,
   onAdd,
   onSave,
   onDelete,
-  onMoveStart,
   onMoveTo,
+  onRemoveFromTheme,
   savingId,
   deletingId,
 }: {
   category: FactorCategory;
+  view: ViewMode;
   focused: boolean;
-  factors: Factor[];
+  blocks: Block[];
+  count: number;
   categories: FactorCategory[];
+  movable: Factor[];
+  scores: Map<string, NoteScore>;
   canAdd: boolean;
   canMove: boolean;
-  isDropTarget: boolean;
-  onDragOver: () => void;
-  onDragLeave: () => void;
-  onDrop: (factorId: string) => void;
+  drag: { factorId: string; categoryKey: string } | null;
+  target: DropTarget | null;
+  onDragHandle: (f: Factor, e: React.PointerEvent, el: HTMLElement) => void;
   onAdd: (title: string) => void;
   onSave: (id: string, input: { title: string; description: string }) => void;
   onDelete: (id: string) => void;
-  onMoveStart: (id: string) => void;
   onMoveTo: (factorId: string, categoryKey: string) => void;
+  onRemoveFromTheme: (themeId: string, factorId: string) => void;
   savingId: string | null;
   deletingId: string | null;
 }) {
   const [draft, setDraft] = useState("");
   const tint = `var(--${category.color_token})`;
 
-  const movable = factors.filter((f) => f.state !== "approved" && f.state !== "rejected");
+  // "Dropping anywhere in this panel" — the whole-panel highlight. Only shown
+  // for a drop that would actually land here.
+  const panelIsTarget =
+    drag !== null && target !== null && target.categoryKey === category.key;
+  const wholePanel = panelIsTarget && target.kind === "panel";
 
   return (
     <section
-      onDragOver={(e) => {
-        if (!canMove) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        onDragOver();
-      }}
-      onDragLeave={onDragLeave}
-      onDrop={(e) => {
-        e.preventDefault();
-        const id = e.dataTransfer.getData("text/plain");
-        if (id) onDrop(id);
-      }}
+      data-panel-category={category.key}
       className={cn(
-        "console-panel flex min-h-56 flex-col transition-shadow",
-        isDropTarget && "shadow-lg",
+        "console-panel flex flex-col transition-[box-shadow,border-color] duration-150",
+        // SCROLLS INSIDE ITSELF, so every panel stays on screen however much
+        // is on the wall. The height is capped rather than fixed: a panel with
+        // three notes does not reserve space for thirty.
+        view === "columns" ? "w-[19rem] shrink-0" : "",
+        wholePanel && "shadow-lg",
       )}
       style={{
-        borderColor: focused || isDropTarget ? tint : undefined,
+        borderColor: focused || panelIsTarget ? tint : undefined,
         ...(focused ? { boxShadow: `inset 0 2px 0 0 ${tint}` } : {}),
+        ...(wholePanel ? { background: `color-mix(in srgb, ${tint} 7%, var(--card))` } : {}),
       }}
       aria-label={category.name}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
           <span
             className="inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider"
@@ -324,36 +825,61 @@ function Quadrant({
             </span>
           )}
         </div>
-        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-          {factors.length}
-        </span>
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{count}</span>
       </div>
 
       {focused && category.guidance_text && (
-        <p className="border-b border-border/60 px-3 py-2 text-xs leading-snug text-muted-foreground">
+        <p className="shrink-0 border-b border-border/60 px-3 py-2 text-xs leading-snug text-muted-foreground">
           {category.guidance_text}
         </p>
       )}
 
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        {factors.map((f) => (
-          <StickyNote
-            key={f.id}
-            factor={f}
-            category={category}
-            canEdit={canMove}
-            canMove={canMove}
-            onSave={(input) => onSave(f.id, input)}
-            onDelete={() => onDelete(f.id)}
-            onMoveStart={() => onMoveStart(f.id)}
-            isSaving={savingId === f.id}
-            isDeleting={deletingId === f.id}
-          />
-        ))}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-32 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 max-h-[26rem]">
+          {blocks.map((block) =>
+            block.kind === "note" ? (
+              <StickyNote
+                key={block.factor.id}
+                factor={block.factor}
+                category={category}
+                canEdit={canMove}
+                canMove={canMove}
+                score={scores.get(block.factor.id) ?? null}
+                isDragging={drag?.factorId === block.factor.id}
+                insertBefore={
+                  target?.kind === "before" && target.factorId === block.factor.id
+                }
+                insertAfter={target?.kind === "after" && target.factorId === block.factor.id}
+                isStackTarget={
+                  target?.kind === "stack" && target.factorId === block.factor.id
+                }
+                onSave={(input) => onSave(block.factor.id, input)}
+                onDelete={() => onDelete(block.factor.id)}
+                onDragHandle={
+                  canMove ? (e, el) => onDragHandle(block.factor, e, el) : undefined
+                }
+                isSaving={savingId === block.factor.id}
+                isDeleting={deletingId === block.factor.id}
+              />
+            ) : (
+              <ThemeStack
+                key={block.theme.id}
+                theme={block.theme}
+                factors={block.factors}
+                category={category}
+                scores={scores}
+                canEdit={canMove}
+                isTarget={target?.kind === "theme" && target.themeId === block.theme.id}
+                onRemove={(factorId) => onRemoveFromTheme(block.theme.id, factorId)}
+                savingId={savingId}
+              />
+            ),
+          )}
 
-        {factors.length === 0 && !canAdd && (
-          <p className="text-xs text-muted-foreground">Nothing here yet.</p>
-        )}
+          {blocks.length === 0 && !canAdd && (
+            <p className="text-xs text-muted-foreground">Nothing here yet.</p>
+          )}
+        </div>
 
         {canAdd && (
           <form
@@ -364,7 +890,7 @@ function Quadrant({
               onAdd(t);
               setDraft("");
             }}
-            className="mt-auto"
+            className="shrink-0 border-t border-border/60 p-3"
           >
             <label className="sr-only" htmlFor={`add-${category.key}`}>
               Add a note to {category.name}
@@ -378,7 +904,7 @@ function Quadrant({
                 id={`add-${category.key}`}
                 value={draft}
                 rows={1}
-                maxLength={120}
+                maxLength={MAX_FACTOR_TITLE}
                 placeholder="Add a note…"
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -387,7 +913,7 @@ function Quadrant({
                     e.currentTarget.form?.requestSubmit();
                   }
                 }}
-                className="w-full resize-none bg-transparent text-sm leading-snug outline-none placeholder:text-muted-foreground"
+                className="max-h-24 w-full resize-none bg-transparent text-sm leading-snug outline-none placeholder:text-muted-foreground"
               />
             </div>
           </form>
@@ -396,7 +922,7 @@ function Quadrant({
 
       {/* Keyboard equivalent of dragging, so recategorising is not mouse-only. */}
       {canMove && movable.length > 0 && (
-        <div className="border-t border-border/60 px-3 py-1.5">
+        <div className="shrink-0 border-t border-border/60 px-3 py-1.5">
           <label className="sr-only" htmlFor={`move-${category.key}`}>
             Move a note out of {category.name}
           </label>
@@ -424,5 +950,243 @@ function Quadrant({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * A theme on the wall: a named group of notes, drawn as a stack.
+ *
+ * It is a REAL object — a `synthesis` row with `synthesis_factors` citations —
+ * so it appears on the Synthesis stage, in the report and in the traceability
+ * chain, and it carries the same governance as a theme made there. Grouping
+ * notes during capture is analytical work, and work that evaporates at the
+ * next stage is work the room did for nothing.
+ */
+function ThemeStack({
+  theme,
+  factors,
+  category,
+  scores,
+  canEdit,
+  isTarget,
+  onRemove,
+  savingId,
+}: {
+  theme: WorkObject;
+  factors: Factor[];
+  category: FactorCategory;
+  scores: Map<string, NoteScore>;
+  canEdit: boolean;
+  isTarget: boolean;
+  onRemove: (factorId: string) => void;
+  savingId: string | null;
+}) {
+  const tint = `var(--${category.color_token})`;
+  const decided = theme.state === "approved" || theme.state === "rejected";
+
+  return (
+    <div
+      data-theme-id={theme.id}
+      data-theme-category={category.key}
+      className={cn(
+        "rounded-sm border-2 border-dashed p-2 transition-[border-color,background] duration-150",
+      )}
+      style={{
+        borderColor: isTarget ? tint : `color-mix(in srgb, ${tint} 40%, transparent)`,
+        background: isTarget
+          ? `color-mix(in srgb, ${tint} 10%, var(--card))`
+          : "color-mix(in srgb, var(--muted) 30%, transparent)",
+      }}
+    >
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-1.5">
+          <Layers className="mt-0.5 size-3 shrink-0" style={{ color: tint }} />
+          <span className="min-w-0 break-words text-xs font-semibold leading-snug">
+            {theme.title ?? "(untitled theme)"}
+          </span>
+        </div>
+        <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+          {factors.length}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {factors.map((f) => (
+          <div key={f.id} className="relative">
+            <StickyNote
+              factor={f}
+              category={category}
+              canEdit={canEdit}
+              canMove={false}
+              themed
+              score={scores.get(f.id) ?? null}
+              onSave={() => {
+                /* editing inside a theme goes through the card below */
+              }}
+              onDelete={() => {
+                /* removal from the theme is the action here, not deletion */
+              }}
+              isSaving={savingId === f.id}
+            />
+            {canEdit && !decided && (
+              <button
+                type="button"
+                onClick={() => onRemove(f.id)}
+                title={`Take "${f.title}" out of this theme`}
+                aria-label={`Remove ${f.title} from the theme`}
+                className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full border border-border bg-background text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+              >
+                <X className="size-2.5" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {isTarget && (
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-wider" style={{ color: tint }}>
+          Add to this theme
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The note while it is in hand.
+ *
+ * It says what the drop will DO, on the thing being dragged, where the eye
+ * already is. A panel-level highlight alone leaves the person guessing between
+ * "this will join that note" and "this will move category" — which are
+ * different enough that guessing is not acceptable in front of a room.
+ */
+function GhostNote({
+  factor,
+  category,
+  target,
+  themeLabel,
+}: {
+  factor: Factor;
+  category: FactorCategory | undefined;
+  target: DropTarget | null;
+  themeLabel: string;
+}) {
+  const tint = category ? `var(--${category.color_token})` : "var(--border)";
+  const intent =
+    target === null
+      ? "Release to leave it where it is"
+      : target.kind === "stack"
+        ? `New ${themeLabel.toLowerCase()} with that note`
+        : target.kind === "theme"
+          ? `Add to that ${themeLabel.toLowerCase()}`
+          : target.kind === "panel"
+            ? target.categoryKey === factor.category_key
+              ? "Move to the end"
+              : "Move here"
+            : "Reorder";
+
+  return (
+    <div className="relative size-full">
+      <div
+        className="size-full overflow-hidden rounded-sm border p-2.5 text-sm leading-snug shadow-2xl"
+        style={{
+          background: `color-mix(in srgb, ${tint} 18%, var(--card))`,
+          borderColor: tint,
+        }}
+      >
+        <span className="line-clamp-6">{factor.title}</span>
+      </div>
+      <span
+        className="absolute -bottom-6 left-0 whitespace-nowrap rounded-sm px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-background"
+        style={{ background: tint }}
+      >
+        {intent}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Naming a theme the moment it is created.
+ *
+ * The name is not a formality: "these two notes are the same thing" is a claim
+ * and the title is the claim. An untitled pile is what a whiteboard produces;
+ * a named theme is what the next stage can work with.
+ */
+function ThemeTitlePrompt({
+  label,
+  notes,
+  busy,
+  onCancel,
+  onCreate,
+}: {
+  label: string;
+  notes: string[];
+  busy: boolean;
+  onCancel: () => void;
+  onCreate: (title: string) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] grid place-items-center bg-background/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Name this ${label.toLowerCase()}`}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+      }}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          const t = title.trim();
+          if (t) onCreate(t);
+        }}
+        className="console-panel w-full max-w-md space-y-3 p-4"
+      >
+        <div>
+          <h2 className="font-display text-sm font-semibold">Name this {label.toLowerCase()}</h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            What do these notes have in common? The name is what the Synthesis stage, the report
+            and the traceability chain will carry.
+          </p>
+        </div>
+
+        <ul className="space-y-1 rounded-sm border border-border bg-elevated/40 p-2">
+          {notes.map((n, i) => (
+            <li key={i} className="text-xs leading-snug text-muted-foreground">
+              · {n}
+            </li>
+          ))}
+        </ul>
+
+        <input
+          ref={ref}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={MAX_OBJECT_TITLE}
+          placeholder={`${label} name…`}
+          aria-label={`${label} name`}
+          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus-visible:border-primary"
+        />
+
+        <div className="flex justify-end gap-2">
+          <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" size="sm" disabled={busy || !title.trim()}>
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Layers className="size-3.5" />}
+            Create {label.toLowerCase()}
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }

@@ -32,6 +32,12 @@ func TestRoutePrecedence(t *testing.T) {
 		{"POST", "/api/v1/workshops/abc/factors/f1/review", "/api/v1/workshops/{id}/factors/{factorId}/review"},
 		{"PUT", "/api/v1/workshops/abc/factors/f1/vote", "/api/v1/workshops/{id}/factors/{factorId}/vote"},
 
+		// The capture board's hand-set order. "order" is a literal sitting at
+		// the same depth as {factorId}, so this asserts the literal wins —
+		// otherwise a reorder would arrive at a handler expecting a factor id
+		// called "order" and fail as a missing factor rather than a route.
+		{"PUT", "/api/v1/workshops/abc/factors/order", "/api/v1/workshops/{id}/factors/order"},
+
 		// Weights. "weights" is a literal at the same depth as {kind}, and the
 		// factor variant exists because chi resolves the static "factors"
 		// segment first and never falls back to the wildcard branch — so if

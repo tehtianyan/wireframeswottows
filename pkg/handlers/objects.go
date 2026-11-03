@@ -341,8 +341,8 @@ func insertObject(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
 	if kind.TitleRequired && (title == nil || *title == "") {
 		return "", "Title is required.", nil
 	}
-	if title != nil && len([]rune(*title)) > 200 {
-		return "", "Title must be 200 characters or fewer.", nil
+	if title != nil && len([]rune(*title)) > MaxObjectTitle {
+		return "", fmt.Sprintf("Title must be %d characters or fewer.", MaxObjectTitle), nil
 	}
 
 	// description is NOT NULL for every kind that has one. Without this the

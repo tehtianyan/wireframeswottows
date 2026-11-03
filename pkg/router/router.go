@@ -89,6 +89,13 @@ func New() http.Handler {
 			r.Delete("/{id}/factors/{factorId}", handlers.DeleteFactor)
 			r.Post("/{id}/factors/{factorId}/review", handlers.ReviewFactor)
 
+			// The capture board's hand-set order. "order" is a literal sitting
+			// where "{factorId}" also sits, so chi must resolve the literal
+			// first — it does, and router_test.go holds it to that. The verb
+			// differs from every /factors/{factorId} route anyway, but the
+			// guard is cheap and the next route added here may not differ.
+			r.Put("/{id}/factors/order", handlers.SetFactorOrder)
+
 			// Weights — the generic mechanism. "/{id}/weights" is a literal
 			// sitting beside the {kind} wildcard below, so it is registered
 			// first, like "ai" and "reports". router_test.go guards this.

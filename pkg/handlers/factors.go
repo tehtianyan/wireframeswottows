@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -47,6 +48,11 @@ type Factor struct {
 	ReviewedAt    *string `json:"reviewed_at"`
 	ReviewNote    *string `json:"review_note"`
 	CreatedAt     string  `json:"created_at"`
+	// BoardPosition is the capture board's hand-set order within a category.
+	// Null means never placed by hand, and the board then falls back to
+	// creation order. Nothing else reads it — see the migration's note on why
+	// a facilitator's arrangement must not outrank the group's votes.
+	BoardPosition *int `json:"board_position"`
 }
 
 // ListFactors — GET /workshops/{id}/factors?category=strength&state=submitted
@@ -79,7 +85,7 @@ func ListFactors(w http.ResponseWriter, r *http.Request) {
 		       coalesce((select sum(w.value) from public.weights w
 		                 where w.object_id = f.id and w.weight_key = 'vote'), 0)::int as votes,
 		       f.reviewed_by, f.reviewed_at, f.review_note,
-		       f.created_at
+		       f.created_at, f.board_position
 		from public.factors f
 		join public.methodology_factor_categories mfc on mfc.id = f.factor_category_id
 		left join public.profiles p on p.id = f.created_by
@@ -116,7 +122,8 @@ func ListFactors(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		var reviewedAt *time.Time
 		if err := rows.Scan(&f.ID, &f.WorkshopID, &f.CategoryKey, &f.Title, &f.Description, &f.CreatedBy,
-			&f.CreatedByName, &f.State, &f.Votes, &f.ReviewedBy, &reviewedAt, &f.ReviewNote, &createdAt); err != nil {
+			&f.CreatedByName, &f.State, &f.Votes, &f.ReviewedBy, &reviewedAt, &f.ReviewNote, &createdAt,
+			&f.BoardPosition); err != nil {
 			failDB(w, err)
 			return
 		}
@@ -137,7 +144,7 @@ type createFactorBody struct {
 }
 
 // CreateFactor — POST /workshops/{id}/factors. App Spec §3.17: Create=Yes for
-// Participant+. Wireframe §2.11: title required, <=120 chars.
+// Participant+. Title required, capped at MaxFactorTitle.
 func CreateFactor(w http.ResponseWriter, r *http.Request) {
 	r2, ok := httpctx.RequireAuth(w, r)
 	if !ok {
@@ -348,6 +355,131 @@ func DeleteFactor(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, map[string]string{"id": f.id})
 }
 
+type setFactorOrderBody struct {
+	CategoryKey string   `json:"category_key"`
+	FactorIDs   []string `json:"factor_ids"`
+}
+
+// SetFactorOrder — PUT /workshops/{id}/factors/order
+//
+// The facilitator's hand-set order for one category on the capture board:
+// dragging a note above or below another one. Physically this is sliding a
+// sticky into a different place in the column, which is a thing only the
+// person running the room does to the shared wall.
+//
+// FACILITATOR ONLY, and this is a real boundary rather than an affordance —
+// unlike "who may add to which panel". The wall is shared, and a participant
+// silently rearranging what everyone else is looking at is not a contribution,
+// it is an edit to the room.
+//
+// THE WHOLE CATEGORY IS SENT, NOT ONE MOVE. Positions are then rewritten
+// 0..n-1 in one transaction, so the operation is idempotent, needs no
+// fractional-index rebalancing, and cannot leave two notes claiming one slot
+// if two facilitators drag at the same time — the second write simply wins
+// whole. Omitting a note from the list is not a way to hide it: an id that
+// does not belong to this workshop and category is refused outright.
+func SetFactorOrder(w http.ResponseWriter, r *http.Request) {
+	r2, ok := httpctx.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+	user := httpctx.UserFromContext(r2.Context())
+	workshopID := chi.URLParam(r2, "id")
+	pool := mustPool(r2, w)
+	if pool == nil {
+		return
+	}
+	if _, err := authz.RequireWorkshopRole(r2.Context(), pool, user.ID, workshopID, "facilitator"); err != nil {
+		writeAuthzErr(w, err)
+		return
+	}
+
+	var body setFactorOrderBody
+	if err := json.NewDecoder(r2.Body).Decode(&body); err != nil {
+		response.Fail(w, response.CodeValidationError, "invalid request body")
+		return
+	}
+	categoryKey := strings.TrimSpace(body.CategoryKey)
+	if categoryKey == "" {
+		response.Fail(w, response.CodeValidationError, "category_key is required")
+		return
+	}
+	if len(body.FactorIDs) == 0 {
+		response.Fail(w, response.CodeValidationError, "factor_ids is required")
+		return
+	}
+
+	// A duplicated id would make two slots claim one note and silently drop
+	// another from the order. Caught here rather than producing a half-applied
+	// arrangement.
+	seen := map[string]bool{}
+	for _, id := range body.FactorIDs {
+		if seen[id] {
+			response.Fail(w, response.CodeValidationError, "the same note appears twice in this order")
+			return
+		}
+		seen[id] = true
+	}
+
+	var categoryID string
+	err := pool.QueryRow(r2.Context(), `
+		select mfc.id from public.methodology_factor_categories mfc
+		join public.workshops w on w.methodology_id = mfc.methodology_id
+		where w.id = $1 and mfc.key = $2`, workshopID, categoryKey,
+	).Scan(&categoryID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		response.Fail(w, response.CodeValidationError,
+			"unknown factor category for this workshop's methodology")
+		return
+	}
+	if err != nil {
+		failDB(w, err)
+		return
+	}
+
+	tx, err := pool.Begin(r2.Context())
+	if err != nil {
+		failDB(w, err)
+		return
+	}
+	defer func() { _ = tx.Rollback(r2.Context()) }()
+
+	// Scoped by workshop AND category in the UPDATE itself, so a factor id
+	// belonging to another workshop matches no row — the count check below
+	// then refuses the whole request rather than reordering what it could.
+	placed := 0
+	for i, id := range body.FactorIDs {
+		tag, err := tx.Exec(r2.Context(), `
+			update public.factors
+			set board_position = $4
+			where id = $1 and workshop_id = $2 and factor_category_id = $3`,
+			id, workshopID, categoryID, i)
+		if err != nil {
+			failDB(w, err)
+			return
+		}
+		placed += int(tag.RowsAffected())
+	}
+	if placed != len(body.FactorIDs) {
+		response.Fail(w, response.CodeValidationError,
+			"One of those notes is not in this category of this workshop. Nothing was reordered.")
+		return
+	}
+
+	if err := tx.Commit(r2.Context()); err != nil {
+		failDB(w, err)
+		return
+	}
+
+	// The order itself is not recorded in the audit row: it is presentation,
+	// it changes often during a live session, and a full id list per drag
+	// would bury the decisions that matter in the trail.
+	audit.Record(r2.Context(), pool, user.ID, "factor.reordered", "factor_category", categoryID, "", "", map[string]interface{}{
+		"workshop_id": workshopID, "category_key": categoryKey, "notes": len(body.FactorIDs),
+	})
+	response.OK(w, map[string]interface{}{"category_key": categoryKey, "ordered": len(body.FactorIDs)})
+}
+
 type reviewFactorBody struct {
 	Action string  `json:"action"` // "approve" | "reject"
 	Note   *string `json:"note"`
@@ -443,15 +575,34 @@ func ReviewFactor(w http.ResponseWriter, r *http.Request) {
 
 // ---- shared helpers ----
 
+// MaxFactorTitle is the one place the cap is stated. Every form that writes a
+// factor reads it from here (the client mirrors it in src/lib/limits.ts), so
+// the browser and the server cannot drift into disagreeing about what fits.
+//
+// 500 OVERRIDES BOTH SPEC NUMBERS, DELIBERATELY. Wireframe §2.11 says 120 and
+// App Spec §6.6 says 250; 120 shipped. UAT found it too short for the way
+// people actually write a note in a live session — a capture note is often a
+// full sentence with its qualifier, and 120 characters truncates mid-thought,
+// which pushes the real content into a description nobody reads on the wall.
+// Raised on the user's explicit instruction (2026-11-03). The display cost is
+// paid in StickyNote: a note is square up to roughly 200 characters and grows
+// taller beyond it, rather than clipping.
+const MaxFactorTitle = 500
+
+// MaxObjectTitle caps a theme's, insight's or recommendation's title
+// (mirrored in src/lib/limits.ts). Deliberately shorter than a note's: a note
+// is something somebody said and may be a whole sentence, while an object's
+// title is a NAME chosen for a group of them.
+const MaxObjectTitle = 200
+
 func validateFactorTitle(title string) string {
 	if title == "" {
 		return "Title is required."
 	}
-	// Wireframe §2.11 caps titles at 120 characters; the App Spec says 250.
-	// 120 wins — it matches the form already shipped (see the plan's spec
-	// conflict table).
-	if len([]rune(title)) > 120 {
-		return "Title must be 120 characters or fewer."
+	// Runes, not bytes — a cap counted in bytes refuses fewer characters in
+	// every language that needs more than one byte per character.
+	if len([]rune(title)) > MaxFactorTitle {
+		return fmt.Sprintf("Title must be %d characters or fewer.", MaxFactorTitle)
 	}
 	return ""
 }

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { MAX_FACTOR_TITLE } from "@/lib/limits";
 import type { Factor, FactorCategory, FactorState } from "@/lib/api";
 
 // One card shape for every stage that displays a factor — capture, review and
@@ -83,7 +84,12 @@ export function FactorCard({
   if (editing) {
     return (
       <div className="space-y-2 bg-elevated/40 px-4 py-3">
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} autoFocus />
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={MAX_FACTOR_TITLE}
+          autoFocus
+        />
         <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
         <div className="flex items-center justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={cancel}>

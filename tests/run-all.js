@@ -22,6 +22,8 @@ const suites = [
   ["methodologies", "Architecture — seven methodologies, configuration only"],
   ["defects", "Regressions — defects reported against production"],
   ["cleanup", "Capture board — Merge and Fix, tracked and undoable"],
+  ["capture-board", "Capture board — order, length, themes, AI suggestions"],
+  ["board-ui", "Capture board — it actually LOOKS as asked (no server)"],
   ["ai-scope", "AI assistant — where each action is offered, and what it refuses"],
   ["prioritization", "Prioritization — the group's ranking, and the report"],
   ["objects", "Phase 2 — analysis objects and governance"],

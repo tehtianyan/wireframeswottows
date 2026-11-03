@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { MAX_OBJECT_TITLE } from "@/lib/limits";
 import type { CitableItem } from "./useStageObjects";
 import type { CitableKind, ObjectKind, WorkObject, WriteObjectInput } from "@/lib/api";
 
@@ -105,7 +106,7 @@ export function ObjectForm({
           className="mt-1.5"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          maxLength={200}
+          maxLength={MAX_OBJECT_TITLE}
           disabled={isPending}
         />
       </div>

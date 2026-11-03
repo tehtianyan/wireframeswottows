@@ -302,6 +302,16 @@ export interface Factor {
   reviewed_at: string | null;
   review_note: string | null;
   created_at: string;
+  /**
+   * The capture board's hand-set order within a category, or null when the
+   * note has never been placed by hand — in which case the board falls back
+   * to creation order, oldest first.
+   *
+   * Deliberately read by the capture board ONLY. The prioritize stage, the
+   * leaderboard and the report rank by weight, because a facilitator's visual
+   * arrangement is not the group's priority decision.
+   */
+  board_position?: number | null;
 }
 
 export interface Workspace {
@@ -1186,6 +1196,20 @@ export const workshopsApi = {
     apiDelete<{ id: string }>(`/workshops/${id}/factors/${factorId}`),
   reviewFactor: (id: string, factorId: string, input: { action: "approve" | "reject"; note?: string }) =>
     apiPost<{ id: string; state: FactorState }>(`/workshops/${id}/factors/${factorId}/review`, input),
+
+  /**
+   * The facilitator's hand-set order for one category on the capture board.
+   *
+   * The WHOLE category is sent, not one move: the server rewrites positions
+   * 0..n-1 in a transaction, so a dropped request leaves the previous order
+   * intact rather than a half-applied one, and two facilitators dragging at
+   * once resolve to one arrangement rather than interleaving.
+   */
+  setFactorOrder: (id: string, categoryKey: string, factorIds: string[]) =>
+    apiPut<{ category_key: string; ordered: number }>(`/workshops/${id}/factors/order`, {
+      category_key: categoryKey,
+      factor_ids: factorIds,
+    }),
 
   votes: (id: string) => apiGet<VoteSummary>(`/workshops/${id}/votes`),
   setVote: (id: string, factorId: string, value: number) =>
