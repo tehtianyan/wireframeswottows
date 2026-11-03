@@ -585,8 +585,9 @@ func ReviewFactor(w http.ResponseWriter, r *http.Request) {
 // full sentence with its qualifier, and 120 characters truncates mid-thought,
 // which pushes the real content into a description nobody reads on the wall.
 // Raised on the user's explicit instruction (2026-11-03). The display cost is
-// paid in StickyNote: a note is square up to roughly 200 characters and grows
-// taller beyond it, rather than clipping.
+// paid in StickyNote: a note sizes itself to its content and stops growing at
+// roughly a square, with the remainder behind a "Show more" rather than either
+// clipped silently or allowed to make the wall unscannable.
 const MaxFactorTitle = 500
 
 // MaxObjectTitle caps a theme's, insight's or recommendation's title

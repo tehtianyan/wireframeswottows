@@ -25,12 +25,19 @@ export const MAX_FACTOR_TITLE = 500;
 export const MAX_OBJECT_TITLE = 200;
 
 /**
- * Where a note stops being square and starts growing taller.
+ * The fewest lines of a note's text the board will ever show at rest.
  *
- * A post-it is square because a short note should look like a short note —
- * that is what makes a wall scannable. But clipping a long one hides content,
- * and shrinking the text to fit makes it unreadable on a projector. So a note
- * is square up to here and grows beyond it: the shape itself then tells you
- * which notes are long, which is information rather than a defect.
+ * A note sizes itself to its content and stops at roughly a square, with the
+ * rest behind "Show more" (see StickyNote). That ceiling is measured from the
+ * rendered box, so in a very narrow column it could compute down to one line
+ * or none — which would clamp notes that are not long at all, and put a "Show
+ * more" on a sentence. This is the floor under that arithmetic.
+ *
+ * NOT a character count. The previous version of this constant was
+ * SQUARE_NOTE_CHARS, a threshold in characters, and it was never imported by
+ * anything: whether text overflows depends on the column width, the font and
+ * the theme's line height, so a figure in characters could not have decided
+ * it. A test asserted the constant existed, which is not the same as asserting
+ * anything reads it.
  */
-export const SQUARE_NOTE_CHARS = 200;
+export const MIN_NOTE_LINES = 2;

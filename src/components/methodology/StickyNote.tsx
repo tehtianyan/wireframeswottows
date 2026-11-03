@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { GripVertical, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MAX_FACTOR_TITLE } from "@/lib/limits";
+import { MAX_FACTOR_TITLE, MIN_NOTE_LINES } from "@/lib/limits";
 import { FactorStatePill } from "./FactorCard";
 import type { Factor, FactorCategory } from "@/lib/api";
 
@@ -11,14 +11,25 @@ import type { Factor, FactorCategory } from "@/lib/api";
 // anything here knowing what a strength is — a PESTLE board colours itself the
 // same way from six different tokens.
 //
-// IT IS SQUARE, AND THE SQUARE IS A MINIMUM. `aspect-square` makes a short
-// note the shape of the physical object it stands for, which is what lets a
-// facilitator count and scan a wall at a glance. A long note grows taller
-// instead of clipping: `min-height: auto` applies to a box with a preferred
-// aspect ratio, so content that does not fit pushes the box down. The shape
-// then carries information — a tall note IS a long note — which is the honest
-// alternative to hiding text or shrinking it until nobody can read it from
-// across the room.
+// THE SQUARE IS A CEILING, NOT A FLOOR (CORRECTED 2026-11-03). The first
+// version made every note `aspect-square`, reasoning that a post-it is square
+// and that the shape should be the shape of the object it stands for. Shipping
+// it showed the flaw immediately: a three-letter note became a large box of
+// empty colour, so a wall of short notes needed as much scrolling as a wall of
+// long ones and the size of a note said nothing about it. The square was doing
+// the opposite of its own justification.
+//
+// So a note is now the size of what it holds, and the square is where it stops
+// growing. The text clamps at the line count that keeps the note roughly as
+// tall as it is wide, with the browser's own ellipsis, and a control expands it
+// in place. That line count is MEASURED, not a constant: the panels are wider
+// in grid view than in column view, so a fixed clamp would be square in one and
+// not the other.
+//
+// The honest trade is that a long note no longer shows all of itself at rest.
+// Hiding the tail behind a visible "more" is better than either of the
+// alternatives — clipping with no affordance hides text and says nothing, and
+// letting the note grow unbounded is what made the wall unscannable.
 
 /** The group's figure for one note, when the methodology has a factor weight. */
 export interface NoteScore {
@@ -33,6 +44,72 @@ export interface NoteScore {
   label?: string;
   /** False for a single agreed rating, where "1 voter" would mislead. */
   perParticipant: boolean;
+}
+
+/**
+ * How many lines of text keep this note inside a square.
+ *
+ * MEASURED RATHER THAN ASSUMED, for two reasons. The panels are wider in grid
+ * view than in column view, so one hardcoded clamp would be square in one view
+ * and wrong in the other. And the note's chrome — its padding, the footer row
+ * carrying the state pill and the author — is a fixed number of pixels, not a
+ * fraction of the width, so a "60% of the width for text" rule would drift as
+ * the column got narrower. Both are read off the rendered box instead.
+ *
+ * Recomputed on WIDTH changes only. Applying the clamp changes the note's
+ * HEIGHT, and a ResizeObserver reacting to that would set a clamp, observe the
+ * height it caused, and set it again.
+ */
+function useSquareClamp(
+  rootRef: React.RefObject<HTMLDivElement | null>,
+  textRef: React.RefObject<HTMLElement | null>,
+  enabled: boolean,
+) {
+  const [lines, setLines] = useState<number | null>(null);
+  const lastWidth = useRef(0);
+
+  const measure = useCallback(() => {
+    const root = rootRef.current;
+    const text = textRef.current;
+    if (!root || !text) return;
+
+    const width = root.getBoundingClientRect().width;
+    if (width <= 0) return;
+
+    // The real line height, so a theme or a font change cannot leave this
+    // computing against a figure from a previous design.
+    const styles = getComputedStyle(text);
+    const lineHeight = parseFloat(styles.lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
+
+    // Everything the note spends on something other than the text. Taken from
+    // the rendered boxes, so it stays correct when the footer gains a pill.
+    const chrome = root.getBoundingClientRect().height - text.getBoundingClientRect().height;
+    const forText = width - Math.max(0, chrome);
+
+    lastWidth.current = width;
+    setLines(Math.max(MIN_NOTE_LINES, Math.floor(forText / lineHeight)));
+  }, [rootRef, textRef]);
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      setLines(null);
+      return;
+    }
+    measure();
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      // Width only. See the note above about the feedback loop.
+      if (Math.abs(width - lastWidth.current) < 1) return;
+      measure();
+    });
+    ro.observe(root);
+    return () => ro.disconnect();
+  }, [enabled, measure, rootRef]);
+
+  return lines;
 }
 
 function initials(name: string | null | undefined): string {
@@ -83,9 +160,12 @@ export function StickyNote({
   isDeleting?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [truncated, setTruncated] = useState(false);
   const [title, setTitle] = useState(factor.title);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
 
   // A decided note is frozen — an approval has to refer to text somebody
   // actually approved. The API enforces this too.
@@ -100,6 +180,24 @@ export function StickyNote({
   useEffect(() => {
     if (!editing) setTitle(factor.title);
   }, [factor.title, editing]);
+
+  const clampLines = useSquareClamp(rootRef, textRef, !editing && !expanded);
+
+  // Is there anything hidden? Asked of the rendered box rather than of the
+  // character count: whether 180 characters overflow depends on the column
+  // width, the font and the theme's line height, so a threshold in characters
+  // would show "more" on notes that are complete and hide it on notes that
+  // are cut off. The ellipsis and the control must agree, and the box is the
+  // only thing that knows.
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (!el || editing) return;
+    if (expanded) {
+      setTruncated(true);
+      return;
+    }
+    setTruncated(el.scrollHeight - el.clientHeight > 1);
+  }, [clampLines, expanded, editing, factor.title, factor.description]);
 
   function commit() {
     const trimmed = title.trim();
@@ -117,14 +215,6 @@ export function StickyNote({
   const tint = category ? `var(--${category.color_token})` : "var(--border)";
 
   return (
-    // `flex flex-col` IS THE SQUARE FLOOR, and the reason is worth stating
-    // because it is invisible and easy to delete. `aspect-square` alone makes
-    // the note exactly as tall as it is wide and lets longer content overflow
-    // — which, with the note's own clipping, would HIDE the end of a 500
-    // character note. The content-based minimum that stops that
-    // (`min-height: auto`) applies only to a flex or grid ITEM, not to a
-    // plain block. Making this wrapper a flex column makes the note an item,
-    // so the square becomes a minimum and a long note pushes the box taller.
     <div className="relative flex flex-col">
       {/* The insertion line, drawn OUTSIDE the note so it reads as a gap
           opening up between two stickies rather than a border on one of
@@ -144,10 +234,12 @@ export function StickyNote({
           onDragHandle?.(e, rootRef.current);
         }}
         className={cn(
-          // No `overflow-hidden`: if the floor above ever failed, clipping
-          // would hide the end of a note silently. Overflowing text is ugly
-          // and obvious, which is the better failure of the two.
-          "group relative flex aspect-square flex-col rounded-sm border p-2.5",
+          // NO ASPECT RATIO AND NO FIXED HEIGHT: the note is as tall as what
+          // it holds. The square is enforced on the TEXT, by the clamp, so a
+          // short note is a short note. `min-h` keeps a three-word note
+          // reading as a sticky rather than as a chip, and is the only
+          // dimension the note states for itself.
+          "group relative flex min-h-[4.25rem] flex-col rounded-sm border p-2.5",
           "shadow-sm transition-[box-shadow,transform,opacity] duration-150",
           "hover:shadow-md",
           draggable && "cursor-grab",
@@ -191,7 +283,10 @@ export function StickyNote({
                   setEditing(false);
                 }
               }}
-              className="min-h-0 flex-1 resize-none bg-transparent text-sm leading-snug outline-none"
+              // A floor while TYPING only. The note shrinks to its content at
+              // rest, but a one-line box to compose 500 characters in is a
+              // worse form than a slightly oversized note is a sticky.
+              className="min-h-[5rem] flex-1 resize-none bg-transparent text-sm leading-snug outline-none"
               aria-label="Edit note"
             />
             {/* Shown only while typing, and only once it matters, so a short
@@ -203,24 +298,56 @@ export function StickyNote({
             )}
           </>
         ) : (
-          <button
-            type="button"
-            disabled={!editable}
-            onClick={() => editable && setEditing(true)}
-            className={cn(
-              // `break-words` and no clipping: a long note is shown in full
-              // and grows the sticky, which is what the square floor is for.
-              "flex-1 break-words text-left text-sm leading-snug",
-              editable ? "cursor-text" : "cursor-default",
-            )}
-          >
-            {factor.title}
-            {factor.description && (
-              <span className="mt-1 block text-xs leading-snug text-muted-foreground">
-                {factor.description}
+          <>
+            <button
+              type="button"
+              disabled={!editable}
+              onClick={() => editable && setEditing(true)}
+              className={cn(
+                "min-w-0 flex-1 break-words text-left text-sm leading-snug",
+                editable ? "cursor-text" : "cursor-default",
+              )}
+            >
+              {/* ONE TEXT FLOW, deliberately. The description was a block
+                  child, and `-webkit-line-clamp` counts lines in an
+                  inline formatting context — a block inside it clamps
+                  unreliably across engines, which would show the ellipsis in
+                  the wrong place or not at all. Inline and muted, the
+                  qualifier still reads as secondary. */}
+              <span
+                ref={textRef}
+                className="break-words"
+                style={
+                  expanded || clampLines === null
+                    ? undefined
+                    : {
+                        display: "-webkit-box",
+                        WebkitBoxOrient: "vertical",
+                        WebkitLineClamp: clampLines,
+                        overflow: "hidden",
+                      }
+                }
+              >
+                {factor.title}
+                {factor.description && (
+                  <span className="text-muted-foreground"> — {factor.description}</span>
+                )}
               </span>
+            </button>
+
+            {/* Only when something is actually hidden. A "more" on a note
+                that is already complete is a lie about the note. */}
+            {truncated && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                aria-expanded={expanded}
+                className="mt-1 shrink-0 self-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+              >
+                {expanded ? "Show less" : "Show more"}
+              </button>
             )}
-          </button>
+          </>
         )}
 
         <div className="mt-2 flex shrink-0 items-center justify-between gap-2">

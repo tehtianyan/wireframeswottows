@@ -34,40 +34,106 @@ runSuite("board-ui", async ({ results: r }) => {
   const limits = codeOnly(read("src", "lib", "limits.ts"));
 
   // ================================================================
-  r.section("The notes are square post-its");
+  r.section("A note is the size of what it holds");
+  // ================================================================
+
+  // THE REPORTED DEFECT, AND IT WAS MY OWN DECISION REVERSED. The first
+  // version made every note `aspect-square`, on the argument that a post-it is
+  // square. A three-letter note then rendered as a large box of empty colour:
+  // a wall of short notes needed as much scrolling as a wall of long ones, and
+  // the size of a note told you nothing about it — the opposite of the
+  // scannability the square was justified by. The square is now a CEILING on
+  // the text, not a shape imposed on the box.
+  // Scoped to the note's OWN class list: the insertion line between notes
+  // legitimately uses `h-3`, and a blanket search for a fixed height across
+  // the file would fail on it — a test that passes or fails for a reason
+  // other than the one it names is the thing this project keeps catching.
+  const noteRoot = /"group relative flex[^"]*"/.exec(note)?.[0] ?? "";
+  r.ok(noteRoot.length > 0, "the note's own class list can be identified", noteRoot);
+
+  r.ok(
+    !/aspect-square/.test(note),
+    "a note sets NO aspect ratio — THE REPORTED DEFECT (a 3-letter note was a huge square)",
+    /aspect-square/.test(note) ? "aspect-square still present" : "no aspect ratio",
+  );
+  r.ok(
+    // The lookbehind is load-bearing: `min-h-[4.25rem]` contains `h-[`, so
+    // without it this reports a fixed height where there is a minimum — a
+    // check failing for a reason other than the one it names.
+    !/(?<!-)\bh-\d/.test(noteRoot) && !/(?<!-)\bh-\[/.test(noteRoot),
+    "...and no fixed height either, so the box follows its content",
+    noteRoot,
+  );
+  // A floor, not a height: a three-word note should still read as a sticky
+  // rather than as a chip. The distinction matters — `h-` would reintroduce
+  // the defect.
+  r.ok(
+    /min-h-\[[^\]]+\]/.test(noteRoot),
+    "...with a minimum so a very short note still looks like a sticky",
+    /min-h-\[[^\]]+\]/.exec(noteRoot)?.[0],
+  );
+
+  // ================================================================
+  r.section("A long note truncates with an ellipsis and expands");
   // ================================================================
 
   r.ok(
-    /aspect-square/.test(note),
-    "a note is square",
-    /aspect-square/.test(note) ? "aspect-square" : "no aspect ratio set",
-  );
-  // The square must be a FLOOR, not a cage: a 500-character note has to grow
-  // rather than clip. A fixed `h-` alongside the ratio would break that, and
-  // is the easy mistake to make here.
-  r.ok(
-    !/aspect-square[^"]*\bh-\d/.test(note) && !/\bh-\d+[^"]*aspect-square/.test(note),
-    "...with no fixed height, so a long note grows taller instead of clipping",
-    "no h-<n> on the note root",
+    /WebkitLineClamp/.test(note),
+    "a long note is clamped, which is what produces the browser's own ellipsis",
   );
   r.ok(
-    /SQUARE_NOTE_CHARS/.test(limits),
-    "where a note stops being square is named, not guessed at inline",
+    /WebkitBoxOrient/.test(note) && /display:\s*"-webkit-box"/.test(note),
+    "...with the two properties the clamp needs to take effect at all",
   );
-  // THE SUBTLE ONE. `aspect-square` makes a box exactly as tall as it is
-  // wide; the content-based minimum that lets a longer note push it taller
-  // (`min-height: auto`) applies only to a flex or grid ITEM. As a plain
-  // block the note would clip at the square instead of growing — which is
-  // the opposite of what was asked for, and would look like a styling choice
-  // rather than a bug. The wrapper being a flex column is what makes the
-  // square a floor, so it is asserted rather than left to a comment.
+  // THE CLAMP IS MEASURED, NOT A CONSTANT. The panels are wider in grid view
+  // than in column view, so one hardcoded line count would be square in one
+  // view and wrong in the other. A literal `line-clamp-6` on the note root is
+  // the easy mistake, and it is the one this asserts against.
+  // THE CLAMP MUST USE THE COMPUTED VALUE, and this is asserted on the
+  // property itself rather than on the presence of the measuring code. A
+  // first version of this check looked only for `getComputedStyle` and
+  // `lineHeight` somewhere in the file, and PASSED with the clamp hardcoded
+  // to 6 — the hook was still there, simply ignored. The measurement existing
+  // is not the same as the clamp using it.
   r.ok(
-    /relative flex flex-col/.test(note),
-    "...and the note is a FLEX ITEM, which is what makes the square a floor and not a cage",
+    /WebkitLineClamp:\s*clampLines/.test(note),
+    "...and the clamp applies the COMPUTED line count, not a literal",
+    /WebkitLineClamp:[^,]*/.exec(note)?.[0],
   );
   r.ok(
-    !/aspect-square[^"]*overflow-hidden/.test(note),
-    "...and the note never clips its own text, so a long note cannot be silently cut off",
+    /getComputedStyle/.test(note) && /lineHeight/.test(note),
+    "...which is derived from the REAL line height, not a hardcoded figure",
+  );
+  r.ok(
+    /ResizeObserver/.test(note),
+    "...recomputed when the column changes width, so the ceiling holds in both views",
+  );
+  // The loop guard. Applying a clamp changes the note's HEIGHT; an observer
+  // reacting to height would set a clamp, observe the height it caused, and
+  // set it again.
+  r.ok(
+    /contentRect\.width/.test(note) && /lastWidth/.test(note),
+    "...and only WIDTH changes trigger it, so the clamp cannot feed itself",
+  );
+  r.ok(
+    /setExpanded/.test(note) && /Show more/.test(note),
+    "a truncated note can be expanded in place",
+  );
+  // The ellipsis and the control must agree. A threshold in characters cannot
+  // decide whether text overflowed — that depends on the width, the font and
+  // the line height — so it would show "more" on complete notes and hide it on
+  // cut-off ones.
+  r.ok(
+    /scrollHeight\s*-\s*\w+\.clientHeight/.test(note),
+    "...and 'Show more' appears only when the BOX is actually overflowing, not past a character count",
+  );
+  r.ok(
+    !/SQUARE_NOTE_CHARS/.test(limits) && /MIN_NOTE_LINES/.test(limits),
+    "the clamp's floor is named in limits.ts and the old character threshold is gone",
+  );
+  r.ok(
+    /MIN_NOTE_LINES/.test(note),
+    "...and the note actually READS it — the previous constant was imported by nothing",
   );
 
   // ================================================================
