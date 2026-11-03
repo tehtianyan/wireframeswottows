@@ -21,12 +21,45 @@ const STATE_STYLES: Record<FactorState, { label: string; className: string }> = 
   archived: { label: "Merged", className: "border-border text-muted-foreground" },
 };
 
-export function FactorStatePill({ state, className }: { state: FactorState; className?: string }) {
+export function FactorStatePill({
+  state,
+  className,
+  compact = false,
+}: {
+  state: FactorState;
+  className?: string;
+  /**
+   * A DOT INSTEAD OF A WORD, for the capture board's 120px tiles.
+   *
+   * "In review" wrapped to two lines there and took a third of the note,
+   * leaving two lines for the text somebody had actually written — and on
+   * production, where every note is `submitted`, that was every note on the
+   * wall. It also crowded the footer until the delete icon sat over the
+   * expand control and swallowed its clicks.
+   *
+   * On a wall the pill answers one question — is this note still open? — and
+   * a coloured dot answers it from across the room better than a word that
+   * has to be read. The word stays in the `title`, and the full pill is still
+   * what the Review Board shows, where the decision is actually made.
+   */
+  compact?: boolean;
+}) {
   const s = STATE_STYLES[state];
+  if (compact) {
+    return (
+      <span
+        title={s.label}
+        className={cn("inline-flex shrink-0 items-center", className)}
+      >
+        <span className={cn("size-2 rounded-full border-2", s.className)} />
+        <span className="sr-only">{s.label}</span>
+      </span>
+    );
+  }
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "inline-flex items-center whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
         s.className,
         className,
       )}

@@ -180,14 +180,45 @@ runSuite("visual-board", async ({ results: r }) => {
       return page.$$eval("[data-note-id]", (els) =>
         els.map((el) => {
           const b = el.getBoundingClientRect();
+          const body = el.querySelector("button");
           const text = el.querySelector("button span");
+
+          // DO ANY TWO CONTROLS INSIDE THE NOTE OVERLAP? On production the
+          // footer was crowded enough that the delete icon sat on top of the
+          // expand control and swallowed its clicks — the click failed, the
+          // note never expanded, and no amount of measuring boxes would have
+          // said why. Asked geometrically so it holds whatever the data is.
+          const controls = [...el.querySelectorAll("button")].map((c) =>
+            c.getBoundingClientRect(),
+          );
+          let overlap = null;
+          for (let i = 0; i < controls.length; i++) {
+            for (let j = i + 1; j < controls.length; j++) {
+              const a = controls[i];
+              const c = controls[j];
+              // The body button legitimately contains nothing else; only
+              // SIBLING controls sitting on each other are a defect.
+              const w = Math.min(a.right, c.right) - Math.max(a.left, c.left);
+              const h = Math.min(a.bottom, c.bottom) - Math.max(a.top, c.top);
+              const contains =
+                (a.left <= c.left && a.right >= c.right && a.top <= c.top && a.bottom >= c.bottom) ||
+                (c.left <= a.left && c.right >= a.right && c.top <= a.top && c.bottom >= a.bottom);
+              if (w > 1 && h > 1 && !contains) {
+                overlap = `${Math.round(w)}x${Math.round(h)}px`;
+              }
+            }
+          }
+
           return {
             id: el.dataset.noteId,
             themed: el.dataset.noteThemed === "true",
             width: b.width,
             height: b.height,
+            // How much of the tile is the note, rather than its chrome.
+            textShare: body ? body.getBoundingClientRect().height / Math.max(1, b.height) : 0,
             clamp: text ? getComputedStyle(text).webkitLineClamp : null,
             overflowing: text ? text.scrollHeight - text.clientHeight > 1 : false,
+            overlap,
             chars: (el.textContent ?? "").trim().length,
           };
         }),
@@ -268,6 +299,27 @@ runSuite("visual-board", async ({ results: r }) => {
       loose.every((b) => b.clamp && b.clamp !== "none"),
       "every note's text is clamped, which is what renders the '...'",
       `clamp values: ${[...new Set(loose.map((b) => b.clamp))].join(", ")}`,
+    );
+
+    // MOST OF A NOTE MUST BE THE NOTE. On production every factor is
+    // `submitted`, so every tile carried an "IN REVIEW" pill that wrapped to
+    // two lines and took a third of the note — leaving two lines for what
+    // somebody had written. Dev's notes are approved and show no pill at all,
+    // so this never appeared there: the check has to be about the PROPORTION,
+    // not about the pill, or it only holds for the data it was written
+    // against.
+    const leanest = Math.min(...grid.map((b) => b.textShare));
+    r.ok(
+      leanest >= 0.45,
+      "...and the text gets most of the tile, rather than the status chrome",
+      `thinnest text area is ${Math.round(leanest * 100)}% of the note`,
+    );
+
+    const collided = grid.find((b) => b.overlap);
+    r.ok(
+      !collided,
+      "no two controls inside a note overlap — a buried control eats its own clicks",
+      collided ? `overlap of ${collided.overlap} on note ${collided.id}` : "none",
     );
 
     // The clamp has to be MEASURED. If it were a constant, every note would

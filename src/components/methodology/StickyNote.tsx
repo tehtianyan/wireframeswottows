@@ -348,9 +348,16 @@ export function StickyNote({
           </>
         )}
 
-        <div className="mt-2 flex shrink-0 items-center justify-between gap-2">
+        {/* `overflow-hidden` on the footer, and `shrink-0` on the right-hand
+            group: on a 120px tile the two groups otherwise overlap, and the
+            delete icon ends up sitting on top of the expand control and
+            eating its clicks. Found on production, where every note carries a
+            state pill — a board of approved notes never shows it. */}
+        <div className="mt-2 flex shrink-0 items-center justify-between gap-1.5 overflow-hidden">
           <div className="flex min-w-0 items-center gap-1.5">
-            {factor.state !== "approved" && <FactorStatePill state={factor.state} />}
+            {factor.state !== "approved" && (
+              <FactorStatePill state={factor.state} compact />
+            )}
             {score && <ScorePill score={score} tint={tint} />}
             {isSaving && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
             {/* THE EXPAND CONTROL LIVES IN THE FOOTER, not under the text,
