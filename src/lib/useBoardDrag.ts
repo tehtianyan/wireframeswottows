@@ -139,7 +139,13 @@ export function useBoardDrag({ onDrop, allow }: Options) {
           if (noteId === source.factorId) return null; // itself: no-op
           const categoryKey = el.dataset["noteCategory"] ?? "";
           const rect = el.getBoundingClientRect();
-          const where = (y - rect.top) / Math.max(1, rect.height);
+          // THE HORIZONTAL AXIS, because the notes are a grid of tiles that
+          // flows left to right. This read the vertical axis while the panel
+          // was a single column of full-width notes, and both were right at
+          // the time — but with tiles in rows, "before" means to the LEFT of
+          // this note, so a band on the top edge would offer an insertion
+          // point nowhere near where the note would land.
+          const where = (x - rect.left) / Math.max(1, rect.width);
 
           // A NOTE INSIDE A THEME IS NOT A TARGET AT ALL. Every answer would
           // be ambiguous: stacking onto it means "a theme of a note that is

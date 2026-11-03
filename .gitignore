@@ -38,3 +38,4 @@ supabase/.temp/
 *.sln
 *.sw?
 .vercel
+tests/.shots/

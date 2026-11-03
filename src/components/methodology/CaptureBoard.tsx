@@ -87,6 +87,32 @@ export function compareForBoard(a: Factor, b: Factor): number {
 type ViewMode = "grid" | "columns";
 const VIEW_KEY = "swot.captureBoard.view";
 
+/**
+ * How wide a sticky note is, stated ONCE.
+ *
+ * The notes are square (`StickyNote` sets the ratio and nothing else sets a
+ * width), so this track size is also their height — which makes it the single
+ * number that decides whether the wall reads as a wall of post-its or as a
+ * stack of panels. `auto-fill` keeps a note the same size whatever the view:
+ * four or five across a grid-view panel, two or three across a narrower
+ * column-view one, rather than one enormous tile per row.
+ *
+ * Used by the panel AND by the notes inside a theme. They were different
+ * values once, and a note that changed size when it joined a group read as a
+ * different kind of object.
+ *
+ * A FIXED TRACK, NOT `1fr`. With `minmax(7.5rem, 1fr)` the tiles stretch to
+ * fill whatever container they are in, so a note inside a theme came out at
+ * 179px against 123px for the note beside it — same shape, visibly different
+ * size, because a theme's box is narrower than the panel and fits one fewer
+ * column. A real post-it does not change size with the space around it.
+ * Leftover width is left as a ragged right edge, which is what a wall looks
+ * like. The `min(...)` lower bound only engages when the container is
+ * narrower than one tile, so a very narrow panel shrinks the note instead of
+ * overflowing sideways.
+ */
+const NOTE_TRACK = "repeat(auto-fill, minmax(min(7.5rem, 100%), 7.5rem))";
+
 export function CaptureBoard({
   workshopId,
   methodology,
@@ -619,8 +645,12 @@ function BoardToolbar({
         )}
         {canReorder && (
           <>
+            {/* LEFT OR RIGHT, matching the axis the drag reads now that the
+                notes are tiles in rows. The words and the gesture have to
+                agree: instructions that describe the previous layout are
+                worse than none, because they are followed. */}
             {canStack ? "or " : "Drop "}on the{" "}
-            <strong className="font-medium text-foreground">top or bottom edge</strong> to reorder.
+            <strong className="font-medium text-foreground">left or right edge</strong> to reorder.
           </>
         )}
         {!canStack && !canReorder && "Drag a note to another panel to recategorise it."}
@@ -835,7 +865,18 @@ function Quadrant({
       )}
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-32 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 max-h-[26rem]">
+        {/* A WALL OF POST-ITS, NOT A LIST OF ROWS. This was `space-y-2`, one
+            note per row at the full width of the panel — which is why a note
+            read as a wide rectangle while the notes inside a theme (laid out
+            two-up, below) read as squares. Several small squares to a row is
+            both the physical thing being modelled and what keeps a note's
+            size independent of how wide its panel happens to be: `auto-fill`
+            puts four across a grid-view panel and two across a narrower
+            column-view one, at much the same size either way. */}
+        <div
+          className="grid min-h-32 max-h-[26rem] flex-1 content-start gap-2 overflow-y-auto overscroll-contain p-3"
+          style={{ gridTemplateColumns: NOTE_TRACK }}
+        >
           {blocks.map((block) =>
             block.kind === "note" ? (
               <StickyNote
@@ -862,22 +903,25 @@ function Quadrant({
                 isDeleting={deletingId === block.factor.id}
               />
             ) : (
-              <ThemeStack
-                key={block.theme.id}
-                theme={block.theme}
-                factors={block.factors}
-                category={category}
-                scores={scores}
-                canEdit={canMove}
-                isTarget={target?.kind === "theme" && target.themeId === block.theme.id}
-                onRemove={(factorId) => onRemoveFromTheme(block.theme.id, factorId)}
-                savingId={savingId}
-              />
+              // A theme is a GROUP, so it takes a row of its own rather than
+              // sitting in the flow as though it were one more note.
+              <div key={block.theme.id} className="col-span-full">
+                <ThemeStack
+                  theme={block.theme}
+                  factors={block.factors}
+                  category={category}
+                  scores={scores}
+                  canEdit={canMove}
+                  isTarget={target?.kind === "theme" && target.themeId === block.theme.id}
+                  onRemove={(factorId) => onRemoveFromTheme(block.theme.id, factorId)}
+                  savingId={savingId}
+                />
+              </div>
             ),
           )}
 
           {blocks.length === 0 && !canAdd && (
-            <p className="text-xs text-muted-foreground">Nothing here yet.</p>
+            <p className="col-span-full text-xs text-muted-foreground">Nothing here yet.</p>
           )}
         </div>
 
@@ -1010,7 +1054,15 @@ function ThemeStack({
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      {/* THE SAME TRACK SIZE AS THE WALL OUTSIDE. `grid-cols-2` made a note
+          inside a theme bigger than a note beside it — the theme spans the
+          full panel, so two columns of it are wider than a loose tile — and a
+          note that changes size when it joins a group reads as a different
+          kind of object. It is the same note. */}
+      <div
+        className="grid gap-2"
+        style={{ gridTemplateColumns: NOTE_TRACK }}
+      >
         {factors.map((f) => (
           <div key={f.id} className="relative">
             <StickyNote

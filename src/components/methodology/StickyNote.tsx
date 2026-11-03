@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { GripVertical, Loader2, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MAX_FACTOR_TITLE, MIN_NOTE_LINES } from "@/lib/limits";
 import { FactorStatePill } from "./FactorCard";
@@ -11,25 +11,29 @@ import type { Factor, FactorCategory } from "@/lib/api";
 // anything here knowing what a strength is — a PESTLE board colours itself the
 // same way from six different tokens.
 //
-// THE SQUARE IS A CEILING, NOT A FLOOR (CORRECTED 2026-11-03). The first
-// version made every note `aspect-square`, reasoning that a post-it is square
-// and that the shape should be the shape of the object it stands for. Shipping
-// it showed the flaw immediately: a three-letter note became a large box of
-// empty colour, so a wall of short notes needed as much scrolling as a wall of
-// long ones and the size of a note said nothing about it. The square was doing
-// the opposite of its own justification.
+// IT IS A SQUARE, AND THE SQUARE IS SMALL. Both halves matter, and getting
+// one without the other is what produced two wrong versions in a day:
 //
-// So a note is now the size of what it holds, and the square is where it stops
-// growing. The text clamps at the line count that keeps the note roughly as
-// tall as it is wide, with the browser's own ellipsis, and a control expands it
-// in place. That line count is MEASURED, not a constant: the panels are wider
-// in grid view than in column view, so a fixed clamp would be square in one and
-// not the other.
+//  1. `aspect-square` with one note per row at the full width of its panel.
+//     The shape was right and the SIZE was absurd — a three-letter note became
+//     a ~300px box of empty colour, so the note said nothing about its
+//     content and the wall scrolled as much for short notes as for long ones.
+//  2. Dropping the ratio so the box fitted its content. The size was right and
+//     the SHAPE was gone: notes became wide rectangles, which is not what a
+//     wall of stickies looks like, and they no longer matched the squares
+//     inside a theme.
 //
-// The honest trade is that a long note no longer shows all of itself at rest.
-// Hiding the tail behind a visible "more" is better than either of the
-// alternatives — clipping with no affordance hides text and says nothing, and
-// letting the note grow unbounded is what made the wall unscannable.
+// The size was never the ratio's fault — it was the LAYOUT's. The panel now
+// lays notes out as a grid of small tiles (`CaptureBoard`), so the square is
+// about 120-170px whatever the view, and a square is then the right shape at
+// the right size. Nothing here sets a width; the grid does.
+//
+// So the square is HARD at rest, not a floor: `min-h-0` overrides the
+// content-based minimum a flex item would otherwise get, and the note clips.
+// Clipping is only acceptable because the clamp below is sized to the box and
+// ends in a real ellipsis — the text stops where the reader can see it stops.
+// EXPANDING BREAKS THE SQUARE DELIBERATELY: the full note needs somewhere to
+// go, and growing the tile is more direct than floating a panel over the wall.
 
 /** The group's figure for one note, when the methodology has a factor weight. */
 export interface NoteScore {
@@ -47,21 +51,24 @@ export interface NoteScore {
 }
 
 /**
- * How many lines of text keep this note inside a square.
+ * How many lines of text fit in the space the square leaves for it.
  *
- * MEASURED RATHER THAN ASSUMED, for two reasons. The panels are wider in grid
- * view than in column view, so one hardcoded clamp would be square in one view
- * and wrong in the other. And the note's chrome — its padding, the footer row
- * carrying the state pill and the author — is a fixed number of pixels, not a
- * fraction of the width, so a "60% of the width for text" rule would drift as
- * the column got narrower. Both are read off the rendered box instead.
+ * MEASURED, NOT A CONSTANT. The tiles are not all the same width — `auto-fill`
+ * gives the last column in a row whatever is left over, and a grid-view panel
+ * is wider than a column-view one — so a hardcoded `line-clamp-4` would
+ * underfill some notes and overflow others.
  *
- * Recomputed on WIDTH changes only. Applying the clamp changes the note's
- * HEIGHT, and a ResizeObserver reacting to that would set a clamp, observe the
- * height it caused, and set it again.
+ * It measures the TEXT'S CONTAINER rather than deriving the space from the
+ * note's width minus its chrome. The container is `flex-1 min-h-0` inside a
+ * fixed-height box, so its height IS the leftover after the padding and the
+ * footer row, whatever those come to — and, crucially, it does not depend on
+ * how much text there is. Measuring the text itself and subtracting would be
+ * circular: the answer would depend on the clamp that the answer sets.
+ *
+ * Recomputed on WIDTH changes only, for the same reason.
  */
 function useSquareClamp(
-  rootRef: React.RefObject<HTMLDivElement | null>,
+  containerRef: React.RefObject<HTMLElement | null>,
   textRef: React.RefObject<HTMLElement | null>,
   enabled: boolean,
 ) {
@@ -69,27 +76,21 @@ function useSquareClamp(
   const lastWidth = useRef(0);
 
   const measure = useCallback(() => {
-    const root = rootRef.current;
+    const container = containerRef.current;
     const text = textRef.current;
-    if (!root || !text) return;
+    if (!container || !text) return;
 
-    const width = root.getBoundingClientRect().width;
-    if (width <= 0) return;
+    const box = container.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return;
 
     // The real line height, so a theme or a font change cannot leave this
     // computing against a figure from a previous design.
-    const styles = getComputedStyle(text);
-    const lineHeight = parseFloat(styles.lineHeight);
+    const lineHeight = parseFloat(getComputedStyle(text).lineHeight);
     if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
 
-    // Everything the note spends on something other than the text. Taken from
-    // the rendered boxes, so it stays correct when the footer gains a pill.
-    const chrome = root.getBoundingClientRect().height - text.getBoundingClientRect().height;
-    const forText = width - Math.max(0, chrome);
-
-    lastWidth.current = width;
-    setLines(Math.max(MIN_NOTE_LINES, Math.floor(forText / lineHeight)));
-  }, [rootRef, textRef]);
+    lastWidth.current = box.width;
+    setLines(Math.max(MIN_NOTE_LINES, Math.floor(box.height / lineHeight)));
+  }, [containerRef, textRef]);
 
   useLayoutEffect(() => {
     if (!enabled) {
@@ -97,17 +98,17 @@ function useSquareClamp(
       return;
     }
     measure();
-    const root = rootRef.current;
-    if (!root || typeof ResizeObserver === "undefined") return;
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width ?? 0;
       // Width only. See the note above about the feedback loop.
       if (Math.abs(width - lastWidth.current) < 1) return;
       measure();
     });
-    ro.observe(root);
+    ro.observe(container);
     return () => ro.disconnect();
-  }, [enabled, measure, rootRef]);
+  }, [enabled, measure, containerRef]);
 
   return lines;
 }
@@ -165,6 +166,7 @@ export function StickyNote({
   const [title, setTitle] = useState(factor.title);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLButtonElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
 
   // A decided note is frozen — an approval has to refer to text somebody
@@ -181,7 +183,7 @@ export function StickyNote({
     if (!editing) setTitle(factor.title);
   }, [factor.title, editing]);
 
-  const clampLines = useSquareClamp(rootRef, textRef, !editing && !expanded);
+  const clampLines = useSquareClamp(bodyRef, textRef, !editing && !expanded);
 
   // Is there anything hidden? Asked of the rendered box rather than of the
   // character count: whether 180 characters overflow depends on the column
@@ -234,12 +236,16 @@ export function StickyNote({
           onDragHandle?.(e, rootRef.current);
         }}
         className={cn(
-          // NO ASPECT RATIO AND NO FIXED HEIGHT: the note is as tall as what
-          // it holds. The square is enforced on the TEXT, by the clamp, so a
-          // short note is a short note. `min-h` keeps a three-word note
-          // reading as a sticky rather than as a chip, and is the only
-          // dimension the note states for itself.
-          "group relative flex min-h-[4.25rem] flex-col rounded-sm border p-2.5",
+          "group relative flex flex-col rounded-sm border p-2.5",
+          // THE SQUARE, AND WHAT MAKES IT HOLD. `min-h-0` overrides the
+          // content-based minimum (`min-height: auto`) that a flex item gets
+          // by default — without it, a long note pushes the box past the
+          // ratio and the tile stops being square, which is version 1 of this
+          // bug. `overflow-hidden` is then safe because the clamp is measured
+          // to the box and ends in a visible ellipsis.
+          // Expanded, the note drops both and grows to fit: the full text has
+          // to go somewhere, and the square is a resting state, not a cage.
+          expanded ? "h-auto" : "aspect-square min-h-0 overflow-hidden",
           "shadow-sm transition-[box-shadow,transform,opacity] duration-150",
           "hover:shadow-md",
           draggable && "cursor-grab",
@@ -300,11 +306,15 @@ export function StickyNote({
         ) : (
           <>
             <button
+              ref={bodyRef}
               type="button"
               disabled={!editable}
               onClick={() => editable && setEditing(true)}
               className={cn(
-                "min-w-0 flex-1 break-words text-left text-sm leading-snug",
+                // `min-h-0` matters here too: this is what makes the
+                // container's height the leftover space rather than the
+                // text's own height, which is what useSquareClamp measures.
+                "min-h-0 min-w-0 flex-1 break-words text-left text-sm leading-snug",
                 editable ? "cursor-text" : "cursor-default",
               )}
             >
@@ -335,18 +345,6 @@ export function StickyNote({
               </span>
             </button>
 
-            {/* Only when something is actually hidden. A "more" on a note
-                that is already complete is a lie about the note. */}
-            {truncated && (
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                aria-expanded={expanded}
-                className="mt-1 shrink-0 self-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
-              >
-                {expanded ? "Show less" : "Show more"}
-              </button>
-            )}
           </>
         )}
 
@@ -355,6 +353,32 @@ export function StickyNote({
             {factor.state !== "approved" && <FactorStatePill state={factor.state} />}
             {score && <ScorePill score={score} tint={tint} />}
             {isSaving && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+            {/* THE EXPAND CONTROL LIVES IN THE FOOTER, not under the text,
+                and that placement is load-bearing rather than cosmetic. As
+                its own row it would take height out of the text container the
+                moment it appeared — so the clamp would be measured against a
+                box that then shrank, and the ellipsis would land a line
+                short. Here, whether it is shown changes nothing about the
+                space the text was measured into. A ~140px tile also has no
+                vertical room to spare for a text button.
+                Only shown when something really is hidden: a "more" on a
+                complete note is a lie about the note. */}
+            {truncated && !editing && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                aria-expanded={expanded}
+                aria-label={expanded ? "Show less" : "Show more"}
+                title={expanded ? "Show less" : "Show the full note"}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                {expanded ? (
+                  <ChevronUp className="size-3.5" />
+                ) : (
+                  <ChevronDown className="size-3.5" />
+                )}
+              </button>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {editable && (
@@ -386,18 +410,25 @@ export function StickyNote({
   );
 }
 
-/** The gap a reorder would open. Absolute, so it never shifts the layout. */
+/**
+ * The gap a reorder would open.
+ *
+ * VERTICAL, matching the axis the drag now reads. The notes are tiles in rows,
+ * so an insertion point is a gap between two side-by-side stickies — a
+ * horizontal line above the note would point at a place the note is not going.
+ * Absolute, so drawing it never shifts the layout it is describing.
+ */
 function InsertLine({ tint, where }: { tint: string; where: "before" | "after" }) {
   return (
     <div
       aria-hidden
       className={cn(
-        "pointer-events-none absolute inset-x-0 z-10 flex items-center",
-        where === "before" ? "-top-1.5 h-3" : "-bottom-1.5 h-3",
+        "pointer-events-none absolute inset-y-0 z-10 flex w-3 flex-col items-center",
+        where === "before" ? "-left-2" : "-right-2",
       )}
     >
       <span className="size-1.5 rounded-full" style={{ background: tint }} />
-      <span className="h-0.5 flex-1 rounded-full" style={{ background: tint }} />
+      <span className="w-0.5 flex-1 rounded-full" style={{ background: tint }} />
       <span className="size-1.5 rounded-full" style={{ background: tint }} />
     </div>
   );

@@ -57,6 +57,20 @@ class Results {
   constructor() {
     this.passed = 0;
     this.failed = 0;
+    this.skipped = 0;
+  }
+  /**
+   * Something could not be checked here — a browser is not installed, the dev
+   * UI is not running, the board has no long note to expand.
+   *
+   * IT IS REPORTED, NOT SWALLOWED. A suite that cannot run and says "all
+   * checks passed" is worse than no suite: it is the green tick this project
+   * has twice mistaken for coverage. The summary names the count, so a
+   * visual suite that quietly checked nothing is visible in the output.
+   */
+  skip(reason) {
+    console.log(`  SKIP  ${reason}`);
+    this.skipped++;
   }
   ok(condition, label, detail) {
     const mark = condition ? "PASS" : "FAIL";
@@ -74,10 +88,11 @@ class Results {
   summary(name) {
     console.log("");
     const total = this.passed + this.failed;
+    const skipped = this.skipped > 0 ? ` (${this.skipped} SKIPPED)` : "";
     console.log(
       this.failed === 0
-        ? `  RESULT: ${name} — all ${total} checks passed.`
-        : `  RESULT: ${name} — ${this.failed} of ${total} checks FAILED.`,
+        ? `  RESULT: ${name} — all ${total} checks passed.${skipped}`
+        : `  RESULT: ${name} — ${this.failed} of ${total} checks FAILED.${skipped}`,
     );
     return this.failed === 0;
   }

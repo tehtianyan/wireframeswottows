@@ -24,6 +24,7 @@ const suites = [
   ["cleanup", "Capture board — Merge and Fix, tracked and undoable"],
   ["capture-board", "Capture board — order, length, themes, AI suggestions"],
   ["board-ui", "Capture board — it actually LOOKS as asked (no server)"],
+  ["visual-board", "Capture board — measured in a real browser (needs the dev UI)"],
   ["ai-scope", "AI assistant — where each action is offered, and what it refuses"],
   ["prioritization", "Prioritization — the group's ranking, and the report"],
   ["objects", "Phase 2 — analysis objects and governance"],

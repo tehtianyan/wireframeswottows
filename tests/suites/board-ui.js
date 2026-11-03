@@ -34,43 +34,64 @@ runSuite("board-ui", async ({ results: r }) => {
   const limits = codeOnly(read("src", "lib", "limits.ts"));
 
   // ================================================================
-  r.section("A note is the size of what it holds");
+  r.section("A note is a small square");
   // ================================================================
 
-  // THE REPORTED DEFECT, AND IT WAS MY OWN DECISION REVERSED. The first
-  // version made every note `aspect-square`, on the argument that a post-it is
-  // square. A three-letter note then rendered as a large box of empty colour:
-  // a wall of short notes needed as much scrolling as a wall of long ones, and
-  // the size of a note told you nothing about it — the opposite of the
-  // scannability the square was justified by. The square is now a CEILING on
-  // the text, not a shape imposed on the box.
-  // Scoped to the note's OWN class list: the insertion line between notes
-  // legitimately uses `h-3`, and a blanket search for a fixed height across
-  // the file would fail on it — a test that passes or fails for a reason
-  // other than the one it names is the thing this project keeps catching.
+  // TWO WRONG VERSIONS IN ONE DAY, AND THIS SECTION IS THE RECORD OF BOTH.
+  //   1. `aspect-square` with one note per row at the panel's full width:
+  //      right shape, absurd size — a three-letter note became a ~300px box.
+  //   2. Dropping the ratio so the box fitted its content: right size, no
+  //      shape — notes became wide rectangles.
+  // The size was never the ratio's fault, it was the LAYOUT's. So both halves
+  // are asserted together here, and the geometry itself is measured in a real
+  // browser by visual-board.js — these are the source-level rules that make
+  // that geometry possible, not a substitute for measuring it.
   const noteRoot = /"group relative flex[^"]*"/.exec(note)?.[0] ?? "";
   r.ok(noteRoot.length > 0, "the note's own class list can be identified", noteRoot);
 
+  r.ok(/aspect-square/.test(note), "a note is square");
   r.ok(
-    !/aspect-square/.test(note),
-    "a note sets NO aspect ratio — THE REPORTED DEFECT (a 3-letter note was a huge square)",
-    /aspect-square/.test(note) ? "aspect-square still present" : "no aspect ratio",
+    // `min-height: auto` is the default for a flex item, so without this a
+    // long note pushes the box past the ratio and the tile stops being
+    // square. This is wrong version 1, and it is invisible in the class list
+    // unless you know to look for it.
+    /aspect-square min-h-0 overflow-hidden/.test(note),
+    "...and the square is HARD: min-h-0 defeats the flex item's content-based minimum",
   );
   r.ok(
-    // The lookbehind is load-bearing: `min-h-[4.25rem]` contains `h-[`, so
-    // without it this reports a fixed height where there is a minimum — a
-    // check failing for a reason other than the one it names.
-    !/(?<!-)\bh-\d/.test(noteRoot) && !/(?<!-)\bh-\[/.test(noteRoot),
-    "...and no fixed height either, so the box follows its content",
+    // The note must not state a width. The grid does — which is what keeps
+    // the square SMALL, and is the half that wrong version 1 got wrong.
+    !/\bw-\d/.test(noteRoot) && !/\bw-\[/.test(noteRoot),
+    "...and the note sets no width of its own — the panel's grid sizes it",
     noteRoot,
   );
-  // A floor, not a height: a three-word note should still read as a sticky
-  // rather than as a chip. The distinction matters — `h-` would reintroduce
-  // the defect.
   r.ok(
-    /min-h-\[[^\]]+\]/.test(noteRoot),
-    "...with a minimum so a very short note still looks like a sticky",
-    /min-h-\[[^\]]+\]/.exec(noteRoot)?.[0],
+    /expanded \? "h-auto"/.test(note),
+    "...except when expanded, where it grows so the full text has somewhere to go",
+  );
+
+  // The layout half, in CaptureBoard: a grid of small tiles rather than one
+  // note per row. This is the line whose absence made the squares enormous.
+  r.ok(
+    /gridTemplateColumns: NOTE_TRACK/.test(board) && /auto-fill/.test(board),
+    "the panel lays notes out as a GRID of tiles, several to a row",
+    /const NOTE_TRACK = "[^"]*"/.exec(board)?.[0],
+  );
+  // Scoped to NOTE_TRACK's own definition. A blanket search for `1fr` hits
+  // the PANEL grid (`repeat(n, minmax(0, 1fr))`), which is fluid on purpose —
+  // four panels should share the width. Checking the wrong string would have
+  // failed for a reason other than the one it names.
+  const track = /const NOTE_TRACK = "([^"]*)"/.exec(board)?.[1] ?? "";
+  r.ok(
+    track.length > 0 && !/1fr/.test(track),
+    "...at a FIXED track size, so a note in a theme is not bigger than one beside it",
+    track,
+  );
+  // Stated once. It was two values, and a note changed size on joining a
+  // theme — which reads as a different kind of object.
+  r.ok(
+    (board.match(/gridTemplateColumns: NOTE_TRACK/g) ?? []).length >= 2,
+    "...and the panel and the theme use the SAME constant for it",
   );
 
   // ================================================================
@@ -341,6 +362,24 @@ runSuite("board-ui", async ({ results: r }) => {
   r.ok(
     /InsertLine/.test(note),
     "...and the insertion point is drawn, so the gesture is not guesswork",
+  );
+  // THREE THINGS HAVE TO AGREE ON THE AXIS, and only one of them is code the
+  // compiler sees. The notes are tiles in rows, so "before" means to the
+  // LEFT: the drag must read x, the insertion line must be drawn vertically,
+  // and the on-screen hint must say so. When the layout changed, the first
+  // two were updated and the hint still read "top or bottom edge" — found by
+  // looking at a screenshot, not by any assertion, so here it is.
+  r.ok(
+    /const where = \(x - rect\.left\) \/ Math\.max\(1, rect\.width\)/.test(drag),
+    "the reorder band is on the HORIZONTAL axis, matching tiles that flow in rows",
+  );
+  r.ok(
+    /inset-y-0[^"]*flex-col/.test(note) && /-left-2/.test(note),
+    "...the insertion line is drawn vertically, between two side-by-side notes",
+  );
+  r.ok(
+    /left or right edge/.test(board) && !/top or bottom edge/.test(board),
+    "...and the on-screen hint describes THAT gesture, not the previous layout's",
   );
   r.ok(
     /setFactorOrder\(workshopId, v\.categoryKey, v\.ids\)/.test(board),
