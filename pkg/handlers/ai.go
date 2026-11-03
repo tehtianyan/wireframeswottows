@@ -561,25 +561,49 @@ func ReviewAIOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Index != nil {
-		var itemStatus string
-		err := pool.QueryRow(r2.Context(), `
-			select review_status from public.ai_output_items
-			where ai_output_id = $1 and item_index = $2`, outputID, *body.Index,
-		).Scan(&itemStatus)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		// Both facts in one query: this suggestion's own decision, and whether
+		// the output has ANY itemised decisions at all. The second matters for
+		// outputs decided before ai_output_items existed — see below.
+		var itemStatus *string
+		var decidedItems int
+		if err := pool.QueryRow(r2.Context(), `
+			select (select review_status from public.ai_output_items
+			        where ai_output_id = $1 and item_index = $2),
+			       (select count(*)::int from public.ai_output_items
+			        where ai_output_id = $1)`, outputID, *body.Index,
+		).Scan(&itemStatus, &decidedItems); err != nil {
 			failDB(w, err)
 			return
 		}
-		if err == nil {
+		if itemStatus != nil {
 			// Says which decision was already taken, so "already reviewed"
 			// cannot be mistaken for the batch-wide refusal it used to be.
-			if itemStatus == "rejected" {
+			if *itemStatus == "rejected" {
 				response.Fail(w, response.CodeInvalidStateTransition,
 					"You have already dismissed this suggestion.")
 			} else {
 				response.Fail(w, response.CodeInvalidStateTransition,
 					"You have already added this suggestion. The other suggestions are still available.")
 			}
+			return
+		}
+		// AN OUTPUT DECIDED BEFORE PER-SUGGESTION REVIEW EXISTED IS CLOSED.
+		//
+		// Production holds outputs reviewed under the old scheme: the status
+		// says accepted or rejected, and WHICH suggestion that was is not
+		// recorded anywhere, because the old schema had nowhere to put it.
+		// Letting one of those be re-opened would be worse than refusing it —
+		// the earlier decision has no item row, so settling the output
+		// afterwards could overwrite a recorded "accepted" with "rejected",
+		// turning a historical decision into a different one.
+		//
+		// They are not backfilled with a guessed index 0 either: inventing a
+		// decision that names a suggestion nobody chose is the same lie in a
+		// less visible place.
+		if decidedItems == 0 && status != "pending" {
+			response.Fail(w, response.CodeInvalidStateTransition,
+				"This output was reviewed before suggestions were tracked individually, "+
+					"so it can no longer be added from. Run the assistant again for fresh suggestions.")
 			return
 		}
 	}

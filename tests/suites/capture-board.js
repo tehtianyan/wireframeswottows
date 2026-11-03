@@ -549,6 +549,38 @@ runSuite("capture-board", async ({ baseUrl, results: r, DEMO_WORKSHOP: WS }) => 
         refusedBySQL ? "unique constraint held" : "a duplicate decision was stored",
       );
 
+      // ---- outputs decided under the OLD scheme stay closed ----
+
+      // Production holds outputs reviewed before ai_output_items existed:
+      // the status says accepted, and WHICH suggestion that was is recorded
+      // nowhere. Re-opening one would let the settle step overwrite a
+      // historical "accepted" with "rejected", so it is refused — and the
+      // refusal has to SAY why, or it reads as the batch-wide bug returning.
+      // `reviewed_by` is not optional here: ai_outputs carries the same
+      // "a decision names its reviewer" constraint every object table has,
+      // which is how §12.19's "AI never approves anything" is enforced in the
+      // schema rather than in a handler. The fixture has to satisfy it.
+      const legacy = await pg.query(
+        `insert into public.ai_outputs
+           (ai_session_id, output_type, content, human_review_status, reviewed_by, reviewed_at)
+         select $1, 'artifact_suggestion', $2::jsonb, 'accepted', w.created_by, now()
+         from public.workshops w where w.id = $3
+         returning id`,
+        [aiSession, JSON.stringify({ suggestions: [{ title: "CB-ai legacy one" }] }), WS],
+      );
+      const legacyTried = await F("POST", `/workshops/${WS}/ai/outputs/${legacy.rows[0].id}/review`, {
+        action: "accept",
+        index: 0,
+        stage_key: stageKey,
+      });
+      r.ok(
+        legacyTried.status === 409 &&
+          /tracked individually/i.test(legacyTried.error?.message ?? ""),
+        "an output decided before per-suggestion review existed stays closed, and says why",
+        `status=${legacyTried.status} ${legacyTried.error?.message ?? ""}`,
+      );
+      await pg.query(`delete from public.ai_outputs where id = $1`, [legacy.rows[0].id]);
+
       let acceptedWithNothing = false;
       try {
         await pg.query(
