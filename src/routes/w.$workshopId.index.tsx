@@ -1,7 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ChevronRight, History, Loader2, Users } from "lucide-react";
 import { PanelHeading } from "@/components/workshop-ui";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { AiInlineActions } from "@/components/methodology/AiInlineActions";
 import { ArchiveWorkshopControl } from "@/components/ArchiveWorkshopControl";
 import { ParticipantsPanel } from "@/components/ParticipantsPanel";
@@ -11,6 +20,7 @@ import {
   describeActivity,
   workshopsApi,
   type Activity,
+  type ActivityEvent,
   type MethodologyStage,
   type WorkshopSummary,
 } from "@/lib/api";
@@ -103,6 +113,37 @@ function WorkshopOverview() {
             {awaitingReview > 0 && ` · ${awaitingReview} awaiting review`}
             {workshop.votes_per_participant > 0 && ` · ${workshop.votes_per_participant} votes per participant`}
           </p>
+
+          {/* THE ROSTER AND THE TRAIL ARE REFERENCE, NOT THE WORK.
+              Both were full-width panels on the way to the stages, which is
+              the wrong order of attention: you come to this screen to get into
+              the workshop, and read who else is in it occasionally. They are
+              the same components, in drawers, one line from here. */}
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-3">
+            <DrawerLink
+              icon={<Users className="size-3.5" />}
+              label="Participants"
+              count={summaryQuery.data?.participants}
+              title="Participants"
+              description="Who is in this workshop, and what they may do in it. Roles are enforced by the server, not by this screen."
+            >
+              <ParticipantsPanel
+                workshopId={workshop.id}
+                canManage={workshop.my_role === "facilitator"}
+                readOnly={workshop.status === "archived"}
+              />
+            </DrawerLink>
+
+            <DrawerLink
+              icon={<History className="size-3.5" />}
+              label="Recent activity"
+              count={summaryQuery.data?.recent_activity.length}
+              title="Recent activity"
+              description="The real audit trail for this workshop, newest first."
+            >
+              <ActivityList events={summaryQuery.data?.recent_activity ?? []} />
+            </DrawerLink>
+          </div>
         </section>
 
         {workshop.status === "archived" && (
@@ -116,22 +157,9 @@ function WorkshopOverview() {
           </section>
         )}
 
-        {summaryQuery.data && <SummaryPanels summary={summaryQuery.data} />}
-
-        {/* "Summarize Workshop" — App Spec §13.10 puts its trigger here, on the
-            Workshop Overview, and not on a stage panel. It was previously
-            offered on every stage, where it produced output the panel could not
-            render and nobody could read. */}
-        <AiInlineActions workshopId={workshop.id} scope="workshop" label="Where this workshop stands" />
-
-        {/* Real Supabase-backed roster. Invite rights come from the caller's
-            actual workshop role, not a UI toggle. */}
-        <ParticipantsPanel
-          workshopId={workshop.id}
-          canManage={workshop.my_role === "facilitator"}
-          readOnly={workshop.status === "archived"}
-        />
-
+        {/* STAGES FIRST. This is the way in to the work — the capture board,
+            the matrix, the report all hang off it — and it used to sit below
+            the metrics, the health score, the roster and the activity feed. */}
         <section className="console-panel" data-build="live">
           <PanelHeading
             build="live"
@@ -154,8 +182,90 @@ function WorkshopOverview() {
             ))}
           </div>
         </section>
+
+        {summaryQuery.data && <SummaryPanels summary={summaryQuery.data} />}
+
+        {/* "Summarize Workshop" — App Spec §13.10 puts its trigger here, on the
+            Workshop Overview, and not on a stage panel. It was previously
+            offered on every stage, where it produced output the panel could not
+            render and nobody could read. */}
+        <AiInlineActions workshopId={workshop.id} scope="workshop" label="Where this workshop stands" />
       </div>
     </div>
+  );
+}
+
+/**
+ * A panel moved off the page and behind a link.
+ *
+ * A drawer rather than a collapsed section: a disclosure still costs a row of
+ * the page each, and these two are read occasionally, by a facilitator, about
+ * a workshop they are already inside. The count is on the link, so the thing
+ * the glance was for — how many people, has anything happened — is answered
+ * without opening it.
+ */
+function DrawerLink({
+  icon,
+  label,
+  count,
+  title,
+  description,
+  children,
+}: {
+  icon: ReactNode;
+  label: string;
+  count: number | undefined;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
+        >
+          {icon}
+          {label}
+          {count !== undefined && (
+            <span className="font-mono text-[10px] tabular-nums">{count}</span>
+          )}
+        </button>
+      </SheetTrigger>
+      {/* Wider than the default sm:max-w-sm: the roster carries a role control
+          and an invite form, which a narrow drawer wraps into unreadability. */}
+      <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+        <SheetHeader>
+          <SheetTitle>{title}</SheetTitle>
+          <SheetDescription>{description}</SheetDescription>
+        </SheetHeader>
+        <div className="mt-4">{children}</div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function ActivityList({ events }: { events: ActivityEvent[] }) {
+  if (events.length === 0) {
+    return <p className="text-xs text-muted-foreground">Nothing has happened yet.</p>;
+  }
+  return (
+    <ul className="divide-y divide-border">
+      {events.map((e, i) => (
+        <li key={i} className="py-2.5">
+          <p className="text-xs">
+            <span className="font-medium">{e.actor_name}</span>{" "}
+            <span className="text-muted-foreground">{describeActivity(e)}</span>
+          </p>
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+            {new Date(e.created_at).toLocaleString()}
+          </p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -208,10 +318,13 @@ function StageRow({
   );
 }
 
-// The workshop dashboard panels from wireframe §1: metrics (§1.13), health
-// (§1.19) and the activity feed (§1.15). Every number is a real count from
-// the API — the earlier mock dashboard showed a health score of 84 with
-// nothing behind it.
+// The workshop dashboard panels from wireframe §1: metrics (§1.13) and health
+// (§1.19). Every number is a real count from the API — the earlier mock
+// dashboard showed a health score of 84 with nothing behind it.
+//
+// §1.15's activity feed is still here, in the drawer behind the "Recent
+// activity" link at the top: it is reference, and it was occupying a column of
+// the page on the way to the stages.
 function SummaryPanels({ summary }: { summary: WorkshopSummary }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -255,26 +368,6 @@ function SummaryPanels({ summary }: { summary: WorkshopSummary }) {
           )}
         </section>
 
-        <section className="console-panel" data-build="live">
-          <PanelHeading build="live" title="Recent activity" hint="from the audit trail" />
-          {summary.recent_activity.length === 0 ? (
-            <p className="p-4 text-xs text-muted-foreground">Nothing has happened yet.</p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {summary.recent_activity.map((e, i) => (
-                <li key={i} className="px-4 py-2.5">
-                  <p className="text-xs">
-                    <span className="font-medium">{e.actor_name}</span>{" "}
-                    <span className="text-muted-foreground">{describeActivity(e)}</span>
-                  </p>
-                  <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                    {new Date(e.created_at).toLocaleString()}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
       </div>
 
       <section className="console-panel" data-build="live">

@@ -1,5 +1,18 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { BookMarked, ChevronLeft, Gauge, LayoutDashboard, Layers, Moon, Shield, SignalHigh, Sun } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  BookMarked,
+  ChevronLeft,
+  ChevronRight,
+  Gauge,
+  LayoutDashboard,
+  Layers,
+  Moon,
+  Plus,
+  Shield,
+  SignalHigh,
+  Sun,
+} from "lucide-react";
 import { SkinPicker } from "@/components/SkinPicker";
 import { useEffect, useState, type ReactNode } from "react";
 import {
@@ -16,6 +29,7 @@ import { GlobalSearch } from "@/components/GlobalSearch";
 import { NotificationBell } from "@/components/NotificationBell";
 import { BrandMark, useBrand } from "@/components/BrandMark";
 import { useUiPrefs } from "@/lib/ui-prefs";
+import { workshopsApi, type Workshop } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 
 
@@ -27,11 +41,34 @@ import { supabase } from "@/integrations/supabase/client";
 // carry "Administration" without wrapping or clipping.
 const navItems = [
   { label: "Dashboard", short: "Home", icon: LayoutDashboard, to: "/" },
-  { label: "Workshops", short: "Work", icon: Layers, to: "/w" },
+  { label: "My Workshops", short: "Mine", icon: Layers, to: "/w" },
   { label: "Executive", short: "Exec", icon: Gauge, to: "/executive" },
   { label: "Knowledge", short: "Know", icon: BookMarked, to: "/knowledge" },
   { label: "Administration", short: "Admin", icon: Shield, to: "/admin" },
 ];
+
+const WORKSHOPS_LABEL = "My Workshops";
+
+/**
+ * A workshop still in play.
+ *
+ * Phrased as what it EXCLUDES, which is the honest way round: the lifecycle is
+ * Draft → Active → Analysis → Reporting → Completed → Archived (plus
+ * "Configured"), and a menu of things to go and work on should carry everything
+ * except the two that are finished. Listing only `status === "active"` would
+ * hide a workshop that had reached Analysis — further along, not less current —
+ * and anything still in Draft, which is exactly where a facilitator left off.
+ * Completed and archived workshops stay reachable on the full list, where
+ * their status is shown.
+ */
+const FINISHED = new Set(["completed", "archived"]);
+
+/** Most recent first, so the menu is ordered by what you are likeliest to want. */
+function inPlay(workshops: Workshop[]): Workshop[] {
+  return workshops
+    .filter((w) => !FINISHED.has(w.status))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -60,7 +97,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       : pathname.startsWith("/admin")
         ? "Administration"
         : pathname.startsWith("/w")
-          ? "Workshops"
+          ? WORKSHOPS_LABEL
           : "Dashboard";
 
   return (
@@ -147,15 +184,31 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           {navItems.map((item) => {
             const isActive = item.label === activeLabel;
+            const classes = cn(
+              "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
+              isActive && "bg-sidebar-accent text-sidebar-foreground",
+            );
+
+            // The workshops entry opens its list in place rather than
+            // navigating to a screen whose only job was to list them.
+            if (item.label === WORKSHOPS_LABEL) {
+              return (
+                <WorkshopsMenu key={item.label} align="start" side="right">
+                  <button type="button" className={cn(classes, "w-full text-left")}>
+                    <item.icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
+                    {!collapsed && (
+                      <>
+                        <span className="truncate">{item.label}</span>
+                        <ChevronRight className="ml-auto size-3.5 shrink-0 opacity-60" />
+                      </>
+                    )}
+                  </button>
+                </WorkshopsMenu>
+              );
+            }
+
             return (
-              <Link
-                key={item.label}
-                to={item.to}
-                className={cn(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                  isActive && "bg-sidebar-accent text-sidebar-foreground",
-                )}
-              >
+              <Link key={item.label} to={item.to} className={classes}>
                 <item.icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
                 {!collapsed && <span className="truncate">{item.label}</span>}
               </Link>
@@ -189,20 +242,124 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <nav className="print:hidden sticky bottom-0 z-30 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-2 py-1.5 md:hidden">
-        {navItems.map((item) => (
-          <Link
-            key={item.label}
-            to={item.to}
-            className={cn(
-              "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-md px-1 py-1 text-[10px]",
-              item.label === activeLabel ? "text-primary" : "text-muted-foreground",
-            )}
-          >
-            <item.icon className="size-4 shrink-0" />
-            <span className="truncate">{item.short}</span>
-          </Link>
-        ))}
+        {navItems.map((item) => {
+          const classes = cn(
+            "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-md px-1 py-1 text-[10px]",
+            item.label === activeLabel ? "text-primary" : "text-muted-foreground",
+          );
+
+          // Same menu on a phone. A sidebar disclosure would have been the
+          // obvious shape for the desktop list, but there is no sidebar here to
+          // disclose into, and the point is to reach a workshop in one tap
+          // wherever you are.
+          if (item.label === WORKSHOPS_LABEL) {
+            return (
+              <WorkshopsMenu key={item.label} align="center" side="top">
+                <button type="button" className={classes}>
+                  <item.icon className="size-4 shrink-0" />
+                  <span className="truncate">{item.short}</span>
+                </button>
+              </WorkshopsMenu>
+            );
+          }
+
+          return (
+            <Link key={item.label} to={item.to} className={classes}>
+              <item.icon className="size-4 shrink-0" />
+              <span className="truncate">{item.short}</span>
+            </Link>
+          );
+        })}
       </nav>
     </div>
+  );
+}
+
+/**
+ * The workshops you are a member of, as a menu rather than a screen.
+ *
+ * Opening a workshop used to mean loading a list page and then clicking
+ * through it — a whole navigation for a choice of half a dozen names. The
+ * screen is still there (it carries each workshop's status, objective and the
+ * New button) and is the last entry here, so nothing was taken away.
+ *
+ * The query is shared with that screen by key, so moving between them costs no
+ * extra request, and a workshop created on the wizard appears here as soon as
+ * the existing invalidation fires.
+ */
+function WorkshopsMenu({
+  children,
+  align,
+  side,
+}: {
+  children: ReactNode;
+  align: "start" | "center";
+  side: "right" | "top";
+}) {
+  const [open, setOpen] = useState(false);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  const workshopsQuery = useQuery({
+    queryKey: ["workshops"],
+    queryFn: () => workshopsApi.list(),
+    // Only when the menu is first opened: the shell renders on every screen,
+    // and most of them have no use for this list.
+    enabled: open,
+  });
+
+  const live = inPlay(workshopsQuery.data ?? []);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+      <DropdownMenuContent align={align} side={side} className="max-h-[70vh] w-64 overflow-y-auto">
+        <DropdownMenuLabel className="font-normal text-muted-foreground">
+          {workshopsQuery.isLoading
+            ? "Loading…"
+            : live.length === 0
+              ? "Nothing in progress"
+              : `${live.length} in progress`}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+
+        {live.map((w) => {
+          const isHere = pathname.startsWith(`/w/${w.id}`);
+          return (
+            <DropdownMenuItem key={w.id} asChild>
+              <Link
+                to="/w/$workshopId"
+                params={{ workshopId: w.id }}
+                className="flex cursor-pointer items-center gap-2"
+              >
+                <span className={cn("min-w-0 flex-1 truncate text-xs", isHere && "font-semibold")}>
+                  {w.name}
+                </span>
+                <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                  {w.status}
+                </span>
+              </Link>
+            </DropdownMenuItem>
+          );
+        })}
+
+        {workshopsQuery.isError && (
+          <p className="px-2 py-1.5 text-xs text-destructive">Could not load your workshops.</p>
+        )}
+
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/w" className="cursor-pointer text-xs">
+            <Layers className="size-3.5" />
+            All workshops, with status
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/w/new" className="cursor-pointer text-xs">
+            <Plus className="size-3.5" />
+            New workshop
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

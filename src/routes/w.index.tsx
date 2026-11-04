@@ -34,9 +34,10 @@ function WorkshopsPage() {
       <div className="mx-auto max-w-[1100px] space-y-4 p-3 md:p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold md:text-2xl">Workshops</h1>
+            <h1 className="text-xl font-semibold md:text-2xl">My Workshops</h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              Every workshop you are a member of, live from the API.
+              Every workshop you are a member of, finished ones included. The ones still in
+              progress are also in the menu, so you rarely need this screen.
             </p>
           </div>
           <Button asChild size="sm">
