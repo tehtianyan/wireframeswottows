@@ -57,6 +57,42 @@ function squareness(box) {
   return Math.abs(box.width - box.height) / Math.max(1, box.width);
 }
 
+/**
+ * Where to press to hit one note, or null if it cannot be reached.
+ *
+ * Driving a pointer is not the same as measuring a box, and this is where the
+ * difference lives. The point is centred in the viewport (against the top edge
+ * the sticky header covers it), re-measured after the scroll settles (a panel
+ * scrolls internally, a frame later than the page), and then CONFIRMED with
+ * `elementFromPoint` — because anything overlapping swallows the press in
+ * silence, which looks exactly like the inert note this suite exists to catch.
+ * A check that cannot tell "could not press it" from "pressing it did nothing"
+ * reports the second when it means the first.
+ */
+async function aim(page, noteId, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    const at = await page.evaluate((id) => {
+      const el = document.querySelector(`[data-note-id="${id}"]`);
+      if (!el) return null;
+      // `behavior: "instant"` IS LOAD-BEARING. styles.css sets
+      // `scroll-behavior: smooth`, so the default animates — the rectangle
+      // below is then read mid-flight, and each retry restarts the animation
+      // from wherever it had got to, so retrying never converges. Dev passed
+      // anyway because its fourteen notes need almost no scrolling;
+      // production's ninety made the journey long enough to always miss.
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+      const b = el.getBoundingClientRect();
+      const x = b.x + b.width / 2;
+      const y = b.y + b.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      return { x, y, hittable: Boolean(hit && hit.closest(`[data-note-id="${id}"]`)) };
+    }, noteId);
+    if (at?.hittable) return at;
+    await new Promise((done) => setTimeout(done, 200));
+  }
+  return null;
+}
+
 runSuite("visual-board", async ({ results: r }) => {
   const exe = findBrowser();
   if (!exe) {
@@ -319,16 +355,24 @@ runSuite("visual-board", async ({ results: r }) => {
             "Needs a board with a submitted note inside a theme.",
         );
       } else {
-        // SCROLLED INTO VIEW AND RE-MEASURED. The collected box is a viewport
-        // rectangle taken at an earlier scroll position, and the board sits
-        // well below the fold — pressing those coordinates lands on whatever
-        // happens to be there now, which reports "no drag started" for a
-        // reason that has nothing to do with the note.
-        const handle = await page.$(`[data-note-id="${themedTile.id}"]`);
-        await handle.scrollIntoViewIfNeeded();
-        const live = await handle.boundingBox();
-        const cx = live.x + live.width / 2;
-        const cy = live.y + live.height / 2;
+        // SCROLL TO IT, THEN ASK THE DOM WHETHER THE PRESS WOULD LAND ON IT.
+        // Three things make the obvious version wrong, and each cost a run:
+        // the collected box is a viewport rectangle from an earlier scroll
+        // position; `scrollIntoViewIfNeeded` parks the note against the top
+        // edge, under the sticky header; and a panel that scrolls internally
+        // settles a frame later, so one measurement can be taken mid-scroll.
+        // So it retries, and the question is always `elementFromPoint`, never
+        // the rectangle — anything sitting on top swallows the press in
+        // silence, which is indistinguishable from the bug under test.
+        const centre = await aim(page, themedTile.id);
+        if (!centre) {
+          r.skip(
+            "the themed note could not be brought clear of other chrome — not pressed, " +
+              "so the lift is untested here rather than failed",
+          );
+        } else {
+        const cx = centre.x;
+        const cy = centre.y;
         await page.mouse.move(cx, cy);
         await page.mouse.down();
         await page.mouse.move(cx + 40, cy + 10, { steps: 6 });
@@ -360,23 +404,55 @@ runSuite("visual-board", async ({ results: r }) => {
         // written — but everything up to the write is exercised, including
         // handleDrop's refusal path, which a source-level check can only
         // claim.
-        const dropOnto = loose.find(
-          (b) => b.grabbable && b.category === themedTile.category,
+        // THE TARGET HAS TO BE ON SCREEN, and asked for AT THIS MOMENT. A
+        // panel scrolls internally and production's board has ninety notes in
+        // one category, so the first same-category note in the collected list
+        // sits far outside the visible area — its box is a real rectangle in
+        // page coordinates and pressing it lands on nothing. Found by running
+        // this against production, where dev's fourteen notes all fit.
+        const src = await aim(page, themedTile.id);
+        const dropOnto = await page.evaluate(
+          ({ category, sourceId }) => {
+            const inView = (b) =>
+              b.top >= 0 &&
+              b.left >= 0 &&
+              b.bottom <= window.innerHeight &&
+              b.right <= window.innerWidth;
+            for (const el of document.querySelectorAll("[data-note-id]")) {
+              if (el.dataset.noteId === sourceId) continue;
+              if (el.dataset.noteThemed === "true") continue;
+              if (el.dataset.noteCategory !== category) continue;
+              if (getComputedStyle(el).cursor !== "grab") continue;
+              const b = el.getBoundingClientRect();
+              if (!inView(b)) continue;
+              return { id: el.dataset.noteId, x: b.x, y: b.y, width: b.width, height: b.height };
+            }
+            return null;
+          },
+          { category: themedTile.category, sourceId: themedTile.id },
         );
-        if (!dropOnto) {
-          r.skip("no loose movable note in the same category to drop onto");
+        if (!dropOnto || !src) {
+          r.skip("no loose movable note visible in the same category to drop onto");
         } else {
-          const src = await (await page.$(`[data-note-id="${themedTile.id}"]`)).boundingBox();
-          const dst = await (await page.$(`[data-note-id="${dropOnto.id}"]`)).boundingBox();
-          await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2);
+          const dst = dropOnto;
+          await page.mouse.move(src.x, src.y);
           await page.mouse.down();
           await page.mouse.move(dst.x + dst.width / 2, dst.y + dst.height / 2, { steps: 10 });
+          // What the board thought the drop would do, read BEFORE releasing.
+          // Without this a failure says only "nothing happened", which is the
+          // one thing that is never the useful part of the answer.
+          const intent = await page.$$eval("[aria-hidden]", (els) =>
+            els
+              .filter((el) => /will-change-transform/.test(String(el.className)))
+              .map((el) => el.textContent ?? "")
+              .join(" "),
+          );
           await page.mouse.up();
           const prompt = await page.waitForSelector('[role="dialog"]', { timeout: 5000 }).catch(() => null);
           r.ok(
             Boolean(prompt),
             "dragging it onto another note offers a NEW theme — the gesture the user asked for",
-            prompt ? "naming prompt opened" : "no prompt: the drop did nothing",
+            prompt ? "naming prompt opened" : `no prompt; the ghost said: ${intent.slice(-60)}`,
           );
           if (prompt) {
             await page.screenshot({
@@ -385,6 +461,7 @@ runSuite("visual-board", async ({ results: r }) => {
             });
             await page.keyboard.press("Escape");
           }
+        }
         }
       }
     }
