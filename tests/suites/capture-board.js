@@ -302,9 +302,14 @@ runSuite("capture-board", async ({ baseUrl, results: r, DEMO_WORKSHOP: WS }) => 
     // new server code exists for it, which is the point — a theme made by
     // stacking is the same object as one made on the Synthesis stage, so it
     // reaches the report and the traceability chain identically.
+    //
+    // TITLE AND EVIDENCE ONLY, EXACTLY WHAT THE BOARD SENDS. The first
+    // version of this check posted a description as well, which the board's
+    // naming prompt does not collect — so the suite passed while every real
+    // stack was refused with "What this theme says is required." A probe that
+    // sends a field the UI cannot send is testing a request nobody makes.
     const theme = await F("POST", `/workshops/${WS}/syntheses`, {
       title: "CB-theme from the board",
-      description: "Created by stacking two notes on the capture board.",
       evidence: { factor: [seed[0], seed[1]] },
     });
     r.ok(
@@ -364,6 +369,45 @@ runSuite("capture-board", async ({ baseUrl, results: r, DEMO_WORKSHOP: WS }) => 
         `status=${shrank.status} now ${after2.rows[0].n}`,
       );
     }
+
+    // THE PAIRED NEGATIVE. A theme needing no description must not become
+    // "nothing needs a description": insights and recommendations really do
+    // declare the column NOT NULL, and a SQLSTATE is not an answer to give
+    // somebody filling in a form. Matched on the MESSAGE, so the refusal
+    // cannot come from the missing evidence instead.
+    const bareInsight = await F("POST", `/workshops/${WS}/insights`, {
+      title: "CB-insight with no description",
+    });
+    r.ok(
+      bareInsight.status === 400 &&
+        /What this insight says is required/i.test(bareInsight.error?.message ?? ""),
+      "an insight still requires its description, because its column is NOT NULL",
+      `status=${bareInsight.status} ${bareInsight.error?.message ?? ""}`,
+    );
+
+    // AND THE REGISTRY IS CHECKED AGAINST THE DATABASE, not against itself.
+    // The bug was a Go constant asserting something about a column; asserting
+    // the constant's value back would restate it. This asks Postgres.
+    const kinds = await F("GET", "/object-kinds");
+    const nullability = await pg.query(
+      `select table_name, is_nullable
+         from information_schema.columns
+        where table_schema = 'public' and column_name = 'description'
+          and table_name in ('syntheses','insights','recommendations')`,
+    );
+    const notNull = new Map(
+      nullability.rows.map((row) => [row.table_name, row.is_nullable === "NO"]),
+    );
+    const tableFor = { synthesis: "syntheses", insight: "insights", recommendation: "recommendations" };
+    const mismatches = (kinds.data ?? [])
+      .filter((k) => tableFor[k.key])
+      .filter((k) => Boolean(k.description_required) !== notNull.get(tableFor[k.key]))
+      .map((k) => `${k.key}: required=${k.description_required} not_null=${notNull.get(tableFor[k.key])}`);
+    r.ok(
+      notNull.size === 3 && mismatches.length === 0,
+      "every kind's description_required matches its column's NOT NULL in the live database",
+      mismatches.length ? mismatches.join("; ") : `checked ${notNull.size} columns`,
+    );
 
     // ================================================================
     r.section("Adding several AI suggestions from one output");

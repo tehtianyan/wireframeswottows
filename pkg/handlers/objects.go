@@ -345,9 +345,13 @@ func insertObject(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
 		return "", fmt.Sprintf("Title must be %d characters or fewer.", MaxObjectTitle), nil
 	}
 
-	// description is NOT NULL for every kind that has one. Without this the
-	// caller gets a raw Postgres error with a SQLSTATE in it.
-	if kind.HasDescription {
+	// Only for a kind whose column is NOT NULL — otherwise the caller gets a
+	// raw Postgres error with a SQLSTATE in it. This used to read
+	// `if kind.HasDescription`, on the stated assumption that the column is
+	// NOT NULL wherever it exists; `syntheses.description` is nullable, so the
+	// check invented a requirement for themes that no other layer had. See
+	// objects.Kind.DescriptionRequired.
+	if kind.HasDescription && kind.DescriptionRequired {
 		if d := trimPtr(body.Description); d == nil {
 			label := kind.DescriptionLabel
 			if label == "" {
@@ -444,7 +448,19 @@ func UpdateObject(w http.ResponseWriter, r *http.Request) {
 		add("title", t)
 	}
 	if body.Description != nil && kind.HasDescription {
-		add("description", trimPtr(body.Description))
+		d := trimPtr(body.Description)
+		// Same asymmetry as the create path: clearing a theme's description is
+		// legal, clearing an insight's is a NOT NULL violation, and a SQLSTATE
+		// is not an answer to give somebody editing a form.
+		if kind.DescriptionRequired && d == nil {
+			label := kind.DescriptionLabel
+			if label == "" {
+				label = "Description"
+			}
+			response.Fail(w, response.CodeValidationError, fmt.Sprintf("%s is required.", label))
+			return
+		}
+		add("description", d)
 	}
 	fieldVals, msg := coerceFields(kind, body.Fields)
 	if msg != "" {

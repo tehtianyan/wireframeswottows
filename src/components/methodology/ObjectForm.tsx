@@ -91,6 +91,7 @@ export function ObjectForm({
   }
 
   const titleMissing = kind.title_required && !title.trim();
+  const descriptionMissing = kind.description_required && !description.trim();
   const requiredFieldMissing = kind.fields.some(
     (f) => f.required && !String(fields[f.name] ?? "").trim(),
   );
@@ -113,8 +114,13 @@ export function ObjectForm({
 
       {kind.description_label && (
         <div>
+          {/* Says which it is, the same way the title and the extra fields
+              already do. The form used to mark neither, so a required
+              description read as optional and the refusal arrived from the
+              server after the work of filling the rest in. */}
           <label className="label-caps" htmlFor="obj-description">
             {kind.description_label}
+            {kind.description_required ? "" : " (optional)"}
           </label>
           <Textarea
             id="obj-description"
@@ -227,7 +233,11 @@ export function ObjectForm({
             Cancel
           </Button>
         )}
-        <Button type="submit" size="sm" disabled={isPending || titleMissing || requiredFieldMissing}>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={isPending || titleMissing || descriptionMissing || requiredFieldMissing}
+        >
           {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
           {initial ? "Save" : `Add ${kind.label.toLowerCase()}`}
         </Button>

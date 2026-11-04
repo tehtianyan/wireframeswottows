@@ -350,6 +350,9 @@ export interface ObjectKind {
   label: string;
   stage_type: string;
   title_required: boolean;
+  /** Mirrors the column's NOT NULL — true for insights and recommendations,
+   *  false for a theme, whose name carries the claim on its own. */
+  description_required: boolean;
   description_label: string;
   fields: ObjectField[];
   evidence: { cites_kind: CitableKind }[];

@@ -73,8 +73,19 @@ type Kind struct {
 	// HasDescription is false for kinds with no `description` column at all.
 	// factor_relationships carries `narrative` instead, so the generic SQL
 	// must not select or insert a description for it.
-	HasDescription   bool           `json:"has_description"`
-	DescriptionLabel string         `json:"description_label"`
+	HasDescription bool `json:"has_description"`
+	// DescriptionRequired mirrors the COLUMN's nullability, and it is NOT
+	// uniform across the kinds that have one: `insights.description` and
+	// `recommendations.description` are `not null`, while
+	// `syntheses.description` is nullable (canonical schema). insertObject
+	// used to require a description from every kind with HasDescription,
+	// justified as "it is NOT NULL for every kind that has one" — which was
+	// true of two kinds out of three. The cost landed on the capture board,
+	// where stacking two notes asks only for a NAME and could therefore never
+	// succeed: "What this theme says is required." A rule the database does
+	// not have must not be invented here.
+	DescriptionRequired bool   `json:"description_required"`
+	DescriptionLabel    string `json:"description_label"`
 	Fields           []Field        `json:"fields"`
 	Evidence         []EvidenceLink `json:"evidence"`
 	Pairing          *Pairing       `json:"pairing,omitempty"`
@@ -88,10 +99,15 @@ var registry = map[string]*Kind{
 		Table:            "syntheses",
 		Route:            "syntheses",
 		Label:            "Theme",
-		StageType:        "synthesize",
-		TitleRequired:    true,
-		DescriptionLabel: "What this theme says",
-		Fields:           []Field{},
+		StageType:     "synthesize",
+		TitleRequired: true,
+		// A theme's NAME is the claim ("these notes are the same thing"); the
+		// description elaborates on it. The column is nullable and so is this,
+		// which is what lets a theme be made by stacking two notes on the
+		// capture board with nothing but a name.
+		DescriptionRequired: false,
+		DescriptionLabel:    "What this theme says",
+		Fields:              []Field{},
 		Evidence: []EvidenceLink{
 			{CitesKind: "factor", Table: "synthesis_factors", SelfCol: "synthesis_id", OtherCol: "factor_id", OtherTable: "factors"},
 		},
@@ -127,9 +143,11 @@ var registry = map[string]*Kind{
 		Table:            "insights",
 		Route:            "insights",
 		Label:            "Insight",
-		StageType:        "interpret",
-		TitleRequired:    true,
-		DescriptionLabel: "What this insight says",
+		StageType:     "interpret",
+		TitleRequired: true,
+		// `insights.description` is `not null`.
+		DescriptionRequired: true,
+		DescriptionLabel:    "What this insight says",
 		Fields: []Field{
 			{Name: "strategic_significance", Label: "Strategic significance", Type: "textarea",
 				Help: "Why this matters to the objective."},
@@ -145,9 +163,11 @@ var registry = map[string]*Kind{
 		Table:            "recommendations",
 		Route:            "recommendations",
 		Label:            "Recommendation",
-		StageType:        "recommend",
-		TitleRequired:    true,
-		DescriptionLabel: "What to do",
+		StageType:     "recommend",
+		TitleRequired: true,
+		// `recommendations.description` is `not null`.
+		DescriptionRequired: true,
+		DescriptionLabel:    "What to do",
 		Fields: []Field{
 			{Name: "priority", Label: "Priority", Type: "enum", Required: true,
 				Options: []string{"critical", "high", "medium", "low"}},
