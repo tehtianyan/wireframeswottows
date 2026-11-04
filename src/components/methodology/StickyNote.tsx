@@ -154,7 +154,12 @@ export function StickyNote({
   /** A drop would stack onto this note, making a theme of the two. */
   isStackTarget?: boolean;
   onSave: (input: { title: string; description: string }) => void;
-  onDelete: () => void;
+  /**
+   * Absent where deletion is not the action. Inside a theme the removal
+   * gesture is "take it out of this theme", and a bin icon there used to be
+   * rendered and wired to a function that did nothing at all.
+   */
+  onDelete?: (() => void) | undefined;
   /** Starts a drag. Absent when this note cannot be moved. */
   onDragHandle?: ((e: React.PointerEvent, element: HTMLElement) => void) | undefined;
   isSaving?: boolean;
@@ -168,6 +173,8 @@ export function StickyNote({
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLButtonElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
+  /** Where the press started, so a drag is not also read as a click. */
+  const pressRef = useRef<{ x: number; y: number } | null>(null);
 
   // A decided note is frozen — an approval has to refer to text somebody
   // actually approved. The API enforces this too.
@@ -229,10 +236,21 @@ export function StickyNote({
         data-note-category={factor.category_key}
         data-note-themed={themed ? "true" : "false"}
         onPointerDown={(e) => {
+          pressRef.current = { x: e.clientX, y: e.clientY };
           if (!draggable || !rootRef.current) return;
-          // An interactive child owns its own press: the delete button and the
-          // edit surface must not start a drag.
-          if ((e.target as HTMLElement).closest("button,textarea,select,a")) return;
+          // An interactive child owns its own press: the delete button, the
+          // expand chevron and the edit field must not start a drag.
+          //
+          // THE NOTE'S OWN BODY IS EXEMPT, and that is the whole point. The
+          // text button fills the tile, so excluding every button left only
+          // the ~10px padding rim draggable — on a 120px note that is a hard
+          // target to find, and finding none reads as "this note cannot be
+          // moved". It was worst inside a theme, where the note had no drag
+          // handle at all, but it was never only a themed-note problem.
+          // Click-to-edit still works: a press that does not travel 4px never
+          // becomes a drag, and the click below ignores one that did.
+          const control = (e.target as HTMLElement).closest("button,textarea,select,a");
+          if (control && !control.hasAttribute("data-note-body")) return;
           onDragHandle?.(e, rootRef.current);
         }}
         className={cn(
@@ -308,8 +326,20 @@ export function StickyNote({
             <button
               ref={bodyRef}
               type="button"
+              data-note-body
               disabled={!editable}
-              onClick={() => editable && setEditing(true)}
+              onClick={(e) => {
+                // A press that travelled was a drag, and a drag must not also
+                // open the editor on the way past. Measured against where the
+                // press began rather than read off any drag state, so the two
+                // cannot disagree about what just happened.
+                const from = pressRef.current;
+                pressRef.current = null;
+                if (from && Math.abs(e.clientX - from.x) + Math.abs(e.clientY - from.y) > 4) {
+                  return;
+                }
+                if (editable) setEditing(true);
+              }}
               className={cn(
                 // `min-h-0` matters here too: this is what makes the
                 // container's height the leftover space rather than the
@@ -388,7 +418,7 @@ export function StickyNote({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {editable && (
+            {editable && onDelete && (
               <button
                 type="button"
                 onClick={onDelete}

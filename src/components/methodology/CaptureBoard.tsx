@@ -128,9 +128,19 @@ export function CaptureBoard({
 }) {
   const queryClient = useQueryClient();
   const [view, setView] = useState<ViewMode>("grid");
-  const [pendingTheme, setPendingTheme] = useState<{ ids: string[]; categoryKey: string } | null>(
-    null,
-  );
+  const [pendingTheme, setPendingTheme] = useState<{
+    ids: string[];
+    categoryKey: string;
+    /**
+     * The note that is LEAVING a theme to form this one, when the drag started
+     * inside a stack. Carried through the naming prompt because the detach
+     * must not happen until the new theme really exists — cancelling the
+     * prompt has to leave the wall exactly as it was. Named explicitly rather
+     * than taken from `ids[1]`: which end of that pair was dragged is not
+     * something the prompt should have to know.
+     */
+    detach?: { themeId: string; factorId: string };
+  } | null>(null);
 
   // Remembered per browser only — a layout preference is one viewer's reading
   // comfort, not shared workshop state, and must survive a storage failure
@@ -430,14 +440,50 @@ export function CaptureBoard({
     setOrder.mutate({ categoryKey, ids });
   }
 
+  /**
+   * The rule that governs taking a note OUT of a theme, wherever the gesture
+   * started: a theme must keep at least one note. An empty theme is a titled
+   * claim with no evidence under it — it would still appear on the Synthesis
+   * stage and in the report, citing nothing. Deleting the theme is the honest
+   * action and it belongs where themes are managed.
+   */
+  function canDetach(themeId: string, factorId: string): boolean {
+    const rest = (themes.members.get(themeId) ?? []).filter((x) => x !== factorId);
+    if (rest.length === 0) {
+      toast.error(
+        "That is the only note in its theme. Delete the theme on the Synthesis stage instead.",
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /** Removes one note from a theme, leaving the rest cited as before. */
+  async function detach(themeId: string, factorId: string): Promise<void> {
+    const rest = (themes.members.get(themeId) ?? []).filter((x) => x !== factorId);
+    if (rest.length === 0) return;
+    await retheme.mutateAsync({ themeId, ids: rest });
+  }
+
   const handleDrop = useCallback(
-    (source: { factorId: string; categoryKey: string }, target: DropTarget | null) => {
+    (source: { factorId: string; categoryKey: string; themeId?: string }, target: DropTarget | null) => {
       if (!target) return;
       switch (target.kind) {
         case "panel":
           if (target.categoryKey === source.categoryKey) {
             if (facilitator) sendToEnd(source.categoryKey, source.factorId);
           } else {
+            // A note dragged out of a theme into another category LEAVES the
+            // theme. The alternative is a theme whose notes sit in two
+            // different panels, which renders as the same theme drawn twice,
+            // and which nobody asked for by dropping a note on a panel.
+            if (source.themeId) {
+              if (!canDetach(source.themeId, source.factorId)) return;
+              void detach(source.themeId, source.factorId).then(() =>
+                moveTo(source.factorId, target.categoryKey),
+              );
+              return;
+            }
             moveTo(source.factorId, target.categoryKey);
           }
           return;
@@ -451,18 +497,34 @@ export function CaptureBoard({
           );
           return;
         case "stack":
+          // Regrouping: the note is coming out of one theme into a new one.
+          // Checked BEFORE the prompt opens, so an impossible move is refused
+          // while the gesture is still in mind rather than after naming.
+          if (source.themeId && !canDetach(source.themeId, source.factorId)) return;
           // The prompt is the point: a theme with no name is a pile, and the
           // naming is where the analytical work happens. App Spec treats a
           // theme as a reviewable object, so it has to arrive with a title.
           setPendingTheme({
             ids: [target.factorId, source.factorId],
             categoryKey: target.categoryKey,
+            ...(source.themeId
+              ? { detach: { themeId: source.themeId, factorId: source.factorId } }
+              : {}),
           });
           return;
         case "theme": {
           const existing = themes.members.get(target.themeId) ?? [];
           if (existing.includes(source.factorId)) return;
-          retheme.mutate({ themeId: target.themeId, ids: [...existing, source.factorId] });
+          const from = source.themeId;
+          if (from && !canDetach(from, source.factorId)) return;
+          // ADD FIRST, THEN REMOVE. If the order were reversed and the second
+          // call failed, the note would belong to no theme at all — it would
+          // look as though the drag had deleted the grouping. This way a
+          // failure leaves it in the theme it started in, which is the state
+          // the person can see and retry from.
+          void retheme
+            .mutateAsync({ themeId: target.themeId, ids: [...existing, source.factorId] })
+            .then(() => (from ? detach(from, source.factorId) : undefined));
           return;
         }
       }
@@ -550,7 +612,20 @@ export function CaptureBoard({
             drag={dragging.drag}
             target={dragging.target}
             onDragHandle={(f, e, el) =>
-              dragging.beginDrag(e, { factorId: f.id, categoryKey: f.category_key }, el)
+              dragging.beginDrag(
+                e,
+                {
+                  factorId: f.id,
+                  categoryKey: f.category_key,
+                  // Undefined for a loose note. Supplied for one inside a
+                  // stack, which is what tells the hit-testing that this drag
+                  // is a regrouping rather than a reorder.
+                  ...(themes.byFactor.get(f.id)
+                    ? { themeId: themes.byFactor.get(f.id)!.id }
+                    : {}),
+                },
+                el,
+              )
             }
             onAdd={(title) => createFactor.mutate({ categoryKey: category.key, title })}
             onSave={(id, input) => updateFactor.mutate({ id, ...input })}
@@ -589,6 +664,7 @@ export function CaptureBoard({
               category={draggedCategory}
               target={dragging.target}
               themeLabel={themeKind?.label ?? "Theme"}
+              fromTheme={Boolean(dragging.drag.themeId)}
             />
           </div>,
           document.body,
@@ -603,9 +679,17 @@ export function CaptureBoard({
           busy={createTheme.isPending}
           onCancel={() => setPendingTheme(null)}
           onCreate={(title) => {
+            const leaving = pendingTheme.detach;
             createTheme.mutate(
               { title, ids: pendingTheme.ids },
-              { onSuccess: () => setPendingTheme(null) },
+              {
+                onSuccess: () => {
+                  setPendingTheme(null);
+                  // Only now that the new theme exists does the note leave the
+                  // old one. If the create had failed, nothing moved.
+                  if (leaving) void detach(leaving.themeId, leaving.factorId);
+                },
+              },
             );
           }}
         />
@@ -639,7 +723,9 @@ function BoardToolbar({
         {canStack && (
           <>
             Drop a note <strong className="font-medium text-foreground">onto another</strong> to
-            group them into a {themeLabel.toLowerCase()}
+            group them into a {themeLabel.toLowerCase()}, or{" "}
+            <strong className="font-medium text-foreground">drag one out of a group</strong> to
+            regroup it
             {canReorder ? ", " : "."}
           </>
         )}
@@ -912,7 +998,11 @@ function Quadrant({
                   category={category}
                   scores={scores}
                   canEdit={canMove}
+                  canMove={canMove}
                   isTarget={target?.kind === "theme" && target.themeId === block.theme.id}
+                  draggingId={drag?.factorId ?? null}
+                  onDragHandle={onDragHandle}
+                  onSave={onSave}
                   onRemove={(factorId) => onRemoveFromTheme(block.theme.id, factorId)}
                   savingId={savingId}
                 />
@@ -1012,7 +1102,11 @@ function ThemeStack({
   category,
   scores,
   canEdit,
+  canMove,
   isTarget,
+  draggingId,
+  onDragHandle,
+  onSave,
   onRemove,
   savingId,
 }: {
@@ -1021,7 +1115,12 @@ function ThemeStack({
   category: FactorCategory;
   scores: Map<string, NoteScore>;
   canEdit: boolean;
+  /** Whether a note can be lifted back OUT of this stack. */
+  canMove: boolean;
   isTarget: boolean;
+  draggingId: string | null;
+  onDragHandle: (f: Factor, e: React.PointerEvent, el: HTMLElement) => void;
+  onSave: (id: string, input: { title: string; description: string }) => void;
   onRemove: (factorId: string) => void;
   savingId: string | null;
 }) {
@@ -1064,20 +1163,37 @@ function ThemeStack({
         style={{ gridTemplateColumns: NOTE_TRACK }}
       >
         {factors.map((f) => (
-          <div key={f.id} className="relative">
+          // `group` IS LOAD-BEARING. The × below is revealed by
+          // `group-hover`, and without a `group` ancestor here that variant
+          // matched nothing — so the only way out of a theme appeared on
+          // keyboard focus and never on hover. A note could be put into a
+          // theme and, with a mouse, not taken out again.
+          <div key={f.id} className="group relative">
             <StickyNote
               factor={f}
               category={category}
               canEdit={canEdit}
-              canMove={false}
+              // A NOTE IN A THEME CAN BE LIFTED OUT. It used to be fixed in
+              // place, on the reasoning that its position belongs to its
+              // theme — true of REORDERING, and wrong about regrouping: the
+              // physical gesture for "this belongs with that one instead" is
+              // to peel the note off the pile and put it on another, and the
+              // × was the only alternative offered (see above for why even
+              // that was invisible).
+              canMove={canMove}
               themed
+              isDragging={draggingId === f.id}
               score={scores.get(f.id) ?? null}
-              onSave={() => {
-                /* editing inside a theme goes through the card below */
-              }}
-              onDelete={() => {
-                /* removal from the theme is the action here, not deletion */
-              }}
+              // THE REAL SAVE. This was a no-op with a comment pointing at a
+              // card that does not exist here, so clicking a note inside a
+              // theme opened an editor and threw away whatever was typed. A
+              // note is the same note in a group; fixing a typo in one should
+              // not require taking it out first.
+              onSave={(input) => onSave(f.id, input)}
+              // No bin inside a stack: removal here means leaving the theme,
+              // which is the × below. Deleting the note outright is done on
+              // the wall, where its consequences for the theme are visible.
+              onDragHandle={canMove ? (e, el) => onDragHandle(f, e, el) : undefined}
               isSaving={savingId === f.id}
             />
             {canEdit && !decided && (
@@ -1117,24 +1233,34 @@ function GhostNote({
   category,
   target,
   themeLabel,
+  fromTheme,
 }: {
   factor: Factor;
   category: FactorCategory | undefined;
   target: DropTarget | null;
   themeLabel: string;
+  /** True when the note was lifted out of a stack: every intent changes. */
+  fromTheme: boolean;
 }) {
+  const label = themeLabel.toLowerCase();
   const tint = category ? `var(--${category.color_token})` : "var(--border)";
   const intent =
     target === null
       ? "Release to leave it where it is"
       : target.kind === "stack"
-        ? `New ${themeLabel.toLowerCase()} with that note`
+        ? fromTheme
+          ? `Out of this ${label}, into a new one with that note`
+          : `New ${label} with that note`
         : target.kind === "theme"
-          ? `Add to that ${themeLabel.toLowerCase()}`
+          ? fromTheme
+            ? `Move to that ${label}`
+            : `Add to that ${label}`
           : target.kind === "panel"
             ? target.categoryKey === factor.category_key
               ? "Move to the end"
-              : "Move here"
+              : fromTheme
+                ? `Out of this ${label} and over here`
+                : "Move here"
             : "Reorder";
 
   return (

@@ -212,8 +212,18 @@ runSuite("visual-board", async ({ results: r }) => {
           return {
             id: el.dataset.noteId,
             themed: el.dataset.noteThemed === "true",
+            // Viewport coordinates, so a check can actually press on the tile
+            // rather than only measure it.
+            x: b.x,
+            y: b.y,
             width: b.width,
             height: b.height,
+            // Can this note be picked up at all? An APPROVED note is frozen
+            // on purpose, and every seeded note on dev is approved — so a
+            // lift check that did not ask this would fail there for the right
+            // reason and look like the bug it was written to catch.
+            grabbable: getComputedStyle(el).cursor === "grab",
+            category: el.dataset.noteCategory,
             // How much of the tile is the note, rather than its chrome.
             textShare: body ? body.getBoundingClientRect().height / Math.max(1, b.height) : 0,
             clamp: text ? getComputedStyle(text).webkitLineClamp : null,
@@ -289,6 +299,94 @@ runSuite("visual-board", async ({ results: r }) => {
           widest,
         )}px`,
       );
+
+      // CAN IT BE PICKED UP? The reported defect was that a note inside a
+      // theme could not be dragged out at all, and no amount of measuring
+      // boxes would show that: the note was the right shape and simply inert.
+      // So this presses on a themed note and moves the pointer, which must
+      // lift a ghost — then presses Escape, which puts it back. READ-ONLY:
+      // nothing is dropped, so the suite stays safe against production.
+      //
+      // It presses the MIDDLE of the note, where a person presses. That is
+      // the note's own text button, and until this was fixed every button
+      // refused to start a drag — leaving only a ~10px padding rim draggable
+      // on a 120px tile, which is indistinguishable from "it cannot be
+      // dragged". Pressing a corner would have passed over that entirely.
+      const themedTile = themed.find((b) => b.grabbable);
+      if (!themedTile) {
+        r.skip(
+          "every note in a theme here is approved, so frozen by design — nothing to lift. " +
+            "Needs a board with a submitted note inside a theme.",
+        );
+      } else {
+        // SCROLLED INTO VIEW AND RE-MEASURED. The collected box is a viewport
+        // rectangle taken at an earlier scroll position, and the board sits
+        // well below the fold — pressing those coordinates lands on whatever
+        // happens to be there now, which reports "no drag started" for a
+        // reason that has nothing to do with the note.
+        const handle = await page.$(`[data-note-id="${themedTile.id}"]`);
+        await handle.scrollIntoViewIfNeeded();
+        const live = await handle.boundingBox();
+        const cx = live.x + live.width / 2;
+        const cy = live.y + live.height / 2;
+        await page.mouse.move(cx, cy);
+        await page.mouse.down();
+        await page.mouse.move(cx + 40, cy + 10, { steps: 6 });
+        const ghost = await page.$$eval("[aria-hidden]", (els) =>
+          els
+            .filter((el) => /will-change-transform/.test(String(el.className)))
+            .map((el) => el.textContent ?? ""),
+        );
+        r.ok(
+          ghost.length > 0,
+          "a note inside a theme can be LIFTED — the reported defect",
+          ghost.length ? "ghost rendered" : "no ghost: the press started no drag",
+        );
+        // And it says what releasing would do, rather than leaving the person
+        // to guess whether the note is leaving its group.
+        r.ok(
+          ghost.some((t) => /out of this|release|move|new /i.test(t)),
+          "...and the ghost says what the drop will do to its theme",
+          ghost.join(" | ").slice(0, 140),
+        );
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        const stillThere = await page.$(`[data-note-id="${themedTile.id}"]`);
+        r.ok(Boolean(stillThere), "...and Escape puts it back, changing nothing");
+
+        // AND DROPPING IT ON A LOOSE NOTE REALLY OFFERS THE NEW THEME. This
+        // is the user's gesture end to end: out of one group, onto another
+        // note. It stops at the naming prompt and cancels, so nothing is
+        // written — but everything up to the write is exercised, including
+        // handleDrop's refusal path, which a source-level check can only
+        // claim.
+        const dropOnto = loose.find(
+          (b) => b.grabbable && b.category === themedTile.category,
+        );
+        if (!dropOnto) {
+          r.skip("no loose movable note in the same category to drop onto");
+        } else {
+          const src = await (await page.$(`[data-note-id="${themedTile.id}"]`)).boundingBox();
+          const dst = await (await page.$(`[data-note-id="${dropOnto.id}"]`)).boundingBox();
+          await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(dst.x + dst.width / 2, dst.y + dst.height / 2, { steps: 10 });
+          await page.mouse.up();
+          const prompt = await page.waitForSelector('[role="dialog"]', { timeout: 5000 }).catch(() => null);
+          r.ok(
+            Boolean(prompt),
+            "dragging it onto another note offers a NEW theme — the gesture the user asked for",
+            prompt ? "naming prompt opened" : "no prompt: the drop did nothing",
+          );
+          if (prompt) {
+            await page.screenshot({
+              path: path.join(SHOTS, "regroup-prompt.png"),
+              fullPage: true,
+            });
+            await page.keyboard.press("Escape");
+          }
+        }
+      }
     }
 
     // ================================================================

@@ -46,6 +46,16 @@ export type DropTarget =
 export interface DragState {
   factorId: string;
   categoryKey: string;
+  /**
+   * The theme this note is currently IN, when it is in one.
+   *
+   * A note in a theme is dragged to REGROUP it — that is the only reason to
+   * pick it up, since its position on the wall is its theme's. So the source's
+   * own theme has to be known here: without it, dropping a themed note back on
+   * its own stack would read as "add to that theme" (it is already there) and
+   * the ghost would promise something that cannot happen.
+   */
+  themeId?: string;
   /** The note's own size, so the ghost is the same object, not a generic chip. */
   width: number;
   height: number;
@@ -127,9 +137,14 @@ export function useBoardDrag({ onDrop, allow }: Options) {
       for (const el of stack) {
         if (!(el instanceof HTMLElement)) continue;
 
-        // An existing theme stack: add the note to that theme.
+        // An existing theme stack: add the note to that theme — or, for a note
+        // already in one, MOVE it there.
         const themeId = el.dataset["themeId"];
         if (themeId && allow.stack) {
+          // Its own stack is a no-op, reported as "nowhere" so the ghost says
+          // "release to leave it where it is" rather than offering to add a
+          // note to the theme it is already a member of.
+          if (themeId === source.themeId) return null;
           const categoryKey = el.dataset["themeCategory"] ?? "";
           return { kind: "theme", categoryKey, themeId };
         }
@@ -155,6 +170,22 @@ export function useBoardDrag({ onDrop, allow }: Options) {
           // means the one unambiguous thing — add this note to that theme.
           if (el.dataset["noteThemed"] === "true") continue;
 
+          // A THEMED NOTE IS BEING REGROUPED, SO THE WHOLE TARGET MEANS
+          // "GROUP WITH THIS". The edge bands offer a reorder, and a reorder
+          // is meaningless for a note whose place on the wall is its theme's —
+          // it would leave the note in its group and renumber the category
+          // around it. Skipping the bands also makes the gesture easier to
+          // land: on a 120px tile the middle 40% is a small target to hit
+          // while deliberately pulling a note out of a pile.
+          if (source.themeId) {
+            if (allow.stack && categoryKey === source.categoryKey) {
+              return { kind: "stack", categoryKey, factorId: noteId };
+            }
+            // Another category: fall through to that panel, which pulls it out
+            // of the theme and recategorises it.
+            continue;
+          }
+
           if (where < EDGE_BAND) {
             if (allow.reorder && categoryKey === source.categoryKey) {
               return { kind: "before", categoryKey, factorId: noteId };
@@ -178,7 +209,11 @@ export function useBoardDrag({ onDrop, allow }: Options) {
         const panel = el.dataset["panelCategory"];
         if (panel) {
           if (panel === source.categoryKey) {
-            // Dropped on empty space in its own panel: send it to the end.
+            // Dropped on empty space in its own panel. For a themed note that
+            // is nothing: "send it to the end" would reorder a note whose
+            // position the theme owns, and the note would still be in the
+            // theme, so the gesture would look like it had failed.
+            if (source.themeId) return null;
             return allow.reorder ? { kind: "panel", categoryKey: panel } : null;
           }
           return allow.move ? { kind: "panel", categoryKey: panel } : null;

@@ -348,6 +348,79 @@ runSuite("board-ui", async ({ results: r }) => {
   );
 
   // ================================================================
+  r.section("A note can be taken back out of a theme");
+  // ================================================================
+
+  // UAT: "notes already within a theme could not be dragged out to other
+  // notes to create a new theme". They were deliberately fixed in place —
+  // right about REORDERING (a themed note's position belongs to its theme)
+  // and wrong about REGROUPING, which is the main reason to pick one up.
+  // SCOPED TO ThemeStack'S OWN BODY. Phrased against the whole file,
+  // `canMove={canMove}` also matched the line where Quadrant passes the prop
+  // INTO ThemeStack — so restoring `canMove={false}` on the themed note left
+  // the check green. Verified by doing exactly that.
+  const themeStack = board.slice(board.indexOf("function ThemeStack("));
+  r.ok(
+    themeStack.length > 0 &&
+      /canMove=\{canMove\}/.test(themeStack) &&
+      !/canMove=\{false\}/.test(themeStack) &&
+      /onDragHandle=\{canMove \?/.test(themeStack),
+    "a note inside a theme can be lifted out again",
+  );
+  r.ok(
+    /themeId\?: string/.test(drag),
+    "...and the drag carries the theme it came FROM, so a regroup is distinguishable from a reorder",
+  );
+  r.ok(
+    /themeId === source\.themeId/.test(drag),
+    "...dropping it back on its own stack is a no-op, not an 'add to that theme' that cannot happen",
+  );
+  r.ok(
+    /if \(source\.themeId\) \{[\s\S]{0,400}?kind: "stack"/.test(drag),
+    "...the whole of a target note means 'group with this', since a reorder is meaningless for a themed note",
+  );
+  r.ok(
+    /canDetach/.test(board) && /only note in its theme/.test(board),
+    "a theme cannot be emptied by dragging its last note away — an empty theme cites nothing",
+  );
+  // ORDER MATTERS AND IS NOT ARBITRARY: the note joins its new home before it
+  // leaves the old one, so a failure leaves it grouped as it was rather than
+  // in no theme at all.
+  r.ok(
+    /mutateAsync\([\s\S]{0,200}?\.then\(\(\) => \(from \? detach/.test(board),
+    "...and it joins the new theme BEFORE leaving the old one, so a failure cannot orphan it",
+  );
+  r.ok(
+    /detach: \{ themeId: source\.themeId, factorId: source\.factorId \}/.test(board) &&
+      /if \(leaving\) void detach/.test(board),
+    "...a new theme is created first and only then does the note leave its old one",
+  );
+  // The × inside a stack was revealed by `group-hover` with no `group`
+  // ancestor, so it appeared on keyboard focus and NEVER on hover: with a
+  // mouse there was no way out of a theme at all.
+  r.ok(
+    /className="group relative"/.test(board),
+    "the 'take it out of this theme' control has a group ancestor, so hovering reveals it",
+  );
+  // Two controls that were rendered and wired to nothing.
+  r.ok(
+    /onSave=\{\(input\) => onSave\(f\.id, input\)\}/.test(board),
+    "editing a note inside a theme really saves it, instead of discarding what was typed",
+  );
+  r.ok(
+    /editable && onDelete/.test(note),
+    "...and no bin is drawn where deleting is not the action",
+  );
+  r.ok(
+    /fromTheme/.test(board) && /Out of this \$\{label\}/.test(board),
+    "the ghost says the note is LEAVING its theme, so the drop is not a surprise",
+  );
+  r.ok(
+    /drag one out of a group/.test(board),
+    "...and the board's own instructions mention it, because an undiscoverable gesture is not one",
+  );
+
+  // ================================================================
   r.section("Reordering is the facilitator's");
   // ================================================================
 
