@@ -16,9 +16,15 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
-  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* INDIRECTED THROUGH A RAW VARIABLE, exactly like every colour below, and
+     for the same reason. `@theme inline` inlines the DECLARED VALUE into the
+     generated utility, so `--font-display: "X"` would compile `font-display`
+     to the literal face and a skin could never change it. Pointing at
+     `--display-family` compiles it to `font-family: var(--display-family)`,
+     which a skin's own block then redefines. */
+  --font-display: var(--display-family);
+  --font-sans: var(--body-family);
+  --font-mono: var(--mono-family);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -76,6 +82,21 @@
 }
 
 :root {
+  /* ---- TYPE ----
+     The default pairing, and therefore the "console" skin's pairing: a
+     transitional serif for headings over a humanist sans for everything else.
+     That is the register of a printed strategy document, which is what the
+     readers of this app's output are used to.
+     It replaces Space Grotesk / DM Sans. Space Grotesk is a geometric
+     grotesque — single-storey `a`, squared bowls, the face of a developer
+     tool — and it was reported as reading "for techies", correctly.
+     A skin may override both; see the identity blocks below. */
+  --display-family: "Source Serif 4", "Source Serif Pro", Georgia, "Times New Roman", serif;
+  --body-family: "Source Sans 3", "Source Sans Pro", ui-sans-serif, system-ui, sans-serif;
+  /* Mono is NOT part of a skin's identity: it is reserved for figures, ids and
+     timestamps, where the job is columns that line up rather than character. */
+  --mono-family: "IBM Plex Mono", ui-monospace, monospace;
+
   --radius: 0.5rem;
   --background: oklch(0.19 0.026 258);
   --foreground: oklch(0.95 0.008 250);
@@ -155,7 +176,12 @@
   h3,
   h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.015em;
+    /* Was -0.015em, which was tuned for a geometric sans. A serif's
+       sidebearings are already part of its drawing, and tightening it that far
+       closes up the serifs; near-neutral tracking is what keeps a serif
+       heading from looking crammed. */
+    letter-spacing: -0.004em;
+    text-wrap: balance;
   }
 }
 
@@ -166,10 +192,17 @@
   box-shadow: var(--shadow-console);
 }
 
+/* The small uppercase label that heads most panels.
+   It was set in the MONO face, and that single decision did much of the work
+   of making the app read as a developer console: every panel, every stat, every
+   section was titled in a typewriter face. It is now the body sans, tracked and
+   in a heavier weight, which is the same device a report uses for a standfirst.
+   Mono stays where it earns its keep — figures and ids. */
 @utility label-caps {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 0.6875rem;
-  letter-spacing: 0.12em;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-muted-foreground);
 }
@@ -280,261 +313,362 @@
 
    Keep the swatches in src/lib/skins.ts in step with the primary / accent /
    background of each block below — they are what the picker previews.
+
+   ---- THREE AXES, NOT ONE ----
+
+   The five skins were reported as "hardly noticeable", and that was fair: they
+   differed in HUE alone. Every one of them put a 0.165-0.19 ground under a
+   0.97 paper, at the same near-zero neutral chroma, the same border contrast
+   and the same corner radius — so changing skin moved the accent and nothing
+   else. A skin now carries three things:
+
+     1. TYPE      — the display and body faces (identity block, below)
+     2. GEOMETRY  — the corner radius (identity block, below)
+     3. COLOUR    — the two palettes (the .dark / .light blocks)
+
+   and the palettes themselves now differ in ground lightness and in neutral
+   temperature, not only in where the accent sits on the wheel.
+
+   Type and geometry do not change between day and night, so they live in a
+   block with NO mode class:
+
+     html[data-skin="boardroom"]        -> its faces and its radius
+     html[data-skin="boardroom"].dark   -> its night palette
+     html[data-skin="boardroom"].light  -> its day palette
+
+   Specificity (0,1,1) still beats `:root` (0,1,0), and keeping them out of the
+   mode blocks is what lets tests/suites/skins.js go on comparing those blocks
+   token-for-token: they stay colour-only.
    ============================================================ */
+
+/* ---- Identity: the faces and the geometry, one declaration per skin ----
+
+   `console` is absent on purpose, as everywhere else: it is the `:root`
+   serif/sans pairing and the 0.5rem radius. */
+
+html[data-skin="boardroom"] {
+  /* Baskerville is the face of printed board papers and annual reports; Libre
+     Franklin is the Franklin Gothic the same documents set their tables in. */
+  --display-family: "Libre Baskerville", "Baskerville", Georgia, serif;
+  --body-family: "Libre Franklin", ui-sans-serif, system-ui, sans-serif;
+  /* Nearly square. A printed document has corners. */
+  --radius: 0.1875rem;
+}
+
+html[data-skin="studio"] {
+  /* A slab and a soft grotesque: flipchart marker and workshop handout. */
+  --display-family: "Zilla Slab", "Rockwell", Georgia, serif;
+  --body-family: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+  /* The roundest of the five — this is the sticky-note skin. */
+  --radius: 0.875rem;
+}
+
+html[data-skin="signal"] {
+  /* One tight grotesque for headings, one neutral workhorse for text, so
+     nothing in the typography competes with the figures. */
+  --display-family: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --body-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  /* Almost none. Sharp corners read as instrumentation. */
+  --radius: 0.125rem;
+}
+
+html[data-skin="meridian"] {
+  /* Spectral was drawn for long-form reading on screen; Karla's slightly odd
+     grotesque keeps it from reading as another corporate deck. */
+  --display-family: "Spectral", Georgia, serif;
+  --body-family: "Karla", ui-sans-serif, system-ui, sans-serif;
+  --radius: 0.625rem;
+}
 
 /* ---- 2. Boardroom — navy and brass. Blue-chip, understated, the palette of
      a printed strategy document rather than a product UI. ---- */
 
+/* The DARKEST and most saturated navy of the five, with brass. The surfaces
+   barely separate from the ground and the borders are quiet, so a page reads
+   as one printed sheet rather than a stack of cards. */
+
 html[data-skin="boardroom"].dark {
-  --background: oklch(0.17 0.02 265);
-  --foreground: oklch(0.94 0.008 260);
-  --card: oklch(0.215 0.022 265);
-  --card-foreground: oklch(0.94 0.008 260);
-  --elevated: oklch(0.26 0.024 265);
-  --popover: oklch(0.215 0.022 265);
-  --popover-foreground: oklch(0.94 0.008 260);
-  --primary: oklch(0.76 0.11 85);
-  --primary-foreground: oklch(0.18 0.02 265);
-  --secondary: oklch(0.285 0.024 265);
-  --secondary-foreground: oklch(0.93 0.008 260);
-  --muted: oklch(0.265 0.022 265);
-  --muted-foreground: oklch(0.72 0.018 262);
-  --accent: oklch(0.70 0.10 250);
-  --accent-foreground: oklch(0.17 0.02 265);
-  --border: oklch(0.30 0.022 265);
-  --border-strong: oklch(0.40 0.026 265);
-  --input: oklch(0.30 0.022 265);
-  --ring: oklch(0.76 0.11 85);
-  --sidebar: oklch(0.145 0.018 265);
-  --sidebar-foreground: oklch(0.90 0.012 260);
-  --sidebar-primary: oklch(0.76 0.11 85);
-  --sidebar-primary-foreground: oklch(0.18 0.02 265);
-  --sidebar-accent: oklch(0.245 0.022 265);
-  --sidebar-accent-foreground: oklch(0.94 0.008 260);
-  --sidebar-border: oklch(0.265 0.02 265);
-  --sidebar-ring: oklch(0.76 0.11 85);
+  --background: oklch(0.145 0.032 264);
+  --foreground: oklch(0.945 0.012 262);
+  --card: oklch(0.185 0.034 264);
+  --card-foreground: oklch(0.945 0.012 262);
+  --elevated: oklch(0.225 0.036 264);
+  --popover: oklch(0.185 0.034 264);
+  --popover-foreground: oklch(0.945 0.012 262);
+  --primary: oklch(0.80 0.125 84);
+  --primary-foreground: oklch(0.155 0.032 264);
+  --secondary: oklch(0.25 0.036 264);
+  --secondary-foreground: oklch(0.935 0.012 262);
+  --muted: oklch(0.23 0.034 264);
+  --muted-foreground: oklch(0.70 0.026 262);
+  --accent: oklch(0.66 0.115 252);
+  --accent-foreground: oklch(0.145 0.032 264);
+  --border: oklch(0.275 0.034 264);
+  --border-strong: oklch(0.40 0.040 264);
+  --input: oklch(0.275 0.034 264);
+  --ring: oklch(0.80 0.125 84);
+  --sidebar: oklch(0.115 0.028 264);
+  --sidebar-foreground: oklch(0.90 0.016 262);
+  --sidebar-primary: oklch(0.80 0.125 84);
+  --sidebar-primary-foreground: oklch(0.155 0.032 264);
+  --sidebar-accent: oklch(0.215 0.034 264);
+  --sidebar-accent-foreground: oklch(0.945 0.012 262);
+  --sidebar-border: oklch(0.24 0.032 264);
+  --sidebar-ring: oklch(0.80 0.125 84);
 }
 
+/* Ivory stock, not white paper: a visible warm cast at h=88 against pure-white
+   cards, so the page has the colour of a board pack. */
+
 html[data-skin="boardroom"].light {
-  --background: oklch(0.975 0.006 85);
-  --foreground: oklch(0.22 0.025 265);
+  --background: oklch(0.962 0.018 88);
+  --foreground: oklch(0.205 0.030 264);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.025 265);
-  --elevated: oklch(0.955 0.008 85);
+  --card-foreground: oklch(0.205 0.030 264);
+  --elevated: oklch(0.938 0.022 88);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.025 265);
-  --primary: oklch(0.50 0.085 80);
-  --primary-foreground: oklch(0.99 0.004 85);
-  --secondary: oklch(0.935 0.009 85);
-  --secondary-foreground: oklch(0.26 0.025 265);
-  --muted: oklch(0.945 0.008 85);
-  --muted-foreground: oklch(0.47 0.022 262);
-  --accent: oklch(0.43 0.10 255);
-  --accent-foreground: oklch(0.99 0.004 85);
-  --border: oklch(0.88 0.010 85);
-  --border-strong: oklch(0.79 0.014 85);
-  --input: oklch(0.88 0.010 85);
-  --ring: oklch(0.50 0.085 80);
-  --sidebar: oklch(0.99 0.004 85);
-  --sidebar-foreground: oklch(0.26 0.025 265);
-  --sidebar-primary: oklch(0.50 0.085 80);
-  --sidebar-primary-foreground: oklch(0.99 0.004 85);
-  --sidebar-accent: oklch(0.935 0.009 85);
-  --sidebar-accent-foreground: oklch(0.22 0.025 265);
-  --sidebar-border: oklch(0.89 0.010 85);
-  --sidebar-ring: oklch(0.50 0.085 80);
+  --popover-foreground: oklch(0.205 0.030 264);
+  --primary: oklch(0.465 0.095 78);
+  --primary-foreground: oklch(0.99 0.008 88);
+  --secondary: oklch(0.925 0.022 88);
+  --secondary-foreground: oklch(0.25 0.030 264);
+  --muted: oklch(0.935 0.020 88);
+  --muted-foreground: oklch(0.455 0.028 262);
+  --accent: oklch(0.355 0.105 258);
+  --accent-foreground: oklch(0.99 0.008 88);
+  --border: oklch(0.855 0.024 88);
+  --border-strong: oklch(0.745 0.030 88);
+  --input: oklch(0.855 0.024 88);
+  --ring: oklch(0.465 0.095 78);
+  --sidebar: oklch(0.985 0.012 88);
+  --sidebar-foreground: oklch(0.25 0.030 264);
+  --sidebar-primary: oklch(0.465 0.095 78);
+  --sidebar-primary-foreground: oklch(0.99 0.008 88);
+  --sidebar-accent: oklch(0.925 0.022 88);
+  --sidebar-accent-foreground: oklch(0.205 0.030 264);
+  --sidebar-border: oklch(0.87 0.022 88);
+  --sidebar-ring: oklch(0.465 0.095 78);
 }
 
 /* ---- 3. Studio — ink on paper, with a burnt-orange marker and a sage
      counterpoint. The workshop-materials palette: flipcharts and sticky
      notes rather than dashboards. ---- */
 
+/* The LIGHTEST and warmest of the dark palettes — a brown-black, not a
+   blue-black, and two full steps up from boardroom's ground. The neutrals
+   carry real chroma (0.03 at h=42) so the surfaces read as card and kraft
+   rather than as unsaturated grey that happens to be warm. */
+
 html[data-skin="studio"].dark {
-  --background: oklch(0.175 0.012 40);
-  --foreground: oklch(0.945 0.008 60);
-  --card: oklch(0.22 0.014 40);
-  --card-foreground: oklch(0.945 0.008 60);
-  --elevated: oklch(0.265 0.016 40);
-  --popover: oklch(0.22 0.014 40);
-  --popover-foreground: oklch(0.945 0.008 60);
-  --primary: oklch(0.73 0.145 52);
-  --primary-foreground: oklch(0.18 0.015 40);
-  --secondary: oklch(0.29 0.016 40);
-  --secondary-foreground: oklch(0.935 0.008 60);
-  --muted: oklch(0.27 0.014 40);
-  --muted-foreground: oklch(0.72 0.016 55);
-  --accent: oklch(0.76 0.10 150);
-  --accent-foreground: oklch(0.18 0.015 40);
-  --border: oklch(0.31 0.014 40);
-  --border-strong: oklch(0.41 0.018 40);
-  --input: oklch(0.31 0.014 40);
-  --ring: oklch(0.73 0.145 52);
-  --sidebar: oklch(0.15 0.011 40);
-  --sidebar-foreground: oklch(0.90 0.010 60);
-  --sidebar-primary: oklch(0.73 0.145 52);
-  --sidebar-primary-foreground: oklch(0.18 0.015 40);
-  --sidebar-accent: oklch(0.25 0.014 40);
-  --sidebar-accent-foreground: oklch(0.945 0.008 60);
-  --sidebar-border: oklch(0.27 0.013 40);
-  --sidebar-ring: oklch(0.73 0.145 52);
+  --background: oklch(0.215 0.030 42);
+  --foreground: oklch(0.955 0.014 68);
+  --card: oklch(0.262 0.032 42);
+  --card-foreground: oklch(0.955 0.014 68);
+  --elevated: oklch(0.308 0.034 42);
+  --popover: oklch(0.262 0.032 42);
+  --popover-foreground: oklch(0.955 0.014 68);
+  --primary: oklch(0.745 0.165 50);
+  --primary-foreground: oklch(0.205 0.030 42);
+  --secondary: oklch(0.335 0.032 42);
+  --secondary-foreground: oklch(0.945 0.014 68);
+  --muted: oklch(0.312 0.030 42);
+  --muted-foreground: oklch(0.755 0.028 62);
+  --accent: oklch(0.755 0.105 152);
+  --accent-foreground: oklch(0.205 0.030 42);
+  --border: oklch(0.365 0.030 42);
+  --border-strong: oklch(0.47 0.036 42);
+  --input: oklch(0.365 0.030 42);
+  --ring: oklch(0.745 0.165 50);
+  --sidebar: oklch(0.185 0.026 42);
+  --sidebar-foreground: oklch(0.915 0.018 68);
+  --sidebar-primary: oklch(0.745 0.165 50);
+  --sidebar-primary-foreground: oklch(0.205 0.030 42);
+  --sidebar-accent: oklch(0.295 0.030 42);
+  --sidebar-accent-foreground: oklch(0.955 0.014 68);
+  --sidebar-border: oklch(0.32 0.028 42);
+  --sidebar-ring: oklch(0.745 0.165 50);
 }
 
+/* Cream, and unmistakably so: the most saturated paper of the five, with the
+   cards only barely lighter than it, which is how a pad of sticky notes on a
+   table actually looks. */
+
 html[data-skin="studio"].light {
-  --background: oklch(0.965 0.013 75);
-  --foreground: oklch(0.235 0.018 40);
-  --card: oklch(0.995 0.005 75);
-  --card-foreground: oklch(0.235 0.018 40);
-  --elevated: oklch(0.945 0.015 75);
-  --popover: oklch(0.995 0.005 75);
-  --popover-foreground: oklch(0.235 0.018 40);
-  --primary: oklch(0.53 0.145 46);
-  --primary-foreground: oklch(0.99 0.005 75);
-  --secondary: oklch(0.93 0.016 75);
-  --secondary-foreground: oklch(0.28 0.018 40);
-  --muted: oklch(0.94 0.014 75);
-  --muted-foreground: oklch(0.47 0.020 50);
-  --accent: oklch(0.44 0.09 152);
-  --accent-foreground: oklch(0.99 0.005 75);
-  --border: oklch(0.885 0.015 75);
-  --border-strong: oklch(0.79 0.018 75);
-  --input: oklch(0.885 0.015 75);
-  --ring: oklch(0.53 0.145 46);
-  --sidebar: oklch(0.98 0.010 75);
-  --sidebar-foreground: oklch(0.28 0.018 40);
-  --sidebar-primary: oklch(0.53 0.145 46);
-  --sidebar-primary-foreground: oklch(0.99 0.005 75);
-  --sidebar-accent: oklch(0.93 0.016 75);
-  --sidebar-accent-foreground: oklch(0.235 0.018 40);
-  --sidebar-border: oklch(0.895 0.014 75);
-  --sidebar-ring: oklch(0.53 0.145 46);
+  --background: oklch(0.948 0.030 84);
+  --foreground: oklch(0.255 0.032 42);
+  --card: oklch(0.985 0.016 84);
+  --card-foreground: oklch(0.255 0.032 42);
+  --elevated: oklch(0.922 0.034 84);
+  --popover: oklch(0.985 0.016 84);
+  --popover-foreground: oklch(0.255 0.032 42);
+  --primary: oklch(0.525 0.165 44);
+  --primary-foreground: oklch(0.99 0.012 84);
+  --secondary: oklch(0.908 0.034 84);
+  --secondary-foreground: oklch(0.30 0.032 42);
+  --muted: oklch(0.918 0.032 84);
+  --muted-foreground: oklch(0.475 0.034 52);
+  --accent: oklch(0.425 0.095 152);
+  --accent-foreground: oklch(0.99 0.012 84);
+  --border: oklch(0.838 0.036 84);
+  --border-strong: oklch(0.725 0.042 84);
+  --input: oklch(0.838 0.036 84);
+  --ring: oklch(0.525 0.165 44);
+  --sidebar: oklch(0.972 0.022 84);
+  --sidebar-foreground: oklch(0.30 0.032 42);
+  --sidebar-primary: oklch(0.525 0.165 44);
+  --sidebar-primary-foreground: oklch(0.99 0.012 84);
+  --sidebar-accent: oklch(0.908 0.034 84);
+  --sidebar-accent-foreground: oklch(0.255 0.032 42);
+  --sidebar-border: oklch(0.855 0.034 84);
+  --sidebar-ring: oklch(0.525 0.165 44);
 }
 
 /* ---- 4. Signal — almost no hue in the neutrals, so the one accent carries
      everything. For analysis-heavy screens where the data should be the only
      coloured thing on the page. ---- */
 
+/* TRUE GREY — chroma 0, not a tinted neutral pretending to be one. Every other
+   skin's "grey" carries a cast; this one has none at all, which is the whole
+   claim of the skin: if something on the page has colour, it is data. The
+   ground is also the near-black end of the range, so the one accent reads at
+   full strength against it. */
+
 html[data-skin="signal"].dark {
-  --background: oklch(0.165 0.004 285);
-  --foreground: oklch(0.955 0.002 285);
-  --card: oklch(0.215 0.005 285);
-  --card-foreground: oklch(0.955 0.002 285);
-  --elevated: oklch(0.26 0.006 285);
-  --popover: oklch(0.215 0.005 285);
-  --popover-foreground: oklch(0.955 0.002 285);
-  --primary: oklch(0.71 0.18 295);
-  --primary-foreground: oklch(0.17 0.008 285);
-  --secondary: oklch(0.285 0.006 285);
-  --secondary-foreground: oklch(0.945 0.002 285);
-  --muted: oklch(0.265 0.005 285);
-  --muted-foreground: oklch(0.72 0.005 285);
-  --accent: oklch(0.81 0.15 95);
-  --accent-foreground: oklch(0.18 0.01 285);
-  --border: oklch(0.30 0.005 285);
-  --border-strong: oklch(0.41 0.006 285);
-  --input: oklch(0.30 0.005 285);
-  --ring: oklch(0.71 0.18 295);
-  --sidebar: oklch(0.14 0.004 285);
-  --sidebar-foreground: oklch(0.90 0.003 285);
-  --sidebar-primary: oklch(0.71 0.18 295);
-  --sidebar-primary-foreground: oklch(0.17 0.008 285);
-  --sidebar-accent: oklch(0.245 0.005 285);
-  --sidebar-accent-foreground: oklch(0.955 0.002 285);
-  --sidebar-border: oklch(0.265 0.005 285);
-  --sidebar-ring: oklch(0.71 0.18 295);
+  --background: oklch(0.125 0 0);
+  --foreground: oklch(0.965 0 0);
+  --card: oklch(0.175 0 0);
+  --card-foreground: oklch(0.965 0 0);
+  --elevated: oklch(0.225 0 0);
+  --popover: oklch(0.175 0 0);
+  --popover-foreground: oklch(0.965 0 0);
+  --primary: oklch(0.705 0.205 296);
+  --primary-foreground: oklch(0.13 0 0);
+  --secondary: oklch(0.255 0 0);
+  --secondary-foreground: oklch(0.955 0 0);
+  --muted: oklch(0.235 0 0);
+  --muted-foreground: oklch(0.715 0 0);
+  --accent: oklch(0.835 0.165 92);
+  --accent-foreground: oklch(0.14 0 0);
+  --border: oklch(0.285 0 0);
+  --border-strong: oklch(0.42 0 0);
+  --input: oklch(0.285 0 0);
+  --ring: oklch(0.705 0.205 296);
+  --sidebar: oklch(0.095 0 0);
+  --sidebar-foreground: oklch(0.90 0 0);
+  --sidebar-primary: oklch(0.705 0.205 296);
+  --sidebar-primary-foreground: oklch(0.13 0 0);
+  --sidebar-accent: oklch(0.21 0 0);
+  --sidebar-accent-foreground: oklch(0.965 0 0);
+  --sidebar-border: oklch(0.25 0 0);
+  --sidebar-ring: oklch(0.705 0.205 296);
 }
 
+/* White paper and hairline rules: the lightest, flattest day palette of the
+   five, with the strongest border contrast so a table reads without needing
+   fills. */
+
 html[data-skin="signal"].light {
-  --background: oklch(0.98 0.002 285);
-  --foreground: oklch(0.215 0.006 285);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.18 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.215 0.006 285);
-  --elevated: oklch(0.96 0.003 285);
+  --card-foreground: oklch(0.18 0 0);
+  --elevated: oklch(0.965 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.215 0.006 285);
-  --primary: oklch(0.51 0.20 295);
-  --primary-foreground: oklch(0.99 0.002 285);
-  --secondary: oklch(0.945 0.003 285);
-  --secondary-foreground: oklch(0.255 0.006 285);
-  --muted: oklch(0.955 0.003 285);
-  --muted-foreground: oklch(0.46 0.006 285);
-  --accent: oklch(0.56 0.13 85);
-  --accent-foreground: oklch(0.99 0.002 285);
-  --border: oklch(0.90 0.004 285);
-  --border-strong: oklch(0.81 0.005 285);
-  --input: oklch(0.90 0.004 285);
-  --ring: oklch(0.51 0.20 295);
-  --sidebar: oklch(0.995 0.001 285);
-  --sidebar-foreground: oklch(0.255 0.006 285);
-  --sidebar-primary: oklch(0.51 0.20 295);
-  --sidebar-primary-foreground: oklch(0.99 0.002 285);
-  --sidebar-accent: oklch(0.945 0.003 285);
-  --sidebar-accent-foreground: oklch(0.215 0.006 285);
-  --sidebar-border: oklch(0.91 0.004 285);
-  --sidebar-ring: oklch(0.51 0.20 295);
+  --popover-foreground: oklch(0.18 0 0);
+  --primary: oklch(0.49 0.215 296);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.955 0 0);
+  --secondary-foreground: oklch(0.23 0 0);
+  --muted: oklch(0.965 0 0);
+  --muted-foreground: oklch(0.455 0 0);
+  --accent: oklch(0.545 0.14 84);
+  --accent-foreground: oklch(1 0 0);
+  --border: oklch(0.855 0 0);
+  --border-strong: oklch(0.72 0 0);
+  --input: oklch(0.855 0 0);
+  --ring: oklch(0.49 0.215 296);
+  --sidebar: oklch(0.98 0 0);
+  --sidebar-foreground: oklch(0.23 0 0);
+  --sidebar-primary: oklch(0.49 0.215 296);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.945 0 0);
+  --sidebar-accent-foreground: oklch(0.18 0 0);
+  --sidebar-border: oklch(0.885 0 0);
+  --sidebar-ring: oklch(0.49 0.215 296);
 }
 
 /* ---- 5. Meridian — deep teal with warm sand. Reads as operations and
      sustainability work rather than finance, and is the one skin here with no
      blue-grey anywhere in it. ---- */
 
+/* The most CHROMATIC neutrals of the five: at 0.045 the ground is a dark teal
+   you can name, not a grey with a hint. Studio is the warm extreme of that
+   same idea and signal is the zero; between them the three are told apart
+   without having to compare accents. */
+
 html[data-skin="meridian"].dark {
-  --background: oklch(0.175 0.022 195);
-  --foreground: oklch(0.945 0.010 190);
-  --card: oklch(0.22 0.024 195);
-  --card-foreground: oklch(0.945 0.010 190);
-  --elevated: oklch(0.265 0.026 195);
-  --popover: oklch(0.22 0.024 195);
-  --popover-foreground: oklch(0.945 0.010 190);
-  --primary: oklch(0.77 0.12 172);
-  --primary-foreground: oklch(0.18 0.025 195);
-  --secondary: oklch(0.29 0.026 195);
-  --secondary-foreground: oklch(0.935 0.010 190);
-  --muted: oklch(0.27 0.024 195);
-  --muted-foreground: oklch(0.72 0.020 190);
-  --accent: oklch(0.81 0.12 72);
-  --accent-foreground: oklch(0.18 0.025 195);
-  --border: oklch(0.305 0.024 195);
-  --border-strong: oklch(0.405 0.028 195);
-  --input: oklch(0.305 0.024 195);
-  --ring: oklch(0.77 0.12 172);
-  --sidebar: oklch(0.15 0.020 195);
-  --sidebar-foreground: oklch(0.90 0.012 190);
-  --sidebar-primary: oklch(0.77 0.12 172);
-  --sidebar-primary-foreground: oklch(0.18 0.025 195);
-  --sidebar-accent: oklch(0.25 0.024 195);
-  --sidebar-accent-foreground: oklch(0.945 0.010 190);
-  --sidebar-border: oklch(0.27 0.022 195);
-  --sidebar-ring: oklch(0.77 0.12 172);
+  --background: oklch(0.168 0.045 194);
+  --foreground: oklch(0.950 0.018 186);
+  --card: oklch(0.212 0.048 194);
+  --card-foreground: oklch(0.950 0.018 186);
+  --elevated: oklch(0.258 0.050 194);
+  --popover: oklch(0.212 0.048 194);
+  --popover-foreground: oklch(0.950 0.018 186);
+  --primary: oklch(0.805 0.145 168);
+  --primary-foreground: oklch(0.165 0.045 194);
+  --secondary: oklch(0.285 0.048 194);
+  --secondary-foreground: oklch(0.940 0.018 186);
+  --muted: oklch(0.262 0.046 194);
+  --muted-foreground: oklch(0.735 0.032 186);
+  --accent: oklch(0.845 0.135 74);
+  --accent-foreground: oklch(0.165 0.045 194);
+  --border: oklch(0.315 0.046 194);
+  --border-strong: oklch(0.425 0.052 194);
+  --input: oklch(0.315 0.046 194);
+  --ring: oklch(0.805 0.145 168);
+  --sidebar: oklch(0.132 0.038 194);
+  --sidebar-foreground: oklch(0.905 0.024 186);
+  --sidebar-primary: oklch(0.805 0.145 168);
+  --sidebar-primary-foreground: oklch(0.165 0.045 194);
+  --sidebar-accent: oklch(0.242 0.046 194);
+  --sidebar-accent-foreground: oklch(0.950 0.018 186);
+  --sidebar-border: oklch(0.272 0.044 194);
+  --sidebar-ring: oklch(0.805 0.145 168);
 }
 
+/* A cool mint paper rather than a white one, so the day mode is recognisably
+   the same skin as the night mode — which is the fault the old set shared:
+   five dark palettes you could tell apart, and five day palettes that were
+   all off-white. */
+
 html[data-skin="meridian"].light {
-  --background: oklch(0.97 0.009 170);
-  --foreground: oklch(0.225 0.028 195);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.225 0.028 195);
-  --elevated: oklch(0.95 0.011 170);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.225 0.028 195);
-  --primary: oklch(0.46 0.095 175);
-  --primary-foreground: oklch(0.99 0.004 170);
-  --secondary: oklch(0.935 0.012 170);
-  --secondary-foreground: oklch(0.265 0.028 195);
-  --muted: oklch(0.945 0.010 170);
-  --muted-foreground: oklch(0.465 0.024 190);
-  --accent: oklch(0.53 0.105 68);
-  --accent-foreground: oklch(0.99 0.004 170);
-  --border: oklch(0.885 0.013 170);
-  --border-strong: oklch(0.79 0.016 170);
-  --input: oklch(0.885 0.013 170);
-  --ring: oklch(0.46 0.095 175);
-  --sidebar: oklch(0.99 0.005 170);
-  --sidebar-foreground: oklch(0.265 0.028 195);
-  --sidebar-primary: oklch(0.46 0.095 175);
-  --sidebar-primary-foreground: oklch(0.99 0.004 170);
-  --sidebar-accent: oklch(0.935 0.012 170);
-  --sidebar-accent-foreground: oklch(0.225 0.028 195);
-  --sidebar-border: oklch(0.895 0.012 170);
-  --sidebar-ring: oklch(0.46 0.095 175);
+  --background: oklch(0.958 0.026 172);
+  --foreground: oklch(0.205 0.042 194);
+  --card: oklch(0.995 0.008 172);
+  --card-foreground: oklch(0.205 0.042 194);
+  --elevated: oklch(0.932 0.030 172);
+  --popover: oklch(0.995 0.008 172);
+  --popover-foreground: oklch(0.205 0.042 194);
+  --primary: oklch(0.445 0.105 172);
+  --primary-foreground: oklch(0.99 0.008 172);
+  --secondary: oklch(0.918 0.030 172);
+  --secondary-foreground: oklch(0.248 0.042 194);
+  --muted: oklch(0.928 0.028 172);
+  --muted-foreground: oklch(0.452 0.036 186);
+  --accent: oklch(0.505 0.115 66);
+  --accent-foreground: oklch(0.99 0.008 172);
+  --border: oklch(0.858 0.032 172);
+  --border-strong: oklch(0.742 0.038 172);
+  --input: oklch(0.858 0.032 172);
+  --ring: oklch(0.445 0.105 172);
+  --sidebar: oklch(0.978 0.018 172);
+  --sidebar-foreground: oklch(0.248 0.042 194);
+  --sidebar-primary: oklch(0.445 0.105 172);
+  --sidebar-primary-foreground: oklch(0.99 0.008 172);
+  --sidebar-accent: oklch(0.918 0.030 172);
+  --sidebar-accent-foreground: oklch(0.205 0.042 194);
+  --sidebar-border: oklch(0.872 0.030 172);
+  --sidebar-ring: oklch(0.445 0.105 172);
 }
 
 /* ---- Chrome that has to follow the mode, not the skin ----

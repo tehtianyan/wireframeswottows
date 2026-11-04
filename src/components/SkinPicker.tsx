@@ -22,6 +22,13 @@ import { SKINS, skinByKey } from "@/lib/skins";
 //
 // The swatches preview each skin in the mode you are CURRENTLY in, so what you
 // see in the menu is what you get on the page.
+//
+// Each row is also SET IN THAT SKIN'S OWN DISPLAY FACE, because the faces are
+// part of a skin now and a colour-only preview would hide half of what the
+// choice does. The families are declared from skins.ts rather than from a
+// `font-display` utility: that utility resolves to the face of the skin
+// currently applied, which would set all five rows in the same type and show
+// nothing.
 
 export function SkinPicker() {
   const { skin, setSkin, theme } = useUiPrefs();
@@ -73,11 +80,19 @@ export function SkinPicker() {
 
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className={cn("text-xs", selected && "font-semibold")}>{s.name}</span>
+                  <span
+                    className={cn("text-sm", selected && "font-semibold")}
+                    style={{ fontFamily: s.displayFamily }}
+                  >
+                    {s.name}
+                  </span>
                   {selected && <Check className="size-3 text-primary" />}
                 </span>
                 <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
                   {s.description}
+                </span>
+                <span className="mt-0.5 block font-mono text-[10px] leading-snug text-muted-foreground/80">
+                  {s.typeNote}
                 </span>
               </span>
             </DropdownMenuItem>

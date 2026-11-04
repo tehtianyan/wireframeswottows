@@ -106,9 +106,33 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "stylesheet", href: appCss },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      // Every skin's faces, in one request.
+      //
+      // A skin picks its display and body families (see the identity blocks in
+      // styles.css), so all of them have to be available before anybody has
+      // chosen one. The cost of the ones nobody picks is the @font-face
+      // declarations in this stylesheet and nothing else: a browser downloads
+      // a font file only when something on the page is actually set in it.
+      //
+      // Families are listed alphabetically, which is what the css2 API asks
+      // for. IBM Plex Mono is not a skin choice — it is the figures face in
+      // every skin.
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=DM+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap",
+        href:
+          "https://fonts.googleapis.com/css2" +
+          "?family=Archivo:wght@500;600;700" +
+          "&family=IBM+Plex+Mono:wght@400;500" +
+          "&family=IBM+Plex+Sans:wght@400;500;600" +
+          "&family=Karla:wght@400;500;600" +
+          "&family=Libre+Baskerville:wght@400;700" +
+          "&family=Libre+Franklin:wght@400;500;600;700" +
+          "&family=Source+Sans+3:wght@400;500;600;700" +
+          "&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700" +
+          "&family=Spectral:wght@400;600;700" +
+          "&family=Work+Sans:wght@400;500;600" +
+          "&family=Zilla+Slab:wght@400;500;600;700" +
+          "&display=swap",
       },
       // VITE_BRAND_FAVICON lets a deployment swap the tab icon without
       // replacing a tracked binary in public/. Note that public/ is NOT

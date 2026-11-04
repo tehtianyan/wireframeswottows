@@ -16,7 +16,15 @@ import { fileURLToPath } from "node:url";
 import { runSuite } from "../lib/harness.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const CSS = fs.readFileSync(path.join(ROOT, "src", "styles.css"), "utf8");
+// COMMENTS ARE STRIPPED, and that is not tidiness. styles.css explains each
+// decision beside it, so the prose quotes the very declarations being checked:
+// the comment above the font tokens contains `--font-display: "X"` as the
+// example of what NOT to write, and the one above :root names Space Grotesk as
+// the face that was removed. Both were read as code and failed assertions that
+// the stylesheet in fact satisfies.
+const CSS = fs
+  .readFileSync(path.join(ROOT, "src", "styles.css"), "utf8")
+  .replace(/\/\*[\s\S]*?\*\//g, "");
 const SKINS_TS = fs.readFileSync(path.join(ROOT, "src", "lib", "skins.ts"), "utf8");
 
 /** Custom properties declared inside one `selector { ... }` block. */
@@ -34,6 +42,15 @@ function lightnessOf(selector, token) {
   const body = CSS.slice(i, CSS.indexOf("}", i));
   const m = body.match(new RegExp(`${token}\\s*:\\s*oklch\\(\\s*([0-9.]+)`));
   return m ? Number(m[1]) : null;
+}
+
+/** A token's raw declared value in a block, trimmed, or null. */
+function valueOf(selector, token) {
+  const i = CSS.indexOf(selector + " {");
+  if (i === -1) return null;
+  const body = CSS.slice(i, CSS.indexOf("}", i));
+  const m = body.match(new RegExp(`${token}\\s*:\\s*([^;]+);`));
+  return m ? m[1].trim() : null;
 }
 
 runSuite("skins", async ({ results: r }) => {
@@ -126,6 +143,129 @@ runSuite("skins", async ({ results: r }) => {
       );
     }
   }
+
+  // ---- TYPE IS PART OF A SKIN ----
+  //
+  // The faces have to be reachable THROUGH a variable or the override is inert:
+  // `@theme inline` compiles the declared value straight into the generated
+  // utility, so `--font-display: "Space Grotesk"` makes `font-display` a
+  // literal and no skin block can touch it. That failure is silent — the skin
+  // changes colour and the type does not move — so it is asserted here rather
+  // than trusted.
+  r.section("a skin carries its own type");
+
+  for (const [theme, raw] of [
+    ["--font-display", "--display-family"],
+    ["--font-sans", "--body-family"],
+    ["--font-mono", "--mono-family"],
+  ]) {
+    const declared = valueOf("@theme inline", theme);
+    r.ok(declared === `var(${raw})`,
+      `${theme} points at ${raw} rather than naming a face, so a skin can override it`,
+      declared,
+    );
+  }
+
+  for (const t of ["--display-family", "--body-family", "--mono-family"]) {
+    const v = valueOf(":root", t);
+    r.ok(v !== null && /"/.test(v), `:root declares ${t}`, v);
+  }
+
+  // Report WHERE it was found, not what the root happens to declare: the first
+  // version printed the root family, so a failure caused by a stray
+  // declaration elsewhere in the file reported a value that looked correct.
+  const grotesk = /^.*Space Grotesk.*$/m.exec(CSS);
+  r.ok(grotesk === null,
+    "Space Grotesk is gone — the geometric grotesque that read as a developer tool",
+    grotesk ? `STILL AT: ${grotesk[0].trim()}` : "absent",
+  );
+
+  // The identity block: faces and radius, with no mode class. Colour must stay
+  // out of it, or the token-for-token comparison of the .dark/.light blocks
+  // above stops describing the whole palette.
+  for (const k of styled) {
+    const identity = tokensIn(`html[data-skin="${k}"]`);
+    r.ok(identity !== null, `${k} has an identity block`, identity && [...identity].join(" "));
+    if (!identity) continue;
+    for (const t of ["--display-family", "--body-family", "--radius"]) {
+      r.ok(identity.has(t), `${k} sets its own ${t}`);
+    }
+    const colourish = [...identity].filter(
+      (t) => !["--display-family", "--body-family", "--radius"].includes(t),
+    );
+    r.ok(colourish.length === 0,
+      `${k}'s identity block holds type and geometry only — colour belongs in the two mode blocks`,
+      colourish.length ? `ALSO ${colourish.join(", ")}` : "clean",
+    );
+  }
+
+  r.ok(tokensIn('html[data-skin="console"]') === null,
+    "console has no identity block either: it is the :root pairing and the :root radius",
+  );
+
+  // Each skin's registry entry previews its own face. Hand-kept literals drift,
+  // and a picker that previews the wrong type is worse than one that previews
+  // none — so the family named in skins.ts must be the one styles.css assigns.
+  for (const k of styled) {
+    const css = valueOf(`html[data-skin="${k}"]`, "--display-family");
+    const entry = SKINS_TS.slice(SKINS_TS.indexOf(`key: "${k}"`));
+    // Matched to END OF LINE, not to a literal `,\n`. The first version
+    // required the comma to be followed immediately by a newline and so broke
+    // the moment the working tree held CRLF — four confident failures about
+    // the picker, caused by line endings. `.` excludes \n, so this is the same
+    // match without the assumption.
+    const shown = entry.slice(0, entry.indexOf("swatchDark")).match(/displayFamily:\s*(.+)/);
+    const first = (s) => (s ?? "").split(",")[0].replace(/['"\r]/g, "").trim();
+    r.ok(css !== null && shown !== null && first(css) === first(shown[1]),
+      `${k}'s picker preview names the face the stylesheet actually applies`,
+      `${first(css)} / ${first(shown?.[1] ?? "")}`,
+    );
+  }
+
+  // ---- THE FIVE MUST BE TELLABLE APART ----
+  //
+  // The reported fault was not that a skin was wrong, it was that all five
+  // looked the same: they differed in hue and in nothing else. Hue alone is the
+  // weakest of the available signals, so this asserts the two that are not hue.
+  r.section("the skins are distinguishable, not five hues of one skin");
+
+  const radii = [":root", ...styled.map((k) => `html[data-skin="${k}"]`)].map((s) =>
+    valueOf(s, "--radius"),
+  );
+  r.ok(new Set(radii).size === radii.length,
+    "every skin has its own corner radius",
+    radii.join(" "),
+  );
+
+  const grounds = [
+    lightnessOf(":root", "--background"),
+    ...styled.map((k) => lightnessOf(`html[data-skin="${k}"].dark`, "--background")),
+  ];
+  const spread = Math.max(...grounds) - Math.min(...grounds);
+  r.ok(spread > 0.05,
+    "the dark grounds span a real range of lightness rather than all sitting at one level",
+    `${Math.min(...grounds)}..${Math.max(...grounds)}`,
+  );
+
+  // Neutral chroma is what makes a ground read as teal, as kraft, or as nothing
+  // at all. With every skin near zero, only the accent ever moved.
+  const chromaOf = (selector) => {
+    const v = valueOf(selector, "--background");
+    const m = (v ?? "").match(/oklch\(\s*[0-9.]+\s+([0-9.]+)/);
+    return m ? Number(m[1]) : null;
+  };
+  const chromas = [
+    chromaOf(":root"),
+    ...styled.map((k) => chromaOf(`html[data-skin="${k}"].dark`)),
+  ];
+  r.ok(Math.min(...chromas) === 0,
+    "one skin's neutrals are true grey — chroma 0, not a faint cast",
+    chromas.join(" "),
+  );
+  r.ok(Math.max(...chromas) - Math.min(...chromas) > 0.02,
+    "and the most chromatic ground is far enough from it to be a different material",
+    `${Math.min(...chromas)}..${Math.max(...chromas)}`,
+  );
 
   // ---- the mode-level chrome ----
   r.section("chrome follows the mode, not the skin");
