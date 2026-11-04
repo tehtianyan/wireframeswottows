@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,11 +8,13 @@ import {
   Loader2,
   Plus,
   Radio,
+  Sparkles,
   WifiOff,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { MAX_FACTOR_TITLE, MAX_OBJECT_TITLE } from "@/lib/limits";
 import { useBoardDrag, type DropTarget } from "@/lib/useBoardDrag";
@@ -119,12 +121,25 @@ export function CaptureBoard({
   stage,
   myRole,
   me,
+  aiSlot,
 }: {
   workshopId: string;
   methodology: Methodology;
   stage: MethodologyStage;
   myRole: WorkshopRole;
   me: { user_id: string; name: string } | null;
+  /**
+   * The assistant for THIS stage, rendered inside the focused panel's
+   * composer instead of in a column of its own.
+   *
+   * Passed in as a node, so the board goes on knowing nothing about AI — the
+   * route is still the only place that decides which actions a stage offers,
+   * exactly as when this was StageShell's `aiPanel`. It goes on the FOCUSED
+   * panel only: the functions are stage-scoped, and a capture stage is one
+   * category, so an assistant offered on all four would be answering about the
+   * wrong one on three of them.
+   */
+  aiSlot?: ReactNode;
 }) {
   const queryClient = useQueryClient();
   const [view, setView] = useState<ViewMode>("grid");
@@ -365,7 +380,7 @@ export function CaptureBoard({
     const m = new Map<string, Factor[]>();
     for (const c of methodology.factor_categories) m.set(c.key, []);
     for (const f of factors) {
-      // `archived` is a note "Merge and Fix" folded into a near-duplicate. It
+      // `archived` is a note "Deduplicate and Fix" folded into a near-duplicate. It
       // is kept so the merge can be undone, but it is off the wall — leaving
       // it visible would make a merge look like it had done nothing.
       if (f.state === "rejected" || f.state === "archived") continue;
@@ -568,12 +583,10 @@ export function CaptureBoard({
 
   return (
     <div className="space-y-3">
-      <BoardStatus status={status} present={present} facilitator={facilitator} />
-
-      {/* Tidying the whole wall is the facilitator's job, and the panel hides
-          itself entirely when the methodology has no cleanup prompt. */}
-      <CleanupPanel workshopId={workshopId} stage={stage} isFacilitator={facilitator} />
-
+      {/* ONE ROW, NOT TWO PANELS. The live indicator, who is in the room and
+          the layout toggle were a panel of their own above a panel of their
+          own, which is two panels of chrome between the header and the wall.
+          They are the same information on one line. */}
       <BoardToolbar
         view={view}
         onView={chooseView}
@@ -581,7 +594,14 @@ export function CaptureBoard({
         canReorder={facilitator}
         canStack={contributor && Boolean(themeRoute)}
         themeLabel={themeKind?.label ?? "Theme"}
+        status={status}
+        present={present}
+        facilitator={facilitator}
       />
+
+      {/* Tidying the whole wall is the facilitator's job, and the panel hides
+          itself entirely when the methodology has no cleanup prompt. */}
+      <CleanupPanel workshopId={workshopId} stage={stage} isFacilitator={facilitator} />
 
       <div
         className={cn(
@@ -609,6 +629,7 @@ export function CaptureBoard({
             scores={scores}
             canAdd={canAddTo(category.key)}
             canMove={contributor}
+            {...(category.key === focusedKey && aiSlot ? { assist: aiSlot } : {})}
             drag={dragging.drag}
             target={dragging.target}
             onDragHandle={(f, e, el) =>
@@ -709,6 +730,9 @@ function BoardToolbar({
   canReorder,
   canStack,
   themeLabel,
+  status,
+  present,
+  facilitator,
 }: {
   view: ViewMode;
   onView: (v: ViewMode) => void;
@@ -716,10 +740,16 @@ function BoardToolbar({
   canReorder: boolean;
   canStack: boolean;
   themeLabel: string;
+  status: ChannelStatus;
+  present: PresentPerson[];
+  facilitator: boolean;
 }) {
   return (
-    <section className="console-panel flex flex-wrap items-center justify-between gap-3 px-3.5 py-2">
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
+    <section
+      className="console-panel flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3.5 py-2"
+      data-build="live"
+    >
+      <p className="order-2 w-full text-[11px] leading-relaxed text-muted-foreground lg:order-none lg:w-auto lg:flex-1">
         {canStack && (
           <>
             Drop a note <strong className="font-medium text-foreground">onto another</strong> to
@@ -740,7 +770,15 @@ function BoardToolbar({
           </>
         )}
         {!canStack && !canReorder && "Drag a note to another panel to recategorise it."}
+        {/* The affordance, not a boundary — the create endpoint has never been
+            stage-scoped. It was a line of its own in the status panel. */}
+        {facilitator && " You can add to any panel."}
       </p>
+
+      <div className="flex shrink-0 items-center gap-2.5">
+        <LiveState status={status} />
+        <Presence present={present} />
+      </div>
 
       {/* A toggle, not a breakpoint: which reads better depends on how much is
           on the wall, and that changes during a session. */}
@@ -784,76 +822,125 @@ function BoardToolbar({
   );
 }
 
-function BoardStatus({
-  status,
-  present,
-  facilitator,
+/**
+ * The stage's assistant, on a ✨ beside the box you type notes into.
+ *
+ * The panel passed in is the SAME `AiActionPanel` that used to occupy a column
+ * of the board, unchanged: the renderer choice by declared `output_kind`, the
+ * per-suggestion review, the rate limit and the "only a facilitator or analyst
+ * can add these" refusal all keep working, and a methodology that configures a
+ * new stage function gets it here without this file knowing. Reusing it rather
+ * than writing a composer-sized version is deliberate — a second
+ * implementation of the governance rules is a second place for them to drift.
+ */
+function AssistButton({
+  assist,
+  category,
+  className,
 }: {
-  status: ChannelStatus;
-  present: PresentPerson[];
-  facilitator: boolean;
+  assist: ReactNode;
+  category: FactorCategory;
+  className?: string;
 }) {
   return (
-    <section
-      className="console-panel flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5"
-      data-build="live"
-    >
-      <div className="flex items-center gap-2">
-        {status === "live" ? (
-          <>
-            <Radio className="size-3.5 text-success" />
-            <span className="text-xs text-muted-foreground">
-              Live — notes appear as people add them
-            </span>
-          </>
-        ) : status === "connecting" ? (
-          <>
-            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">Connecting…</span>
-          </>
-        ) : (
-          <>
-            <WifiOff className="size-3.5 text-warning" />
-            {/* Says what is actually true rather than pretending to be live. */}
-            <span className="text-xs text-muted-foreground">
-              Live updates unavailable — refreshing every few seconds instead
-            </span>
-          </>
-        )}
-      </div>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={`Ask the assistant for ${category.name.toLowerCase()} ideas`}
+          className={cn(
+            "shrink-0 rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground",
+            className,
+          )}
+        >
+          <Sparkles className="size-3.5" />
+          <span className="sr-only">Ask the assistant for ideas</span>
+        </button>
+      </PopoverTrigger>
+      {/* The panel brings its own border, radius and shadow as a console panel.
+          Inside a popover that is a second frame around the first, so its
+          chrome is suppressed here rather than made conditional in the panel —
+          this is the only place it is embedded. */}
+      <PopoverContent
+        align="end"
+        side="top"
+        className="max-h-[70vh] w-[22rem] overflow-y-auto p-0 [&>section]:rounded-none [&>section]:border-0 [&>section]:shadow-none"
+      >
+        {assist}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
-      <div className="flex items-center gap-2">
-        {present.length > 0 && (
-          <>
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              In the room
-            </span>
-            <div className="flex -space-x-1.5">
-              {present.slice(0, 6).map((p) => (
-                <span
-                  key={p.user_id}
-                  title={`${p.name} · ${p.role}`}
-                  className="grid size-5 place-items-center rounded-full border border-background bg-elevated font-mono text-[9px] font-semibold text-muted-foreground"
-                >
-                  {p.name
-                    .split(/\s+/)
-                    .map((w) => w[0])
-                    .slice(0, 2)
-                    .join("")
-                    .toUpperCase()}
-                </span>
-              ))}
-            </div>
-            {present.length > 6 && (
-              <span className="text-[10px] text-muted-foreground">+{present.length - 6}</span>
-            )}
-          </>
-        )}
-        {facilitator && (
-          <span className="text-[10px] text-muted-foreground">You can add to any panel</span>
-        )}
-      </div>
-    </section>
+/**
+ * Whether the wall is live, in the smallest honest form.
+ *
+ * It said "Live — notes appear as people add them" in full, which is a sentence
+ * about a steady state that is only interesting when it is NOT true. So the
+ * healthy case is now an icon with the sentence in its tooltip, and the two
+ * degraded cases keep their words: an absent explanation is what makes a board
+ * that has silently stopped updating look like a board where nobody is typing.
+ */
+function LiveState({ status }: { status: ChannelStatus }) {
+  if (status === "live") {
+    return (
+      <span
+        className="flex items-center gap-1.5"
+        title="Live — notes appear as people add them"
+      >
+        <Radio className="size-3.5 text-success" />
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          Live
+        </span>
+      </span>
+    );
+  }
+  if (status === "connecting") {
+    return (
+      <span className="flex items-center gap-1.5">
+        <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+        <span className="text-[11px] text-muted-foreground">Connecting…</span>
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5">
+      <WifiOff className="size-3.5 text-warning" />
+      {/* Says what is actually true rather than pretending to be live. */}
+      <span className="text-[11px] text-muted-foreground">
+        Not live — refreshing every few seconds
+      </span>
+    </span>
+  );
+}
+
+/** Who is here NOW, per the presence channel. An absent dot is honest; a grey one is a guess. */
+function Presence({ present }: { present: PresentPerson[] }) {
+  if (present.length === 0) return null;
+  return (
+    <span
+      className="flex items-center gap-1"
+      title={`In the room: ${present.map((p) => `${p.name} (${p.role})`).join(", ")}`}
+    >
+      <span className="flex -space-x-1.5">
+        {present.slice(0, 5).map((p) => (
+          <span
+            key={p.user_id}
+            className="grid size-5 place-items-center rounded-full border border-background bg-elevated font-mono text-[9px] font-semibold text-muted-foreground"
+          >
+            {p.name
+              .split(/\s+/)
+              .map((w) => w[0])
+              .slice(0, 2)
+              .join("")
+              .toUpperCase()}
+          </span>
+        ))}
+      </span>
+      {present.length > 5 && (
+        <span className="text-[10px] text-muted-foreground">+{present.length - 5}</span>
+      )}
+    </span>
   );
 }
 
@@ -868,6 +955,7 @@ function Quadrant({
   scores,
   canAdd,
   canMove,
+  assist,
   drag,
   target,
   onDragHandle,
@@ -889,6 +977,8 @@ function Quadrant({
   scores: Map<string, NoteScore>;
   canAdd: boolean;
   canMove: boolean;
+  /** The stage's assistant, offered from this panel's composer. */
+  assist?: ReactNode;
   drag: { factorId: string; categoryKey: string } | null;
   target: DropTarget | null;
   onDragHandle: (f: Factor, e: React.PointerEvent, el: HTMLElement) => void;
@@ -941,7 +1031,13 @@ function Quadrant({
             </span>
           )}
         </div>
-        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{count}</span>
+        <div className="flex items-center gap-1.5">
+          {/* An observer or an executive viewer gets no composer, so without
+              this the assistant would have vanished for them when it moved
+              into the composer — a silent loss rather than a decision. */}
+          {assist && !canAdd && <AssistButton assist={assist} category={category} />}
+          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{count}</span>
+        </div>
       </div>
 
       {focused && category.guidance_text && (
@@ -1049,6 +1145,13 @@ function Quadrant({
                 }}
                 className="max-h-24 w-full resize-none bg-transparent text-sm leading-snug outline-none placeholder:text-muted-foreground"
               />
+              {/* THE ASSISTANT, WHERE THE TYPING HAPPENS.
+                  It was a 340px column beside the board — permanent, and
+                  nowhere near the box you are stuck in front of. Here it is
+                  one button, open only while wanted. `type="button"` matters:
+                  it sits inside the add-a-note form, and the default would
+                  submit it. */}
+              {assist && <AssistButton assist={assist} category={category} className="mt-0.5" />}
             </div>
           </form>
         )}

@@ -92,7 +92,7 @@ runSuite("ai-scope", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
   );
   r.ok(
     !capture.functions.some((f) => f.function_key === "duplicate_detection"),
-    "duplicate_detection is gone — 'Merge and Fix' does §4.11's duplicate detection, merge suggestions and language normalization, with an undo",
+    "duplicate_detection is gone — 'Deduplicate and Fix' does §4.11's duplicate detection, merge suggestions and language normalization, with an undo",
   );
 
   // ---- §4.12, the gap in the journeys ----

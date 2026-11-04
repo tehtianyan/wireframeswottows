@@ -1,4 +1,4 @@
-// "Merge and Fix" — the tracked, undoable AI tidy-up of the capture board.
+// "Deduplicate and Fix" — the tracked, undoable AI tidy-up of the capture board.
 //
 // The VALIDATION rules (never merge a cited or voted note, refuse a category
 // from another methodology, keep the good changes alongside a bad one) are

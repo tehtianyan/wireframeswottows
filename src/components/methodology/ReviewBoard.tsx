@@ -52,7 +52,7 @@ export function ReviewBoard({
     queryFn: () => workshopsApi.factors(workshopId),
   });
 
-  // What "Merge and Fix" changed, so an edited note carries its original text
+  // What "Deduplicate and Fix" changed, so an edited note carries its original text
   // at the moment somebody decides whether to approve it. A reviewer approving
   // a sentence the AI wrote should be able to see the sentence a participant
   // wrote — this is where that belongs, not buried in a panel on another tab.

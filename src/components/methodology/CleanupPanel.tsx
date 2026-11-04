@@ -12,8 +12,16 @@ import {
   type MethodologyStage,
 } from "@/lib/api";
 
-// "Merge and Fix" — the facilitator's one-click tidy-up of the capture board,
-// and the record of what it did.
+// "Deduplicate and Fix" — the facilitator's one-click tidy-up of the capture
+// board, and the record of what it did.
+//
+// IT WAS "MERGE AND FIX", AND THE VERB WAS THE PROBLEM. On this board "merge"
+// already means something else and something visible: dropping one note onto
+// another merges them into a THEME. So a button offering to merge read as "do
+// that across the whole wall", which is the opposite of what it does —
+// grouping notes preserves every one of them, while this folds a duplicate
+// away. Facilitators acted on the wrong reading. "Deduplicate" names the
+// actual job and collides with nothing.
 //
 // The panel exists because the changes are APPLIED, not proposed: a wall of
 // notes that quietly rewrote itself would be worse than a messy one. So every
@@ -39,7 +47,11 @@ export function CleanupPanel({
   isFacilitator: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(true);
+  // CLOSED UNTIL THERE IS A REASON. It opened the previous run's full change
+  // list on arrival, so a board whose last tidy-up had been undone weeks ago
+  // still put ~340px of history between the header and the wall. `run` opens
+  // it on success, which is the moment the list is the thing you came for.
+  const [open, setOpen] = useState(false);
 
   const statusQuery = useQuery({
     queryKey: ["ai-status", workshopId, stage.key],
@@ -115,15 +127,38 @@ export function CleanupPanel({
         </div>
         <Button size="sm" onClick={() => run.mutate()} disabled={busy || !configured}>
           {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-          {busy ? "Tidying…" : "Merge and Fix"}
+          {busy ? "Tidying…" : "Deduplicate and Fix"}
         </Button>
       </div>
 
-      <p className="px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground">
-        {configured
-          ? "Fixes typos, clarifies vague notes, moves misplaced ones and folds duplicates together — across every panel at once. Changes are applied straight away, listed below, and any of them can be undone. Nothing is approved and nothing is deleted."
-          : "The AI assistant is not configured on this server, so the board cannot be tidied automatically."}
-      </p>
+      {/* THE EXPLANATION IS BEHIND A DISCLOSURE, not above the board.
+          It is four sentences of first-run guidance sitting permanently
+          between the facilitator and the wall; once you have run it once you
+          know what it does. The refusal, by contrast, always shows — a
+          disabled button with its reason hidden is the thing nobody can
+          diagnose. */}
+      {!configured ? (
+        <p className="px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground">
+          The AI assistant is not configured on this server, so the board cannot be tidied
+          automatically.
+        </p>
+      ) : (
+        <details className="group">
+          <summary className="cursor-pointer list-none px-3.5 py-2 text-[11px] text-muted-foreground hover:text-foreground">
+            What does this change?
+          </summary>
+          <p className="px-3.5 pb-2.5 text-xs leading-relaxed text-muted-foreground">
+            Fixes typos, clarifies vague notes, moves misplaced ones and folds near-duplicates
+            away — across every panel at once. Changes are applied straight away, listed below,
+            and any of them can be undone. Nothing is approved and nothing is deleted.{" "}
+            <strong className="font-medium text-foreground">
+              This is not the same as grouping notes into a theme:
+            </strong>{" "}
+            a duplicate is archived, and a note that a theme already cites is never folded away
+            at all.
+          </p>
+        </details>
+      )}
 
       {latest && (latest.changes.length > 0 || latest.skipped.length > 0) && (
         <div className="border-t border-border">

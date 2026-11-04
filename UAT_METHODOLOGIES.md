@@ -251,7 +251,7 @@ person clicking can confirm, plus the AI one, which needs a real API key.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| DEF-01 | F | Create a brand-new workshop and open its overview | The Participants panel lists **only you**, as facilitator — not the demo workshop's seven people |
+| DEF-01 | F | Create a brand-new workshop, open its overview and click the **Participants** link | The drawer lists **only you**, as facilitator — not the demo workshop's seven people |
 | DEF-02 | F | Open the demo workshop's overview in another tab | It still lists its own seven. The two rosters are independent |
 | DEF-03 | F | In the **new** workshop, invite someone, change their role, then remove them | Every change lands in the new workshop. Re-open the demo workshop and confirm **its** roster is untouched |
 
@@ -263,7 +263,7 @@ person clicking can confirm, plus the AI one, which needs a real API key.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| DEF-04 | F | Read the Participants panel headings and each person's status | It says **joined** / **invited**. Nothing anywhere claims a person is online or currently present |
+| DEF-04 | F | Open the **Participants** drawer and read the headings and each person's status | It says **joined** / **invited**. Nothing anywhere claims a person is online or currently present |
 
 ## D.3 The HTML export
 
@@ -388,7 +388,7 @@ of sticky notes, filling in live as people contribute.
 
 ---
 
-# Part F — "Merge and Fix", the board tidy-up
+# Part F — "Deduplicate and Fix", the board tidy-up
 
 A live capture session leaves a messy wall. One button tidies it: typos fixed,
 vague notes sharpened, misplaced notes moved, duplicates folded together —
@@ -417,9 +417,9 @@ Strengths.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| FIX-01 | F | Look at the capture board as facilitator | A **Tidy the board** panel with a **Merge and Fix** button, above the four panels |
+| FIX-01 | F | Look at the capture board as facilitator | A **Tidy the board** panel with a **Deduplicate and Fix** button, above the four panels |
 | FIX-02 | P | Look at the same board as a participant | **No panel and no button.** Tidying the whole wall is the facilitator's job |
-| FIX-03 | F | Click **Merge and Fix** | The button shows "Tidying…", then a toast saying how many notes were tidied |
+| FIX-03 | F | Click **Deduplicate and Fix** | The button shows "Tidying…", then a toast saying how many notes were tidied |
 | FIX-04 | F | Look at the board afterwards | The typos are fixed, the misplaced note has moved to the right panel, and the duplicate has gone from the wall |
 | FIX-05 | F | Click it on a board with only one note | "There is not enough on the board to tidy up yet" — not an error |
 
@@ -438,7 +438,7 @@ Strengths.
 | FIX-20 | F | Click **Undo** on a single reworded note | The note goes back to its exact original wording, **including its description** |
 | FIX-21 | F | Click **Undo** on the merged note | It reappears on the board, in its original panel |
 | FIX-22 | F | Click **Undo** on the moved note | It goes back to the panel it was in |
-| FIX-23 | F | Click **Undo all** | Every remaining change is reversed; the board is exactly as you left it before clicking Merge and Fix |
+| FIX-23 | F | Click **Undo all** | Every remaining change is reversed; the board is exactly as you left it before clicking Deduplicate and Fix |
 | FIX-24 | F | Click Undo twice quickly on the same row | No error. An undo that has already happened is not a failure |
 
 > FIX-20 is worth doing character by character. A partial undo — the title back
@@ -452,7 +452,7 @@ or spend a vote on it in the Prioritization stage.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| FIX-30 | F | Run Merge and Fix | The duplicate is **not** merged. A **"Left alone"** box appears saying *"…is already cited by a theme"* (or *"…already carries votes or scores"*) |
+| FIX-30 | F | Run Deduplicate and Fix | The duplicate is **not** merged. A **"Left alone"** box appears saying *"…is already cited by a theme"* (or *"…already carries votes or scores"*) |
 | FIX-31 | F | Check the theme afterwards | Its evidence is untouched. **If the cited note has vanished from the board, that is Critical** — a traceability chain has been broken |
 | FIX-32 | F | Read the closing line of that box | "These are yours to decide on in the Review Board" — it hands the judgement back rather than guessing |
 
@@ -466,7 +466,7 @@ is where the before-text has to be visible.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| FIX-40 | F | Run Merge and Fix, then switch to **Review mode** | Every tidied note carries a **"AI tidied"** badge |
+| FIX-40 | F | Run Deduplicate and Fix, then switch to **Review mode** | Every tidied note carries a **"AI tidied"** badge |
 | FIX-41 | F | Read the badge | It shows **"Was: …"** with the original text, and the reason |
 | FIX-42 | F | Click **Undo** on the badge | Same effect as undoing from the panel |
 | FIX-43 | F | Edit a tidied note by hand instead, then approve it | Ordinary editing; the badge stays, recording what happened to it |
@@ -477,7 +477,7 @@ is where the before-text has to be visible.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| GEN-66 | F | Open a **PESTLE** workshop's capture stage | **No Merge and Fix panel.** PESTLE has no cleanup prompt configured |
+| GEN-66 | F | Open a **PESTLE** workshop's capture stage | **No Deduplicate and Fix panel.** PESTLE has no cleanup prompt configured |
 | GEN-67 | F | Same for Five Forces, Capability, Risk, Business Model, Transformation | No panel on any of them |
 | GEN-68 | F | Open the SWOT **Reporting** stage | No panel — the prompt is keyed to capture stages |
 
@@ -508,7 +508,7 @@ So each action now declares where it belongs, and the UI puts it there.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| AIP-01 | F | Open a Discovery stage and read the AI assistant panel | **Generate Artifact Suggestions** only. No Challenge, no Explain Why, no Summarize Workshop, no Detect Duplicates |
+| AIP-01 | F | Open a Discovery stage and click the **✨ beside "Add a note…"** on the panel marked *this stage* | The assistant opens over the composer offering **Generate Artifact Suggestions** only. No Challenge, no Explain Why, no Summarize Workshop, no Detect Duplicates. There is **no AI column beside the board** |
 | AIP-02 | F | Open Theme Analysis, TOWS, Insights, Recommendations | Each offers its own generation action and nothing belonging elsewhere |
 | AIP-03 | F | Open the **Prioritization** stage | **Review the Prioritization** — a new action; see G.4 |
 | AIP-04 | F | Open the **Reporting** stage and run *Generate Executive Summary* | Prose appears under headings (Situation summary, Key findings, …). It used to render nothing at all |
@@ -656,7 +656,7 @@ Four separate complaints, one of which turned out to be a vulnerability.
 | --- | --- | --- | --- |
 | IAM-01 | P | Ask the developer to run the escalation probe as your account | Refused. A participant cannot change their own role |
 | IAM-02 | P | Same, attempting to delete the facilitator | Refused |
-| IAM-03 | P | Open a workshop's Participants panel | You can SEE the roster — that is intended — but there is no Invite button, no role picker and no Revoke |
+| IAM-03 | P | Open a workshop's **Participants** drawer | You can SEE the roster — that is intended — but there is no Invite button, no role picker and no Revoke |
 | IAM-04 | P | Try the API directly for invite, revoke and archive | 403 on all three |
 
 ## I.2 Inviting a real email address
@@ -728,7 +728,7 @@ Needs a platform admin account (`profiles.global_role = 'admin'`).
 | IAM-40 | F | Workshop overview → **Archive**, confirm | Status becomes **archived**, with a read-only banner. Still listed |
 | IAM-41 | F | Try to add a factor, vote, run AI or review anything | All refused, with "This workshop is archived and read-only" |
 | IAM-42 | F | Open its reports and exports | Fully readable. Archiving ends the work, it does not hide it |
-| IAM-43 | F | Look at the Participants panel | Shown, but not editable, and it says why |
+| IAM-43 | F | Open the **Participants** drawer | Shown, but not editable, and it says why |
 | IAM-44 | F | **Un-archive** | Everything works again |
 | IAM-45 | A | /admin → Workshops | Archive and un-archive from there too, with a **no facilitator** flag on any workshop nobody can manage |
 
@@ -759,13 +759,17 @@ toggle sits next to it and keeps working exactly as before — the two are
 separate controls on purpose, so dimming the room mid-session does not lose the
 client's colours.
 
-| Skin | What it is for |
-| --- | --- |
-| **Strategy Console** | Navy and cyan. The existing default; nobody loses the current look |
-| **Boardroom** | Navy and brass. Understated, for a steering committee |
-| **Studio** | Ink on paper with a burnt-orange marker. Reads as workshop materials |
-| **Signal** | Neutral greys, one electric accent, so the data is the only colour |
-| **Meridian** | Deep teal and sand. Operations and sustainability work |
+**A skin now carries three things, not one: its two typefaces, its corner
+radius and its two palettes.** It was colour alone, and the five were reported
+as indistinguishable — they differed in hue and in nothing else.
+
+| Skin | Typefaces | What it is for |
+| --- | --- | --- |
+| **Strategy Console** | Source Serif 4 · Source Sans 3 | Navy and cyan. The default; the one everybody sees first |
+| **Boardroom** | Libre Baskerville · Libre Franklin | Ink-navy and brass on ivory, square corners. A printed board pack |
+| **Studio** | Zilla Slab · Work Sans | Warm kraft and cream, burnt orange, the roundest corners. Workshop materials |
+| **Signal** | Archivo · IBM Plex Sans | True grey — no cast at all — one electric accent, hairline rules |
+| **Meridian** | Spectral · Karla | Teal you can name, on mint paper, with sand. Operations and sustainability |
 
 ## J.1 The control
 
@@ -776,6 +780,10 @@ client's colours.
 | SKN-03 | any | Read the chips | They preview the skin **in the mode you are currently in** — switch to day mode and reopen; the chips change |
 | SKN-04 | any | Pick one | The whole app repaints immediately. The current skin carries a tick |
 | SKN-05 | any | Reload the page | Your skin is still applied |
+| SKN-06 | any | Read the five names in the menu | **Each is set in its own display face** — five visibly different typefaces, not five rows of the same type. Under each, the pairing is named |
+| SKN-07 | any | Pick each skin in turn and read a workshop heading | The heading face changes with the skin. If every skin shows the same type, the type half of the skin is not being applied |
+| SKN-08 | any | Pick each skin in turn and look at a panel's corners | The radius changes too: Signal is nearly sharp, Studio is the roundest |
+| SKN-09 | any | Put two skins side by side in two windows | They should be tellable apart **at a glance, across the room** — different ground, different warmth, different type. "Hardly noticeable" is the defect this replaced |
 
 ## J.2 Dark mode must keep working in every skin
 
@@ -826,6 +834,69 @@ Do not raise defects against these — they were decided, not overlooked.
   `ANTHROPIC_MODEL` in `.env.dev` and can be raised to `claude-sonnet-5` or
   `claude-opus-5` if you want to compare.
 - Everything already listed as out of scope in `UAT_TEST_SCRIPT.md`.
+
+# Part K — Navigation, and what each screen leads with
+
+Nine things were reported about the look and the way around. Six of them are
+here; the type and palette work is in Part J, the tidy-up button's new name is
+in Part F, and the assistant's new home is in Part G.
+
+**None of this changed an endpoint.** Every one of these screens was returning
+the right data before and after; the complaint was where the result was PUT and
+how much of the screen it took. So judge these by what you can SEE, and report
+anything that reads worse than it did — including things nobody asked for.
+
+## K.1 The menu
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| NAV-01 | any | Read the left menu | The second entry says **My Workshops**, not "Workshops" |
+| NAV-02 | any | Click it | A **menu of your workshops opens in place** — it does not navigate anywhere. Each line is a name and its status |
+| NAV-03 | any | Count them against `/w` | Everything appears EXCEPT workshops that are **completed** or **archived**. A workshop in Draft, Active, Analysis or Reporting is all still listed |
+| NAV-04 | F | Click one | You land straight on that workshop's overview, without the list screen loading first |
+| NAV-05 | any | Look at the bottom of the menu | **All workshops, with status** and **New workshop**. Nothing has been taken away |
+| NAV-06 | any | Click "All workshops, with status" | The old list screen, now headed **My Workshops**, including the finished ones |
+| NAV-07 | any | Open the menu while inside a workshop | That workshop's name is **bold** in the list |
+| NAV-08 | any | Resize to phone width and tap **Mine** in the bottom bar | The same menu opens. It must not be desktop-only |
+| NAV-09 | any | Open the menu on a brand-new account with no workshops | "Nothing in progress", and the two links below still work |
+
+## K.2 The workshop overview
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| NAV-20 | F | Open a workshop | Below the name and objective, two small links: **Participants** and **Recent activity**, each with a count |
+| NAV-21 | F | Look at what comes next | **Stages.** Not metrics, not the health score, not the roster — the way into the work is the first thing under the header |
+| NAV-22 | F | Click **Participants** | A drawer slides in with the full roster, the role controls and the invite form — everything the panel had |
+| NAV-23 | F | Close it | The page is exactly as it was. The roster occupies **no** page space when closed |
+| NAV-24 | F | Click **Recent activity** | A drawer with the real audit trail, newest first |
+| NAV-25 | F | Compare the counts on the two links with what the drawers contain | They agree. The count is there so you do not have to open it to answer "how many" |
+| NAV-26 | P | Open the same workshop as a participant | Same two links; the Participants drawer is read-only, as before |
+| NAV-27 | F | Open an **archived** workshop | The drawer still opens and still says the workshop is read-only |
+
+## K.3 The capture board is the screen
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| NAV-40 | F | Open a Discovery stage | **All four panels are visible without scrolling** on a normal laptop. This is the whole point of the change |
+| NAV-41 | F | Read the header | Stage name and workshop name on ONE line; the objective is behind a small **Objective** disclosure |
+| NAV-42 | F | Count the bars between the header and the wall | One toolbar (hint, LIVE, who is here, Grid/Columns) and — for a facilitator — the tidy-up bar. The separate "Live" panel is gone |
+| NAV-43 | F | Look for the AI column | **There is none.** The ✨ beside "Add a note…" on the panel marked *this stage* is where it went |
+| NAV-44 | F | Click the ✨ | The same assistant as before opens over the composer: the same action, the same rate-limit line, the same "nothing is added until you accept it" |
+| NAV-45 | F | Accept a suggestion from it | It lands as **submitted**, flagged AI, exactly as it did from the old panel. Governance must not have changed |
+| NAV-46 | P | Open the same stage as a participant | You get the ✨ too, and suggestions you may read; adding them is still refused in words |
+| NAV-47 | F | Type into "Add a note…" then click the ✨ | **Your half-typed note is not submitted.** The ✨ must never post the composer |
+| NAV-48 | F | Open a stage that is NOT a capture board (Prioritization, TOWS, Reporting) | The AI panel is still a column beside the content. Only the board changed |
+| NAV-49 | F | Switch to **Columns** view at 1280px and wider | The strip of panels scrolls **inside itself**. The whole page must never slide sideways |
+| NAV-50 | F | Open a PESTLE capture stage | PESTLE does not use the board layout, so it keeps the side panel — and that is correct, not a defect |
+
+## K.4 The tidy-up bar
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| NAV-60 | F | Open a board whose last tidy-up has already been undone | The bar is **one row** — it must not open the previous run's change list on arrival |
+| NAV-61 | F | Click **What does this change?** | The explanation appears. It says plainly that this is NOT the same as grouping notes into a theme |
+| NAV-62 | F | Run it | The change list opens by itself, which is the moment you want it |
+| NAV-63 | F | Have the developer unset `ANTHROPIC_API_KEY` | The reason the button is disabled is shown in full, not hidden behind the disclosure |
 
 ## Defect template
 

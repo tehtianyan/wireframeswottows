@@ -253,7 +253,7 @@ export const canReview = (role: WorkshopRole) => REVIEWER_ROLES.includes(role);
 export const canVote = (role: WorkshopRole) => VOTING_ROLES.includes(role);
 
 /** The governance lifecycle every object type shares (App Spec §8). */
-// `archived` is what a note becomes when "Merge and Fix" folds it into a
+// `archived` is what a note becomes when "Deduplicate and Fix" folds it into a
 // near-duplicate: kept, never deleted, so the merge can be undone and nobody's
 // contribution is thrown away.
 export type FactorState = "draft" | "submitted" | "approved" | "rejected" | "archived";
@@ -443,7 +443,7 @@ export interface AIStatus {
   used_this_hour: number;
   functions: AIFunction[];
   /**
-   * True when this stage has a `changeset` prompt — the "Merge and Fix"
+   * True when this stage has a `changeset` prompt — the "Deduplicate and Fix"
    * tidy-up. Reported separately from `functions` because a changeset edits
    * existing notes rather than proposing new ones, so it is applied as tracked
    * changes rather than reviewed suggestion by suggestion. A methodology with
@@ -452,7 +452,7 @@ export interface AIStatus {
   board_cleanup: boolean;
 }
 
-// ---- Board cleanup ("Merge and Fix") ----
+// ---- Board cleanup ("Deduplicate and Fix") ----
 
 export type CleanupChangeType = "reword" | "move" | "merge";
 

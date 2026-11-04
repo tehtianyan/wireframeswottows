@@ -575,10 +575,47 @@ runSuite("visual-board", async ({ results: r }) => {
       // scroll INSIDE itself — if it pushes the document wider, the whole
       // page slides sideways, which is the one layout failure that makes a
       // board unusable rather than merely ugly.
-      const pageSlides = await page.evaluate(
-        () => document.documentElement.scrollWidth > window.innerWidth + 1,
+      // NAME THE CULPRIT. The first version reported only true/false, so when
+      // it finally caught something it said the page slides and nothing about
+      // what was pushing it — which on a board of several hundred elements is
+      // a symptom, not a finding. It now reports the elements whose right edge
+      // is past the viewport, nearest ancestor first.
+      const overflow = await page.evaluate(() => {
+        const limit = window.innerWidth + 1;
+        if (document.documentElement.scrollWidth <= limit) return [];
+
+        // A PANEL CLIPPED INSIDE THE STRIP IS NOT THE BUG — it is the feature.
+        // The strip scrolls horizontally, so its later panels sit past the
+        // right edge by design and every one of them reports a rect beyond the
+        // viewport. The first version of this listing reported those, which is
+        // four confident lines about the wrong elements. Only an element with
+        // no scrollable ancestor is actually widening the document.
+        const clipped = (el) => {
+          for (let p = el.parentElement; p; p = p.parentElement) {
+            const ox = getComputedStyle(p).overflowX;
+            if (ox === "auto" || ox === "scroll" || ox === "hidden") return true;
+          }
+          return false;
+        };
+
+        return [...document.querySelectorAll("body *")]
+          .filter((el) => el.getBoundingClientRect().right > limit && !clipped(el))
+          // An overflowing child drags every ancestor past the edge too, so
+          // the useful one is the deepest.
+          .sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)
+          .slice(0, 4)
+          .map(
+            (el) =>
+              `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 70)} → ${Math.round(
+                el.getBoundingClientRect().right,
+              )}px`,
+          );
+      });
+      r.ok(
+        overflow.length === 0,
+        "...and column view scrolls inside itself, not the whole page",
+        overflow.length ? `OVERFLOWING (viewport 1440): ${overflow.join(" | ")}` : "contained",
       );
-      r.ok(!pageSlides, "...and column view scrolls inside itself, not the whole page");
 
       // Back to grid, so the choice this suite made does not leak into the
       // next measurement through localStorage.

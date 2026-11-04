@@ -105,6 +105,34 @@ function StagePage() {
       // single-category canvas. The board's grid comes from the category
       // count, so nothing here is SWOT-shaped.
       const board = stage.config["layout"] === "board";
+
+      // THE BOARD IS THE SCREEN.
+      //
+      // Three things that each took a share of it are gone, and none of them
+      // was lost:
+      //  - the 340px AI column. The SAME panel is now in the composer, behind
+      //    the ✨ beside "Add a note…", which is both out of the way and where
+      //    somebody wanting help with wording actually is. It is passed from
+      //    here, as it always was, so the route stays the one place AI is
+      //    wired up and the board itself knows nothing about it.
+      //  - the shell's guidance block, which repeated the category guidance
+      //    the focused panel already prints inside itself.
+      //  - two thirds of the header, via `dense`.
+      if (board) {
+        return (
+          <StageShell workshop={workshop} stage={stage} category={category} dense>
+            <CaptureBoard
+              workshopId={workshop.id}
+              methodology={workshop.methodology}
+              stage={stage}
+              myRole={workshop.my_role}
+              me={me}
+              aiSlot={<AiActionPanel workshop={workshop} stage={stage} />}
+            />
+          </StageShell>
+        );
+      }
+
       return (
         <StageShell
           workshop={workshop}
@@ -113,17 +141,7 @@ function StagePage() {
           guidance={category.guidance_text}
           aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
         >
-          {board ? (
-            <CaptureBoard
-              workshopId={workshop.id}
-              methodology={workshop.methodology}
-              stage={stage}
-              myRole={workshop.my_role}
-              me={me}
-            />
-          ) : (
-            <CaptureCanvas workshopId={workshop.id} category={category} myRole={workshop.my_role} />
-          )}
+          <CaptureCanvas workshopId={workshop.id} category={category} myRole={workshop.my_role} />
         </StageShell>
       );
     }

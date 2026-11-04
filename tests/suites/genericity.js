@@ -92,7 +92,7 @@ runSuite("genericity (PESTLE)", async ({ baseUrl, results: r, c }) => {
 
     r.section("the board tidy-up is opt-in, per methodology");
 
-    // "Merge and Fix" is a `changeset` prompt row seeded for SWOT-TOWS only.
+    // "Deduplicate and Fix" is a `changeset` prompt row seeded for SWOT-TOWS only.
     // PESTLE has capture stages and a capture board, but no such row — so it
     // must offer no button and refuse the endpoint. If this ever starts
     // passing by accident, the feature has been wired to a stage TYPE in code

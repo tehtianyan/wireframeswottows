@@ -458,4 +458,132 @@ runSuite("board-ui", async ({ results: r }) => {
     /setFactorOrder\(workshopId, v\.categoryKey, v\.ids\)/.test(board),
     "the whole category's order is sent, so a reorder cannot half-apply",
   );
+
+  // ================================================================
+  r.section("The wall is the screen, and the assistant is in the composer");
+  // ================================================================
+
+  // UAT: "the SWOT grid should be top of mind. Other panels should be hidden
+  // or minimized. The AI assistant panel should not be [beside the board]
+  // where it takes up screenspace, but somehow incorporated into the 'Add a
+  // note…'".
+  //
+  // Everything here is about COMPOSITION — what else is on the screen beside
+  // the four panels — which is exactly the class of thing an API test cannot
+  // see and the class of thing that was reported. visual-board.js measures the
+  // result; these are the source-level rules behind it.
+  const stageRoute = codeOnly(read("src", "routes", "w.$workshopId.stage.$stageKey.tsx"));
+  const shell = codeOnly(read("src", "components", "methodology", "StageShell.tsx"));
+
+  // The board branch has to be identified before anything is asserted about
+  // it: every OTHER stage type keeps its side panel, and a check that matched
+  // the whole file would pass on those and say nothing about this one.
+  const boardBranch = /if \(board\) \{([\s\S]*?)\n      \}/.exec(stageRoute)?.[1] ?? "";
+  r.ok(boardBranch.length > 0, "the board's own branch of the stage route can be identified");
+
+  r.ok(
+    !/aiPanel=/.test(boardBranch),
+    "the board stage passes NO aiPanel, so StageShell draws no 340px column beside the wall",
+  );
+  r.ok(
+    /aiSlot=\{<AiActionPanel/.test(boardBranch),
+    "...it hands the same panel to the board instead, so the route stays the only place AI is wired",
+  );
+  r.ok(
+    /xl:grid-cols-\[minmax\(0,1fr\)_340px\]/.test(shell) && /aiPanel &&/.test(shell),
+    "...and the column is still there for every other stage type, which did not ask for this",
+  );
+  r.ok(
+    !/guidance=/.test(boardBranch),
+    "the shell's guidance block is not passed either — the focused panel already prints that text",
+  );
+  r.ok(
+    /category\.guidance_text/.test(board),
+    "...and it genuinely does print it, so dropping it from the shell loses nothing",
+  );
+  r.ok(/dense\b/.test(boardBranch) && /dense = false/.test(shell),
+    "the header runs in its dense form, and dense is OFF by default for every other stage",
+  );
+
+  // THE ZERO MINIMUM THE AI COLUMN USED TO SUPPLY BY ACCIDENT.
+  //
+  // A grid item's default min-width is `auto`, so the shell's content column
+  // cannot shrink below its content's min-content width. Column view is a
+  // strip of fixed-width panels whose min-content is their TOTAL, so the
+  // column grew past its track and slid the whole document sideways.
+  //
+  // It was invisible until the panel was removed, because the two-column class
+  // carried a `minmax(0,1fr)` track whose 0 did the job. visual-board.js
+  // caught it by measuring the document; this pins the remedy so it cannot be
+  // tidied away as a redundant utility — which is exactly how it would read.
+  r.ok(
+    /<div className="min-w-0 space-y-4">\{children\}<\/div>/.test(shell),
+    "the shell's content column declares a zero minimum of its own, not one borrowed from the AI column's grid track",
+  );
+
+  // THE PANEL IS REUSED, NOT REIMPLEMENTED. A composer-sized copy of it would
+  // be a second implementation of the governance rules — the rate limit, the
+  // per-suggestion review, the renderer chosen from the declared output_kind,
+  // the refusal for somebody who may not add — and a second place for them to
+  // drift out of step with the server.
+  r.ok(
+    !/aiApi/.test(board),
+    "the board itself calls no AI endpoint: it is handed a node and renders it",
+  );
+  r.ok(
+    /assist \?\? /.test(board) === false && /assist &&/.test(board),
+    "the assistant renders only when one was supplied",
+  );
+  r.ok(
+    /category\.key === focusedKey && aiSlot/.test(board),
+    "it is offered on the FOCUSED panel only — the functions are stage-scoped, and a capture stage is one category",
+  );
+
+  // The trigger sits INSIDE the add-a-note form, where a button's default
+  // type submits the form it is in: the ✨ would have posted an empty note, or
+  // whatever was half-typed, on every click.
+  const assistButton = board.slice(board.indexOf("function AssistButton("));
+  r.ok(
+    /type="button"/.test(assistButton.slice(0, assistButton.indexOf("</Popover>"))),
+    "the ✨ is type=button, so clicking it cannot submit the composer it lives in",
+  );
+  r.ok(
+    /sr-only/.test(assistButton),
+    "...and it carries a text label for anyone not seeing the icon",
+  );
+  r.ok(
+    /assist && !canAdd/.test(board),
+    "somebody with no composer — an observer — still reaches the assistant, rather than losing it with the textarea",
+  );
+
+  // Two panels of chrome between the header and the wall became one row.
+  r.ok(
+    !/function BoardStatus\(/.test(board),
+    "the separate status panel is gone",
+  );
+  r.ok(
+    /<LiveState status=\{status\}/.test(board) && /<Presence present=\{present\}/.test(board),
+    "...its two pieces of information are in the toolbar row instead, not dropped",
+  );
+  // The degraded cases must keep their words. "Live" is only worth a sentence
+  // when it is not true, and a board that has silently stopped updating looks
+  // exactly like a board where nobody is typing.
+  r.ok(
+    /Not live — refreshing every few seconds/.test(board) && /Connecting…/.test(board),
+    "...and a board that is NOT live still says so in words",
+  );
+
+  const cleanup = codeOnly(read("src", "components", "methodology", "CleanupPanel.tsx"));
+  r.ok(
+    /Deduplicate and Fix/.test(cleanup) && !/Merge and Fix/.test(cleanup),
+    "the tidy-up button says Deduplicate, not Merge — on this board 'merge' already means grouping notes into a theme",
+  );
+  r.ok(
+    /<details/.test(cleanup),
+    "...and its four sentences of first-run guidance are behind a disclosure rather than above the wall",
+  );
+  r.ok(
+    /!configured \?/.test(cleanup),
+    "...but the reason a disabled button is disabled is NOT hidden, which is the one thing nobody could diagnose",
+  );
 });

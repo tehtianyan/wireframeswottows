@@ -337,7 +337,7 @@ methodology configuration, so the list differs per stage and per methodology.
 | ID | Role | Steps | Expected result | Spec Ref |
 | --- | --- | --- | --- | --- |
 | AI-01 | F | Open any Discovery stage | An **AI assistant** panel appears beside the main content | `WF §2.21` |
-| AI-02 | F | Read the action list on *Strength Discovery* | Includes "Generate Artifact Suggestions". **"Detect Duplicates" is gone** — superseded by **Merge and Fix**, which does §4.11's duplicate detection, merge suggestions and language normalization with an undo. The panel must NOT list Challenge, Explain Why or Summarize Workshop either; those act on an item or on the workshop, not on a stage | `AS §13`, `AS §4.11` |
+| AI-02 | F | Read the action list on *Strength Discovery* | Includes "Generate Artifact Suggestions". **"Detect Duplicates" is gone** — superseded by **Deduplicate and Fix**, which does §4.11's duplicate detection, merge suggestions and language normalization with an undo. The panel must NOT list Challenge, Explain Why or Summarize Workshop either; those act on an item or on the workshop, not on a stage | `AS §13`, `AS §4.11` |
 | AI-03 | F | Open *Weakness*, *Opportunity* and *Threat* Discovery | The **same** actions are offered on all four — capture prompts apply per stage type, not per stage | `CL` |
 | AI-04 | F | Open *Theme Analysis* | Offers "Generate Themes"; does **not** offer the capture-only actions | `AS §13` |
 | AI-05 | F | Open *TOWS Matrix* and *Recommendations* | Each offers its own generation action | `AS §13` |
@@ -365,7 +365,7 @@ methodology configuration, so the list differs per stage and per methodology.
 | --- | --- | --- | --- | --- |
 | AI-20 | P | Have the developer set your hourly usage to 20, then generate | Refused with a clear message saying you can continue without AI. **No provider call is made** | `AS §12.21` |
 | AI-21 | F | Confirm your own limit | Facilitators and analysts get 100/hour, everyone else 20 | `AS §12.21` |
-| AI-22 | F | Have the developer temporarily unset `ANTHROPIC_API_KEY` and reload | The AI panel **does not appear at all** — no buttons that cannot work | `AS §12.22` |
+| AI-22 | F | Have the developer temporarily unset `ANTHROPIC_API_KEY` and reload | The assistant **does not appear at all** — no ✨ in the capture composer, and no panel beside the other stage types. No buttons that cannot work | `AS §12.22` |
 | AI-23 | F | With AI unavailable, complete a full stage by hand | Everything works normally. AI is never required | `AS §12.22` |
 | AI-24 | F | Have the developer force a provider failure | Message reads exactly: "AI could not complete this request. Please try again or continue manually." and the workshop is unchanged | `AS §12.22` |
 | AI-25 | F | After any AI use, have the developer check `ai_sessions` and `audit_events` | A session row per request (including failures) and an `ai.*` audit row per action | `AS §12.20`, `§12.32` |
@@ -524,7 +524,7 @@ lets a workshop reach **Completed** (`AS §8.30`).
 | --- | --- | --- | --- | --- |
 | MOB-01 | F | Resize to ≤767px | Sidebar becomes a bottom bar with five short labels, none clipped or wrapped | `WF §10.32` |
 | MOB-02 | F | Open Executive, Knowledge and Administration at phone width | Each stacks to one column; nothing scrolls sideways except the admin table | `WF §8.35` |
-| MOB-03 | F | Open a workshop stage at tablet width (768px) | Usable; the AI panel moves below the content rather than squeezing it | `WF §2.34` |
+| MOB-03 | F | Open a workshop stage at tablet width (768px) | Usable; on a stage that HAS a side AI panel it moves below the content rather than squeezing it. On the capture board there is no side panel — the assistant is the ✨ in the composer — and nothing scrolls sideways | `WF §2.34` |
 
 ---
 

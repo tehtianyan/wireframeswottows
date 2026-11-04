@@ -1,4 +1,4 @@
-// Ad-hoc probe for "Merge and Fix": builds a deliberately messy board, runs
+// Ad-hoc probe for "Deduplicate and Fix": builds a deliberately messy board, runs
 // the real tidy-up, prints what it changed and what it refused, then undoes
 // the run and deletes the fixtures.
 //
