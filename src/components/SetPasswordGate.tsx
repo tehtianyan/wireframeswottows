@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { landedOnRecoveryLink } from "@/lib/recovery-landing";
+import { authApi } from "@/lib/api";
 
 // "Set your password" — the screen an invite link lands on.
 //
@@ -57,7 +58,22 @@ export function useRecoveryLanding() {
   return { needsPassword, done: () => setNeedsPassword(false) };
 }
 
-export function SetPasswordScreen({ email, onDone }: { email?: string; onDone: () => void }) {
+export function SetPasswordScreen({
+  email,
+  onDone,
+  firstTime = true,
+}: {
+  email?: string;
+  onDone: () => void;
+  /**
+   * Whether this is a first password or a replacement. Wording only — the
+   * server decided which credential it minted, and `flow` in the URL is not
+   * authority (see recovery-landing). A returning user told "welcome, you are
+   * now a participant" would be confused; a new one told "your password has
+   * been changed" would wonder what it was before.
+   */
+  firstTime?: boolean;
+}) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
@@ -78,7 +94,25 @@ export function SetPasswordScreen({ email, onDone }: { email?: string; onDone: (
       toast.error(error.message);
       return;
     }
-    toast.success("Password set. You are signed in.");
+
+    // THE CONFIRMATION EMAIL (item 5). Setting a password on a one-time link
+    // is the moment somebody becomes a participant, and nothing confirmed it:
+    // they were left wondering whether the link had worked, with no ordinary
+    // sign-in URL to keep — the invitation link deliberately is not one.
+    //
+    // Deliberately NOT awaited before letting them in, and its failure is
+    // swallowed on purpose. Their password IS set and they ARE signed in; an
+    // error here would make a successful onboarding look broken, which is a
+    // worse outcome than a missing reassurance. The server records every
+    // attempt in email_deliveries, so a silent failure is still visible to an
+    // administrator rather than to nobody.
+    void authApi.confirmPasswordSet().catch(() => {});
+
+    toast.success(
+      firstTime
+        ? "Password set — welcome. You are signed in."
+        : "Password changed. You are signed in.",
+    );
     onDone();
   }
 
@@ -90,7 +124,9 @@ export function SetPasswordScreen({ email, onDone }: { email?: string; onDone: (
             <KeyRound className="size-3" />
             One-time link
           </div>
-          <h1 className="font-display text-lg font-semibold">Choose a password</h1>
+          <h1 className="font-display text-lg font-semibold">
+            {firstTime ? "Choose a password" : "Choose a new password"}
+          </h1>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {email ? (
               <>

@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as ExecutiveRouteImport } from './routes/executive'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
+import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as WIndexRouteImport } from './routes/w.index'
 import { Route as WNewRouteImport } from './routes/w.new'
 import { Route as WWorkshopIdIndexRouteImport } from './routes/w.$workshopId.index'
@@ -33,9 +35,19 @@ const ExecutiveRoute = ExecutiveRouteImport.update({
   path: '/executive',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const KnowledgeRoute = KnowledgeRouteImport.update({
   id: '/knowledge',
   path: '/knowledge',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelcomeRoute = WelcomeRouteImport.update({
+  id: '/welcome',
+  path: '/welcome',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WIndexRoute = WIndexRouteImport.update({
@@ -64,7 +76,9 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/executive': typeof ExecutiveRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/knowledge': typeof KnowledgeRoute
+  '/welcome': typeof WelcomeRoute
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
   '/w/$workshopId/': typeof WWorkshopIdIndexRoute
@@ -74,7 +88,9 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/executive': typeof ExecutiveRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/knowledge': typeof KnowledgeRoute
+  '/welcome': typeof WelcomeRoute
   '/w/new': typeof WNewRoute
   '/w': typeof WIndexRoute
   '/w/$workshopId': typeof WWorkshopIdIndexRoute
@@ -85,7 +101,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/executive': typeof ExecutiveRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/knowledge': typeof KnowledgeRoute
+  '/welcome': typeof WelcomeRoute
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
   '/w/$workshopId/': typeof WWorkshopIdIndexRoute
@@ -97,7 +115,9 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/executive'
+    | '/forgot-password'
     | '/knowledge'
+    | '/welcome'
     | '/w/new'
     | '/w/'
     | '/w/$workshopId/'
@@ -107,7 +127,9 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/executive'
+    | '/forgot-password'
     | '/knowledge'
+    | '/welcome'
     | '/w/new'
     | '/w'
     | '/w/$workshopId'
@@ -117,7 +139,9 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/executive'
+    | '/forgot-password'
     | '/knowledge'
+    | '/welcome'
     | '/w/new'
     | '/w/'
     | '/w/$workshopId/'
@@ -128,7 +152,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   ExecutiveRoute: typeof ExecutiveRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   KnowledgeRoute: typeof KnowledgeRoute
+  WelcomeRoute: typeof WelcomeRoute
   WNewRoute: typeof WNewRoute
   WIndexRoute: typeof WIndexRoute
   WWorkshopIdIndexRoute: typeof WWorkshopIdIndexRoute
@@ -158,11 +184,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ExecutiveRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/knowledge': {
       id: '/knowledge'
       path: '/knowledge'
       fullPath: '/knowledge'
       preLoaderRoute: typeof KnowledgeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welcome': {
+      id: '/welcome'
+      path: '/welcome'
+      fullPath: '/welcome'
+      preLoaderRoute: typeof WelcomeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/w/': {
@@ -200,7 +240,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   ExecutiveRoute: ExecutiveRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   KnowledgeRoute: KnowledgeRoute,
+  WelcomeRoute: WelcomeRoute,
   WNewRoute: WNewRoute,
   WIndexRoute: WIndexRoute,
   WWorkshopIdIndexRoute: WWorkshopIdIndexRoute,

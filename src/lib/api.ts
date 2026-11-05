@@ -1013,6 +1013,17 @@ export interface InviteResult {
    * cannot open it — so it is surfaced to whoever is inviting.
    */
   link_warning?: string;
+  /** Which sender actually carried it. See InviteResult.delivery_notice. */
+  route?: "smtp" | "supabase" | "link";
+  /**
+   * Set when the invitation WAS emailed, but by Supabase's built-in template
+   * rather than ours — because this server has no SMTP configured. That is
+   * the message titled "Reset Your Password", which cannot name the inviter
+   * or the workshop and reads as phishing. Surfaced because otherwise the
+   * invite looks entirely successful and the recipient still gets the wrong
+   * message, with nobody told why.
+   */
+  delivery_notice?: string;
 }
 
 export const participantsApi = {
@@ -1051,10 +1062,49 @@ export interface AdminWorkshop {
 export interface ResetLinkResult {
   id: string;
   email: string;
-  reset_link: string;
   expires_note: string;
+  /** True when it was mailed; then there is deliberately no link to show. */
+  emailed: boolean;
+  emailed_to?: string;
+  /** Present only when it could NOT be mailed, so somebody can pass it on. */
+  reset_link?: string;
+  delivery_error?: string;
   /** See InviteResult.link_warning — a destination Supabase overruled. */
   link_warning?: string;
+}
+
+/** SMTP as the server sees it. Carries no password — see mailer.Status. */
+export interface MailStatus {
+  configured: boolean;
+  host: string;
+  port: number;
+  from: string;
+  from_name: string;
+  encryption: string;
+}
+
+export interface EmailTemplate {
+  key: "participant_invite" | "password_reset" | "password_set_confirmation";
+  subject: string;
+  body: string;
+  updated_at: string;
+  updated_by: string;
+  /** Placeholders this copy currently uses. */
+  uses: string[];
+  /** Every placeholder it MAY use. A save using anything else is refused. */
+  allowed: string[];
+}
+
+export interface EmailDelivery {
+  id: string;
+  to_email: string;
+  template_key: string;
+  subject: string;
+  status: "sent" | "failed" | "skipped";
+  error: string;
+  route: "smtp" | "supabase" | "link";
+  created_at: string;
+  workshop_name: string;
 }
 
 /** An organization plus its branding, for the admin picker. */
@@ -1068,6 +1118,32 @@ export const brandingApi = {
   mine: () => apiGet<OrgBranding>("/branding"),
   forWorkshop: (workshopId: string) =>
     apiGet<OrgBranding>(`/branding?workshop_id=${encodeURIComponent(workshopId)}`),
+};
+
+export const authApi = {
+  /**
+   * Ask for a password-reset link. PUBLIC — somebody who has forgotten their
+   * password cannot authenticate to ask.
+   *
+   * The answer is deliberately the SAME whether or not the address has an
+   * account, so this cannot be used to find out who your client's staff are.
+   * Do not add a branch here that reports "no such account": the uniformity is
+   * the security property, and the one place it could leak is the UI.
+   */
+  forgotPassword: (email: string) =>
+    apiPost<{ message: string }>("/auth/forgot-password", { email }),
+
+  /**
+   * Confirm to somebody that their password is set and they are a participant.
+   * Called right after a successful password change; the only address it can
+   * reach is the caller's own, taken from their token.
+   *
+   * `sent: false` is a normal answer, not a failure — no SMTP configured, or
+   * one already went out today. The onboarding succeeded either way, so the UI
+   * must not present this as an error.
+   */
+  confirmPasswordSet: () =>
+    apiPost<{ sent: boolean; to?: string; reason?: string }>("/me/password-set", {}),
 };
 
 export const adminApi = {
@@ -1091,6 +1167,26 @@ export const adminApi = {
     apiPost<InviteResult>("/admin/users", input),
   resetPassword: (userId: string) =>
     apiPost<ResetLinkResult>(`/admin/users/${userId}/reset-password`, {}),
+
+  /** The invitation copy, plus whether mail is switched on at all. */
+  emailTemplates: () =>
+    apiGet<{ templates: EmailTemplate[]; mail: MailStatus }>("/admin/email-templates"),
+  setEmailTemplate: (key: string, input: { subject?: string; body?: string }) =>
+    apiPut<EmailTemplate>(`/admin/email-templates/${key}`, input),
+  /**
+   * Rendered THROUGH THE SAME renderer the send path uses — the branding
+   * panel's lesson: a preview that computes its own answer is confidently
+   * wrong. Unsaved edits may be passed so the effect is visible before
+   * committing it.
+   */
+  previewEmailTemplate: (key: string, input?: { subject?: string; body?: string }) =>
+    apiPost<{ subject: string; text: string; html: string }>(
+      `/admin/email-templates/${key}/preview`, input ?? {}),
+  /** Sends to the CALLER'S OWN address only. Never an arbitrary one. */
+  testEmailTemplate: (key: string) =>
+    apiPost<{ sent_to: string; subject: string; note: string }>(
+      `/admin/email-templates/${key}/test`, {}),
+  emailDeliveries: () => apiGet<EmailDelivery[]>("/admin/email-deliveries"),
   workshops: () => apiGet<AdminWorkshop[]>("/admin/workshops"),
   workshopParticipants: (workshopId: string) =>
     apiGet<Participant[]>(`/admin/workshops/${workshopId}/participants`),

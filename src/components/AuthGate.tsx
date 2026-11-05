@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { Link } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { SetPasswordScreen, useRecoveryLanding } from "@/components/SetPasswordGate";
 import { BrandMark } from "@/components/BrandMark";
 import { BUILD_BRAND } from "@/lib/brand";
+import { explainLinkFailure, linkFailureFromURL } from "@/lib/recovery-landing";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -20,6 +22,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // straight into the app having never chosen a password — and the one session
   // the link granted would be the only one they ever got.
   const { needsPassword, done } = useRecoveryLanding();
+
+  // Read from the module-load snapshot, like everything else about how this
+  // page loaded — a spent link's error fragment is cleared by the same things
+  // that clear the token. See src/lib/recovery-landing.ts.
+  const linkFailure = linkFailureFromURL();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -60,32 +67,76 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <h1 className="font-display text-lg font-semibold">{BUILD_BRAND.name}</h1>
             <p className="mt-1 text-sm text-muted-foreground">Sign in to continue.</p>
           </div>
-          {/* They arrived on an invite or reset link and it did not sign them
-              in — the link was already used, or it has expired. Saying so
-              matters: this form is otherwise indistinguishable from a normal
-              visit, so somebody who cannot possibly know their password is
-              asked for it with no explanation. That silence is exactly what a
-              broken invite looked like from the invitee's side. */}
-          {needsPassword && (
-            <p className="rounded-sm border border-warning/50 bg-warning/10 p-2 text-[11px] leading-snug">
-              That link did not sign you in — a one-time link works once and then expires. Ask
-              whoever invited you for a fresh one.
-            </p>
+          {/* THE LINK FAILED, AND NOW IT SAYS SO. Two different arrivals end
+              up on this form with no password to offer:
+
+              - `needsPassword` — a recovery fragment was present but no
+                session came of it.
+              - `linkFailure` — GoTrue redirected here with an explicit
+                `error_code`, which is what a SPENT link produces. That
+                fragment carries no `type=recovery`, so the first check cannot
+                see it, and for a long time nothing read the error either.
+
+              Either way the form is otherwise indistinguishable from a normal
+              visit, so somebody who cannot possibly know their password was
+              asked for it in silence. That silence IS the reported defect:
+              "the link directed the participant to the login page without
+              keying in their password". */}
+          {(linkFailure || needsPassword) && (
+            <div className="space-y-1.5 rounded-sm border border-warning/50 bg-warning/10 p-2">
+              <p className="text-[11px] leading-snug">
+                {linkFailure
+                  ? explainLinkFailure(linkFailure)
+                  : "That link did not sign you in — a one-time link works once and then expires."}
+              </p>
+              <Link
+                to="/forgot-password"
+                className="inline-block text-[11px] font-medium underline"
+              >
+                Email me a new link
+              </Link>
+            </div>
           )}
           <div className="space-y-1.5">
             <p className="label-caps">Email</p>
             <Input
+              id="signin-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               autoFocus
-              placeholder="jane.smith@example.com"
+              autoComplete="email"
+              /* NO SEEDED ADDRESS HERE. This placeholder read
+                 "jane.smith@example.com" — a real demo account on the
+                 PUBLIC production sign-in page, which both named an account
+                 worth attacking and made the page look like a demo to a
+                 client's staff. A placeholder's job is to show the shape of
+                 the field, which this does without naming anybody. */
+              placeholder="you@company.com"
             />
           </div>
           <div className="space-y-1.5">
-            <p className="label-caps">Password</p>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="label-caps">Password</p>
+              {/* The way back in, on the one screen where somebody discovers
+                  they need it. Before this there was none: the page simply
+                  asked again for the thing they did not know. */}
+              <Link
+                to="/forgot-password"
+                className="text-[11px] text-muted-foreground underline hover:text-foreground"
+              >
+                Forgot your password?
+              </Link>
+            </div>
+            <Input
+              id="signin-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading && <Loader2 className="size-3.5 animate-spin" />}
@@ -98,10 +149,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
               accounts live and the data is disposable; indefensible in
               production. `vite build` runs in production mode, so the deployed
               bundle omits this entirely rather than merely hiding it. */}
+          {/* The ADDRESS is gone from here too, not just from the
+              placeholder. Naming a specific seeded account on a sign-in page
+              is the habit worth dropping rather than the one rendering of it:
+              the dev hint and the production placeholder were two copies of
+              the same mistake, and only one of them was gated. The password
+              stays, because on dev it is genuinely needed and the accounts are
+              listed in the UAT scripts. */}
           {import.meta.env.MODE === "dev" && (
             <p className="text-center text-[11px] text-muted-foreground">
-              Demo accounts share the password <span className="font-mono">SwotDemo2026!</span> —
-              try jane.smith@example.com
+              Dev build — seeded accounts share the password{" "}
+              <span className="font-mono">SwotDemo2026!</span>
             </p>
           )}
         </form>

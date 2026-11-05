@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AdminWorkshops } from "@/components/admin/AdminWorkshops";
 import { BrandingPanel } from "@/components/BrandingPanel";
+import { EmailPanel } from "@/components/EmailPanel";
 import { OneTimeLink } from "@/components/OneTimeLink";
 import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
@@ -101,13 +102,22 @@ function AdminPage() {
   const resetPassword = useMutation({
     mutationFn: (id: string) => adminApi.resetPassword(id),
     onSuccess: (r: ResetLinkResult) => {
+      // EMAILED when SMTP is configured, handed over when it is not — so
+      // there may be no link at all, and showing an empty one would be worse
+      // than showing none. See handlers.ResetUserPassword.
       setLink({
         email: r.email,
-        link: r.reset_link,
+        ...(r.reset_link ? { link: r.reset_link } : {}),
         kind: "recovery",
+        ...(r.emailed ? { emailed: true } : {}),
+        ...(r.delivery_error ? { deliveryError: r.delivery_error } : {}),
         ...(r.link_warning ? { warning: r.link_warning } : {}),
       });
-      toast.success(`Reset link ready for ${r.email}`);
+      toast.success(
+        r.emailed
+          ? `A reset link was emailed to ${r.email}`
+          : `Reset link ready for ${r.email}`,
+      );
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -273,6 +283,12 @@ function AdminPage() {
             a facilitator must not be able to restyle the report that goes to
             the client's board. */}
         <BrandingPanel />
+
+        {/* The invitation wording, the mail setup and the delivery log. Here
+            rather than in the Supabase dashboard because GoTrue's templates
+            cannot name the inviter or the workshop — which is what made every
+            invitation read as a password-reset phishing attempt. */}
+        <EmailPanel />
 
         <section className="console-panel" data-build="live">
           <PanelHeading

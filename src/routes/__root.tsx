@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useLocation,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -163,21 +164,50 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * The two screens that must render for somebody who is NOT signed in, and
+ * therefore outside both AuthGate and AppShell.
+ *
+ *  /welcome          where an invitation link lands and its token is
+ *                    exchanged. AuthGate would show a sign-in form instead —
+ *                    which is precisely the reported defect.
+ *  /forgot-password  by definition unreachable for anyone who can sign in.
+ *
+ * AppShell is excluded as well as AuthGate: showing the product's navigation
+ * to somebody who has no password yet is showing them a door they cannot open.
+ */
+const STANDALONE_AUTH_PATHS = new Set(["/welcome", "/forgot-password"]);
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
       <UiPrefsProvider>
-        <AuthGate>
-          <AppShell>
-            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-            <Outlet />
-          </AppShell>
-        </AuthGate>
+        <Gated />
         <Toaster position="top-right" />
       </UiPrefsProvider>
     </QueryClientProvider>
+  );
+}
+
+function Gated() {
+  const { pathname } = useLocation();
+
+  if (STANDALONE_AUTH_PATHS.has(pathname)) {
+    // Standalone whether or not there is a session: somebody already signed
+    // in who opens an invitation link should still get the set-a-password
+    // screen rather than being dropped into the app with the token unspent.
+    return <Outlet />;
+  }
+
+  return (
+    <AuthGate>
+      <AppShell>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+      </AppShell>
+    </AuthGate>
   );
 }
 
