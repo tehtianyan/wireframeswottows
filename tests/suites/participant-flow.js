@@ -1,0 +1,340 @@
+// The participant flow — capture, theme and prioritise one category at a time.
+//
+// UAT asked for a flow a room can follow without being taught the methodology:
+// Stage 1 is Strengths and everything done to strengths happens there, then
+// Stage 2, and so on, with the TOWS matrix as Stage 5. Prioritization, Theme
+// Analysis and Insight Generation leave everybody's navigation but a
+// facilitator's.
+//
+// TWO KINDS OF CHECK HERE, because the change has two kinds of risk.
+//
+// The SOURCE checks exist for the same reason board-ui.js and brand-display.js
+// read source: hiding a stage is a RENDERING decision, and every endpoint
+// involved was correct before and after. An API suite would have reported this
+// whole feature healthy while a participant still saw ten stages in the nav.
+// They also pin the rule to ONE module, because the defect this shape produces
+// is two surfaces disagreeing about what is visible.
+//
+// The API checks exist because the rest of it is a claim about CONFIG: that a
+// theme became rateable 1-5 by participants with no Go written, that the scale
+// is enforced from the definition, and that a role not in `allowed_roles` is
+// refused. Those are only true if the real database says so.
+import fs from "node:fs";
+import path from "node:path";
+import { runSuite, clients } from "../lib/harness.js";
+
+const SRC = (p) => fs.readFileSync(path.join(process.cwd(), "src", p), "utf8");
+
+/**
+ * The same file with comments removed.
+ *
+ * Needed because the checks below ask "does this module NAME a methodology?",
+ * and the modules explain at length WHY they must not — so matching the raw
+ * text failed on the prose arguing for the property it was testing. A check
+ * that cannot tell an identifier from an explanation is testing the comments.
+ *
+ * Crude on purpose: there is no `//` inside a string literal in these files,
+ * and a parser here would be more machinery than the question deserves.
+ */
+const code = (src) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "").replace(/\/\/.*$/gm, "");
+
+// Rated from two roles, which SWOT-TOWS's own weight deliberately forbids —
+// see the section that uses it for why it has to be a separate definition.
+const PROBE_WEIGHT = "flow_probe_rating";
+
+runSuite("participant-flow", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
+  const { participant: P, facilitator: F, analyst: A } =
+    await clients(baseUrl, ["participant", "facilitator", "analyst"]);
+
+  // An interrupted earlier run can leave the probe definition behind, and it
+  // would then be read by the checks below as though it were configuration.
+  // Cleared on START as well as in `finally`, the way genericity.js does.
+  await c.query(`delete from public.weights where weight_key = $1`, [PROBE_WEIGHT]);
+  await c.query(`delete from public.methodology_weights where key = $1`, [PROBE_WEIGHT]);
+
+  const created = { syntheses: [] };
+
+  try {
+    // ================================================================
+    // The rule lives in one module
+    // ================================================================
+    r.section("the visibility rule is stated once");
+
+    const stages = SRC("lib/stages.ts");
+    r.ok(stages.includes("export function visibleStages("),
+      "src/lib/stages.ts owns visibleStages");
+    r.ok(stages.includes("export function stageAsideFromFlow("),
+      "and the marker for a stage outside the flow");
+    r.ok(stages.includes("export function synthesisWeightKeys("),
+      "and which weights a synthesize stage declares");
+
+    // READ FROM CONFIG, NOT NAMED. A stage key or a methodology name here
+    // would make the flow SWOT-TOWS knowledge in the platform engine, which
+    // is the one thing this codebase forbids throughout.
+    r.ok(stages.includes('stage.config["visible_to_roles"]'),
+      "the rule reads visible_to_roles from stage config");
+    // Checked against CODE, not prose: the module argues at length for this
+    // very property, so the words appear in its comments by design.
+    const stagesCode = code(stages).toLowerCase();
+    for (const forbidden of ["swot", "prioritization", "theme_generation", "insight_generation"]) {
+      r.ok(!stagesCode.includes(forbidden),
+        `stages.ts never names ${forbidden} in code`);
+    }
+
+    r.section("every surface that lists stages goes through it");
+
+    const shell = SRC("components/methodology/StageShell.tsx");
+    r.ok(shell.includes("visibleStages(workshop.methodology.stages, workshop.my_role)"),
+      "the stage header filters the nav by role");
+    r.ok(shell.includes("stageAsideFromFlow(s)"),
+      "and marks the stages outside the participant flow");
+    // The real assertion: the unfiltered list is no longer reachable. A
+    // `.stages.map(` left anywhere here is the bug coming back.
+    r.ok(!/methodology\.stages\.map\(/.test(shell),
+      "the header no longer maps the unfiltered stage list");
+
+    const overview = SRC("routes/w.$workshopId.index.tsx");
+    r.ok(overview.includes("visibleStages(workshop.methodology.stages, workshop.my_role)"),
+      "the workshop overview filters the same way");
+    r.ok(!/methodology\.stages\.map\(/.test(overview),
+      "the overview no longer maps the unfiltered list");
+    // A count of ten above a list of seven reads as a rendering fault.
+    r.ok(overview.includes("${myStages.length} configured"),
+      "and counts what the caller can actually reach");
+
+    const search = SRC("components/GlobalSearch.tsx");
+    r.ok(search.includes("visibleStages(d.methodology.stages, d.my_role)"),
+      "search obeys the rule too — it is how somebody finds a hidden screen");
+
+    r.section("the board reads its weight from config, never by name");
+
+    const board = SRC("components/methodology/CaptureBoard.tsx");
+    r.ok(board.includes("synthesisWeightKeys(methodology.stages)"),
+      "the board asks the methodology which theme weights exist");
+    r.ok(board.includes('d.applies_to === "synthesis"'),
+      "and resolves them against synthesis-applicable definitions");
+    // THE SAME BUG THE WEIGHTS PACKAGE FORBIDS. A literal key here would make
+    // the rating SWOT-specific exactly as a literal 'vote' would.
+    const srcTree = ["components/methodology/CaptureBoard.tsx",
+      "components/methodology/ThemeRating.tsx", "lib/stages.ts"];
+    for (const f of srcTree) {
+      r.ok(!code(SRC(f)).includes("theme_priority"),
+        `${f} does not hardcode the weight key`);
+    }
+    const rating = SRC("components/methodology/ThemeRating.tsx");
+    r.ok(rating.includes("definition.per_participant"),
+      "the rater count is shown only for a per-participant weight");
+    r.ok(rating.includes("definition.allowed_roles"),
+      "and who may rate is described from the definition");
+    // THE SCALE IS DELEGATED, which is the property that matters.
+    //
+    // The first version of this check looked for a literal 5 anywhere in the
+    // file and failed on Tailwind's `mt-1.5` — a check that could never go
+    // green and said nothing about the scale. What actually protects the
+    // range is that the control is `WeightControl`, which already forbids
+    // assuming one and which weights.js drives at 0-100 and -3..+3. So the
+    // assertion is that this file builds no scale of its own.
+    r.ok(rating.includes("<WeightControl"),
+      "the rating renders through WeightControl rather than its own scale");
+    r.ok(!/scale_(min|max|step)/.test(code(rating)),
+      "and reads no bound itself — the control owns the range");
+
+    r.section("the order is signposted, not locked");
+    r.ok(board.includes("type FlowStep ="), "the three-step readout exists");
+    // IT COUNTS WHAT THE PANEL DRAWS. The first version walked the theme list
+    // itself and reported "THEME 3" over a panel showing two — a factor is in
+    // exactly one stack on screen, so a theme whose members were regrouped
+    // elsewhere still cites the category but is not rendered. Counting from
+    // `blocksFor` makes the readout and the panel agree by construction.
+    r.ok(/blocksFor\(focusedKey\)/.test(code(board).slice(
+      code(board).indexOf("const flowSteps"),
+      code(board).indexOf("const flatOrder"))),
+      "the readout counts the blocks the panel renders");
+    r.ok(!/themesQuery\.data[\s\S]{0,200}?flowSteps/.test(code(board)),
+      "and does not walk the theme list in parallel");
+    // DISTINCT FACTORS, not tiles. Two themes may cite one factor — nothing
+    // forbids it and `synthesis_factors` is many-to-many — so the panel can
+    // draw the same note twice. Measured on the demo board: six tiles for
+    // five strengths. Counting tiles told the room it had captured one more
+    // strength than it had.
+    const flowBlock = code(board).slice(
+      code(board).indexOf("const flowSteps"), code(board).indexOf("const flatOrder"));
+    r.ok(/new Set<string>\(\)/.test(flowBlock),
+      "the capture figure counts distinct factors, not rendered tiles");
+    r.ok(/category_key === focusedKey/.test(flowBlock),
+      "and only this stage's category — a theme may span categories");
+    // Derived, never stored. A stored phase would be a new column, a new
+    // endpoint and a rule a live room could not step back from.
+    r.ok(!/stage_phase|advancePhase|setPhase/.test(board),
+      "no stored phase — nothing gates the controls");
+
+    // ================================================================
+    // The configuration is real
+    // ================================================================
+    r.section("the participant flow is stages 1-7, TOWS at 5");
+
+    const wsF = (await F("GET", `/workshops/${WS}`)).data;
+    const all = wsF.methodology.stages;
+    const seqOf = (key) => all.find((s) => s.key === key)?.sequence_number;
+
+    r.ok(seqOf("strength_discovery") === 1, "Strength Discovery is 1", seqOf("strength_discovery"));
+    r.ok(seqOf("weakness_discovery") === 2, "Weakness Discovery is 2", seqOf("weakness_discovery"));
+    r.ok(seqOf("opportunity_discovery") === 3, "Opportunity Discovery is 3", seqOf("opportunity_discovery"));
+    r.ok(seqOf("threat_discovery") === 4, "Threat Discovery is 4", seqOf("threat_discovery"));
+    r.ok(seqOf("tows_analysis") === 5, "the TOWS Matrix is 5", seqOf("tows_analysis"));
+
+    const hidden = ["prioritization", "theme_generation", "insight_generation"];
+    for (const key of hidden) {
+      const s = all.find((x) => x.key === key);
+      r.ok(JSON.stringify(s?.config?.visible_to_roles) === '["facilitator"]',
+        `${key} is facilitator-only`, JSON.stringify(s?.config?.visible_to_roles));
+      r.ok((s?.sequence_number ?? 0) > 7,
+        `${key} sits after the participant flow`, s?.sequence_number);
+    }
+
+    // The jsonb merge, asserted rather than assumed: an assignment where a
+    // merge was meant would have taken the vote budget with it, and the
+    // prioritization stage would silently refuse every allocation.
+    const pri = all.find((s) => s.key === "prioritization");
+    r.ok(Number(pri?.config?.votes_per_participant) > 0,
+      "prioritization kept its vote budget through the config merge",
+      pri?.config?.votes_per_participant);
+
+    r.section("a theme is rateable because the methodology says so");
+
+    const theme = all.find((s) => s.key === "theme_generation");
+    r.ok(JSON.stringify(theme?.config?.weights) === '["theme_priority"]',
+      "Theme Analysis declares the weight its objects carry",
+      JSON.stringify(theme?.config?.weights));
+
+    const defs = (await P("GET", `/workshops/${WS}/weights`)).data.definitions;
+    const tp = defs.find((d) => d.key === "theme_priority");
+    r.ok(Boolean(tp), "the theme weight is defined");
+    r.ok(tp?.applies_to === "synthesis", "it applies to a synthesis", tp?.applies_to);
+    r.ok(Number(tp?.scale_min) === 1 && Number(tp?.scale_max) === 5,
+      "on a 1-5 scale", `${tp?.scale_min}-${tp?.scale_max}`);
+    r.ok(tp?.aggregate === "mean", "aggregated as a mean", tp?.aggregate);
+    r.ok(tp?.per_participant === true, "one rating per person", tp?.per_participant);
+    r.ok(JSON.stringify(tp?.allowed_roles) === '["participant"]',
+      "participants only — the facilitator decides when rating stops",
+      JSON.stringify(tp?.allowed_roles));
+
+    // ================================================================
+    // It actually works, end to end, with no Go written for it
+    // ================================================================
+    r.section("a participant rates a theme through the generic weights route");
+
+    const factors = (await P("GET", `/workshops/${WS}/factors`)).data;
+    const strengths = factors.filter((f) => f.category_key === "strength").slice(0, 2);
+    const mk = await F("POST", `/workshops/${WS}/syntheses`, {
+      title: "flow-probe theme",
+      evidence: { factor: strengths.map((f) => f.id) },
+    });
+    r.ok(mk.success, "a theme to rate", mk.error?.message);
+    if (mk.data) created.syntheses.push(mk.data.id);
+    const T = mk.data?.id;
+
+    let set = await P("PUT", `/workshops/${WS}/syntheses/${T}/weights/theme_priority`,
+      { value: 4 });
+    r.ok(set.success, "a participant may rate it 4", set.error?.message);
+
+    let w = (await P("GET", `/workshops/${WS}/weights`)).data;
+    const total = w.totals.find((t) => t.object_id === T && t.weight_key === "theme_priority");
+    r.ok(Number(total?.value) === 4, "the group figure is 4", total?.value);
+    // TWO NUMBERS, NEVER ONE — the rule the leaderboard and the report follow.
+    // A figure with no backing reads as agreement when one person produced it.
+    r.ok(Number(total?.voters) === 1, "and it says one person is behind it", total?.voters);
+    r.ok(Number(w.mine.find((v) => v.object_id === T)?.value) === 4,
+      "the participant's own rating comes back to them");
+
+    r.section("the scale is enforced from the definition, not from the client");
+    for (const bad of [0, 6, 2.5]) {
+      const refused = await P("PUT", `/workshops/${WS}/syntheses/${T}/weights/theme_priority`,
+        { value: bad });
+      r.ok(!refused.success, `${bad} is refused`, refused.error?.message ?? "accepted");
+    }
+
+    r.section("a role outside allowed_roles is refused");
+    // THE ASSERTION THAT CATCHES SOMEBODY WIDENING THE ROLES. The facilitator
+    // is a full member with every other permission on this workshop, so a
+    // refusal here can only come from allowed_roles.
+    const asFac = await F("PUT", `/workshops/${WS}/syntheses/${T}/weights/theme_priority`,
+      { value: 5 });
+    r.ok(!asFac.success, "a facilitator may not rate a theme", asFac.error?.message ?? "accepted");
+    const asAnalyst = await A("PUT", `/workshops/${WS}/syntheses/${T}/weights/theme_priority`,
+      { value: 5 });
+    r.ok(!asAnalyst.success, "nor an analyst", asAnalyst.error?.message ?? "accepted");
+    // And the refusal did not quietly record anything.
+    w = (await F("GET", `/workshops/${WS}/weights`)).data;
+    r.ok(Number(w.totals.find((t) => t.object_id === T)?.voters) === 1,
+      "the refused ratings left the figure alone",
+      w.totals.find((t) => t.object_id === T)?.voters);
+
+    r.section("the mean is a mean, across two real people");
+    // SWOT-TOWS's own weight allows one role, so a two-rater average cannot be
+    // driven through it — and asserting `aggregate === 'mean'` alone would pass
+    // just as happily if the engine summed, because a mean and a sum are the
+    // same number for one rater. So a probe definition allowing two roles is
+    // inserted, driven, and removed. See [[tests-that-pass-for-the-wrong-reason]].
+    const mid = (await c.query(
+      `select id from public.methodologies where key = 'swot-tows'`)).rows[0].id;
+    await c.query(
+      `insert into public.methodology_weights
+         (methodology_id, key, name, applies_to, scale_min, scale_max, scale_step,
+          constraint_type, per_participant, aggregate, allowed_roles, sort_order)
+       values ($1, $2, 'Flow probe rating', 'synthesis', 1, 5, 1,
+               'single', true, 'mean', array['participant','facilitator'], 99)`,
+      [mid, PROBE_WEIGHT]);
+
+    const a = await P("PUT", `/workshops/${WS}/syntheses/${T}/weights/${PROBE_WEIGHT}`, { value: 2 });
+    const b = await F("PUT", `/workshops/${WS}/syntheses/${T}/weights/${PROBE_WEIGHT}`, { value: 4 });
+    r.ok(a.success && b.success, "two people rate the same theme 2 and 4",
+      a.error?.message ?? b.error?.message);
+
+    w = (await P("GET", `/workshops/${WS}/weights`)).data;
+    const probe = w.totals.find((t) => t.object_id === T && t.weight_key === PROBE_WEIGHT);
+    r.ok(Number(probe?.value) === 3,
+      "the group figure is 3 — the mean, not the sum of 6", probe?.value);
+    r.ok(Number(probe?.voters) === 2, "from two raters", probe?.voters);
+
+    r.section("no other methodology was touched");
+    // The genericity claim at its narrowest: this change was SWOT-TOWS config,
+    // and genericity.js drives PESTLE through every surface to prove the
+    // broader version.
+    const leaked = await c.query(
+      `select m.key from public.methodology_stages ms
+         join public.methodologies m on m.id = ms.methodology_id
+        where ms.config ? 'visible_to_roles' and m.key <> 'swot-tows'`);
+    r.ok(leaked.rowCount === 0,
+      "visible_to_roles appears in no other methodology",
+      leaked.rows.map((x) => x.key).join(", "));
+
+    const weightLeak = await c.query(
+      `select m.key from public.methodology_weights mw
+         join public.methodologies m on m.id = mw.methodology_id
+        where mw.key = 'theme_priority' and m.key <> 'swot-tows'`);
+    r.ok(weightLeak.rowCount === 0, "nor does the theme weight",
+      weightLeak.rows.map((x) => x.key).join(", "));
+
+    // Five Forces has rated a synthesis since 2026-09-20 with a DIFFERENT
+    // shape — one agreed value, latest wins, facilitator and analyst. Two
+    // unlike weights on one object kind is the engine being general, and the
+    // first version of the migration's own check mistook it for a leak.
+    const ff = await c.query(
+      `select mw.per_participant, mw.aggregate from public.methodology_weights mw
+         join public.methodologies m on m.id = mw.methodology_id
+        where m.key = 'five-forces' and mw.applies_to = 'synthesis'`);
+    r.ok(ff.rowCount === 1 && ff.rows[0].per_participant === false
+      && ff.rows[0].aggregate === "latest",
+      "Five Forces still rates a synthesis its own way",
+      JSON.stringify(ff.rows[0] ?? null));
+  } finally {
+    await c.query(`delete from public.weights where weight_key = $1`, [PROBE_WEIGHT]);
+    await c.query(`delete from public.methodology_weights where key = $1`, [PROBE_WEIGHT]);
+    if (created.syntheses.length) {
+      await c.query(`delete from public.weights where object_id = any($1)`, [created.syntheses]);
+      await c.query(`delete from public.syntheses where id = any($1)`, [created.syntheses]);
+    }
+  }
+});

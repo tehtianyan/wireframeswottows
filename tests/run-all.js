@@ -27,6 +27,7 @@ const suites = [
   ["visual-board", "Capture board — measured in a real browser (needs the dev UI)"],
   ["ai-scope", "AI assistant — where each action is offered, and what it refuses"],
   ["prioritization", "Prioritization — the group's ranking, and the report"],
+  ["participant-flow", "Flow — capture, theme and prioritise one category at a time"],
   ["objects", "Phase 2 — analysis objects and governance"],
   ["reporting", "Phase 4 — reports, versioning, export"],
   ["knowledge", "Phase 5 — knowledge, notifications, admin"],

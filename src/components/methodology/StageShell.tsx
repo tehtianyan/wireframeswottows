@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ClipboardCheck, PenLine } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { stageAsideFromFlow, visibleStages } from "@/lib/stages";
 import { BuildBadge } from "@/components/workshop-ui";
 import type { Activity, FactorCategory, MethodologyStage, WorkshopDetail } from "@/lib/api";
 
@@ -107,27 +108,42 @@ export function StageShell({
           </div>
 
           {/* Stage navigation, built from methodology config — the order and
-              the names are whatever the methodology declares. */}
+              the names are whatever the methodology declares, filtered to the
+              stages this role sees (src/lib/stages.ts owns that rule).
+
+              ONE INLINE LIST, in the methodology's real sequence. A
+              facilitator sees the three stages outside the participant flow
+              in place, marked, rather than in a group of their own — so the
+              numbers on screen are the numbers the room says out loud, and a
+              facilitator reading "9." in a list that ends at 7 for everybody
+              else is told why. */}
           <nav
             className={cn("flex flex-wrap gap-1.5", dense ? "mt-2.5" : "mt-4")}
             aria-label="Methodology stages"
           >
-            {workshop.methodology.stages.map((s) => (
-              <Link
-                key={s.key}
-                to="/w/$workshopId/stage/$stageKey"
-                params={{ workshopId: workshop.id, stageKey: s.key }}
-                search={{}}
-                className={cn(
-                  "rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
-                  s.key === stage.key
-                    ? "border-foreground/30 bg-foreground/10 text-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {s.sequence_number}. {s.name}
-              </Link>
-            ))}
+            {visibleStages(workshop.methodology.stages, workshop.my_role).map((s) => {
+              const aside = stageAsideFromFlow(s);
+              return (
+                <Link
+                  key={s.key}
+                  to="/w/$workshopId/stage/$stageKey"
+                  params={{ workshopId: workshop.id, stageKey: s.key }}
+                  search={{}}
+                  title={aside ? `${s.name} — not part of the participant flow` : s.name}
+                  className={cn(
+                    "rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
+                    s.key === stage.key
+                      ? "border-foreground/30 bg-foreground/10 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                    // Dashed, because the stage is reachable but off the path.
+                    aside && s.key !== stage.key && "border-dashed",
+                  )}
+                >
+                  {aside && <span aria-hidden="true">· </span>}
+                  {s.sequence_number}. {s.name}
+                </Link>
+              );
+            })}
           </nav>
 
           {guidance && (

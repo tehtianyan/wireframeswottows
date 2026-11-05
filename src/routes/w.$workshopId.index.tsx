@@ -15,6 +15,7 @@ import { AiInlineActions } from "@/components/methodology/AiInlineActions";
 import { ArchiveWorkshopControl } from "@/components/ArchiveWorkshopControl";
 import { ParticipantsPanel } from "@/components/ParticipantsPanel";
 import { cn } from "@/lib/utils";
+import { stageAsideFromFlow, visibleStages } from "@/lib/stages";
 import {
   dashboardApi,
   describeActivity,
@@ -82,6 +83,10 @@ function WorkshopOverview() {
   );
   const factors = factorsQuery.data ?? [];
   const awaitingReview = factors.filter((f) => f.state === "submitted").length;
+  // The same rule the stage header's navigation uses, from the same module —
+  // two surfaces listing stages by different rules is how one of them ends up
+  // offering a stage the other hides.
+  const myStages = workshop ? visibleStages(workshop.methodology.stages, workshop.my_role) : [];
 
   return (
     <div className="grid-backdrop min-h-[calc(100vh-3.5rem)]">
@@ -164,10 +169,13 @@ function WorkshopOverview() {
           <PanelHeading
             build="live"
             title="Stages"
-            hint={`${workshop.methodology.stages.length} configured`}
+            // The count is what THIS role can reach, not what the methodology
+            // declares: "10 configured" above a list of seven reads as a
+            // rendering fault rather than as a deliberately shorter flow.
+            hint={`${myStages.length} configured`}
           />
           <div className="divide-y divide-border">
-            {workshop.methodology.stages.map((stage) => (
+            {myStages.map((stage) => (
               <StageRow
                 key={stage.key}
                 workshopId={workshop.id}
@@ -299,6 +307,14 @@ function StageRow({
           </span>
           {!renderable && (
             <span className="font-mono text-[10px] text-muted-foreground">later phase</span>
+          )}
+          {/* Only a role that can see the stage at all ever renders this row,
+              so the badge explains the numbering gap rather than advertising
+              something hidden. */}
+          {stageAsideFromFlow(stage) && (
+            <span className="rounded border border-dashed border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              not in participant flow
+            </span>
           )}
         </div>
         {factorCount !== undefined && (

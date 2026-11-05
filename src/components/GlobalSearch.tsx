@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Layers, Search, Workflow } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { visibleStages } from "@/lib/stages";
 import { dashboardApi, workshopsApi } from "@/lib/api";
 
 // Global search over the caller's real workshops and their stages.
@@ -70,7 +71,11 @@ export function GlobalSearch() {
     }
 
     for (const d of details ?? []) {
-      for (const s of d.methodology.stages) {
+      // Search obeys the same visibility rule as the navigation. Without this
+      // a participant typing "theme" would be offered a stage that appears
+      // nowhere else in their product — and search is exactly how somebody
+      // finds a screen they were not shown.
+      for (const s of visibleStages(d.methodology.stages, d.my_role)) {
         if (s.name.toLowerCase().includes(q) || s.key.toLowerCase().includes(q)) {
           out.push({
             id: `${d.id}:${s.key}`, label: s.name, kind: "stage",

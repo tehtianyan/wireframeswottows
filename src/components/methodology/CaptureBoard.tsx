@@ -18,8 +18,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { MAX_FACTOR_TITLE, MAX_OBJECT_TITLE } from "@/lib/limits";
 import { useBoardDrag, type DropTarget } from "@/lib/useBoardDrag";
+import { synthesisWeightKeys } from "@/lib/stages";
 import { StickyNote, type NoteScore } from "./StickyNote";
 import { CleanupPanel } from "./CleanupPanel";
+import { ThemeRating } from "./ThemeRating";
 import { useFactorChannel, type ChannelStatus, type PresentPerson } from "@/lib/useFactorChannel";
 import {
   objectKindsApi,
@@ -230,6 +232,89 @@ export function CaptureBoard({
     enabled: Boolean(themeRoute),
   });
 
+  // ---- Rating a theme: the prioritisation step, on the board ----
+  //
+  // The room groups notes into themes here and then rates those themes, so
+  // capture, theming and prioritisation all happen on one screen per category
+  // instead of across three stages.
+  //
+  // WHICH WEIGHTS, FROM CONFIG. The keys come from the SYNTHESIZE stage's own
+  // `weights` declaration (src/lib/stages.ts explains why there rather than
+  // here), resolved against the definitions the methodology actually has. A
+  // methodology that declares none gets no rating control and no empty row
+  // where one would have been — which is every methodology but SWOT-TOWS and
+  // Five Forces today.
+  const themeWeights = useMemo(() => {
+    const declared = synthesisWeightKeys(methodology.stages);
+    if (declared.length === 0) return [];
+    const defs = weightsQuery.data?.definitions ?? [];
+    return declared
+      .map((key) => defs.find((d) => d.key === key && d.applies_to === "synthesis"))
+      .filter((d): d is WeightDefinition => Boolean(d));
+  }, [methodology.stages, weightsQuery.data]);
+
+  // The caller's own rating and the group's figure, keyed the same way.
+  const themeRatings = useMemo(() => {
+    const mine = new Map<string, number>();
+    for (const v of weightsQuery.data?.mine ?? []) {
+      if (v.object_kind === "synthesis") mine.set(`${v.weight_key}:${v.object_id}`, v.value);
+    }
+    const totals = new Map<string, { value: number; voters: number }>();
+    for (const t of weightsQuery.data?.totals ?? []) {
+      if (t.object_kind === "synthesis") {
+        totals.set(`${t.weight_key}:${t.object_id}`, { value: t.value, voters: t.voters });
+      }
+    }
+    return { mine, totals };
+  }, [weightsQuery.data]);
+
+  const rateTheme = useMutation({
+    mutationFn: (v: { themeId: string; weightKey: string; value: number | null }) =>
+      workshopsApi.setWeight(workshopId, themeRoute!, v.themeId, v.weightKey, v.value),
+    // Invalidated rather than patched: the group figure is an aggregate the
+    // server computes, and guessing what an average becomes after one more
+    // rating is how a screen starts disagreeing with the database.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["weights", workshopId] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // WHO MAY RATE COMES FROM THE DEFINITION, not from this component's idea of
+  // who participates. SWOT-TOWS allows participants only — the facilitator
+  // decides when rating stops, so their own rating averaged in with the
+  // room's would carry more weight than anybody else's. Five Forces allows
+  // facilitators and analysts and no participants. Both are honoured by
+  // reading `allowed_roles`.
+  const renderThemeRating = useMemo(() => {
+    if (themeWeights.length === 0 || !themeRoute) return undefined;
+    return (theme: WorkObject) => (
+      <>
+        {themeWeights.map((def) => {
+          const k = `${def.key}:${theme.id}`;
+          const total = themeRatings.totals.get(k);
+          const part = weightsQuery.data?.participation?.[def.key];
+          return (
+            <ThemeRating
+              key={def.key}
+              definition={def}
+              mine={themeRatings.mine.get(k)}
+              total={total?.value}
+              voters={total?.voters}
+              contributors={part?.contributors}
+              canRate={def.allowed_roles.includes(myRole)}
+              pending={
+                rateTheme.isPending &&
+                rateTheme.variables?.themeId === theme.id &&
+                rateTheme.variables?.weightKey === def.key
+              }
+              onRate={(value) => rateTheme.mutate({ themeId: theme.id, weightKey: def.key, value })}
+              themeTitle={theme.title ?? "this theme"}
+            />
+          );
+        })}
+      </>
+    );
+  }, [themeWeights, themeRoute, themeRatings, weightsQuery.data, myRole, rateTheme]);
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["factors", workshopId] });
   const invalidateThemes = () =>
     queryClient.invalidateQueries({ queryKey: ["objects", workshopId] });
@@ -420,6 +505,63 @@ export function CaptureBoard({
     [byCategory, themes],
   );
 
+  // The three-step readout, counted on the FOCUSED category only — this stage
+  // is one category, and a count spanning the whole wall would report that the
+  // room had themed strengths when it had themed opportunities.
+  //
+  // COUNTED FROM THE BLOCKS THE PANEL RENDERS, not from a parallel walk of the
+  // theme list. The first version intersected every theme's members with the
+  // category's live factors, and reported "THEME 3" above a panel drawing two:
+  // a factor belongs to exactly one stack on screen, so a theme whose members
+  // have all been regrouped elsewhere is still a theme citing this category
+  // but is not drawn. Two rules for "what is on this panel" is how a readout
+  // starts disagreeing with the thing it is describing — found by LOOKING at a
+  // screenshot, with every assertion green.
+  //
+  // Absent unless the methodology can actually do all three here, so a board
+  // with no synthesize stage or no theme weight shows no step it cannot offer
+  // rather than one permanently stuck at zero.
+  const flowSteps = useMemo((): FlowStep[] | undefined => {
+    if (!themeRoute || themeWeights.length === 0) return undefined;
+    const blocks = blocksFor(focusedKey);
+    // DISTINCT notes OF THIS CATEGORY, which is not the same as the number the
+    // panel draws, for two reasons that both inflate a naive count:
+    //
+    //  - `synthesis_factors` is many-to-many and nothing forbids two themes
+    //    citing one factor, so a stack can draw a note another stack has
+    //    already drawn. Measured on the demo board: six notes rendered for
+    //    five strengths, because one was in two themes.
+    //  - a theme may span categories, deliberately — whether it may is a
+    //    methodology question the engine does not answer — so a stack renders
+    //    members belonging to other panels too.
+    //
+    // "How many strengths have we captured" is a question about factors, not
+    // about tiles, so it is counted over a set of ids filtered to the focused
+    // category. That also makes it agree with the panel's own header, which
+    // counts the same thing.
+    const seen = new Set<string>();
+    for (const b of blocks) {
+      for (const f of b.kind === "note" ? [b.factor] : b.factors) {
+        if (f.category_key === focusedKey) seen.add(f.id);
+      }
+    }
+    const notes = seen.size;
+    const stacks = blocks.filter((b) => b.kind === "theme");
+    const key = themeWeights[0]!.key;
+    const rated = stacks.filter(
+      (b) => b.kind === "theme" && themeRatings.totals.has(`${key}:${b.theme.id}`),
+    ).length;
+    return [
+      { label: "Capture", detail: String(notes), reached: notes > 0 },
+      { label: "Theme", detail: String(stacks.length), reached: stacks.length > 0 },
+      {
+        label: "Prioritise",
+        detail: stacks.length ? `${rated}/${stacks.length}` : "0",
+        reached: rated > 0,
+      },
+    ];
+  }, [themeRoute, themeWeights, blocksFor, focusedKey, themeRatings]);
+
   /** The flat id order a reorder sends: every note in the category, in view order. */
   const flatOrder = useCallback(
     (categoryKey: string): string[] =>
@@ -597,6 +739,7 @@ export function CaptureBoard({
         status={status}
         present={present}
         facilitator={facilitator}
+        {...(flowSteps ? { steps: flowSteps } : {})}
       />
 
       {/* Tidying the whole wall is the facilitator's job, and the panel hides
@@ -630,6 +773,7 @@ export function CaptureBoard({
             canAdd={canAddTo(category.key)}
             canMove={contributor}
             {...(category.key === focusedKey && aiSlot ? { assist: aiSlot } : {})}
+            {...(renderThemeRating ? { renderThemeRating } : {})}
             drag={dragging.drag}
             target={dragging.target}
             onDragHandle={(f, e, el) =>
@@ -733,6 +877,7 @@ function BoardToolbar({
   status,
   present,
   facilitator,
+  steps,
 }: {
   view: ViewMode;
   onView: (v: ViewMode) => void;
@@ -743,6 +888,8 @@ function BoardToolbar({
   status: ChannelStatus;
   present: PresentPerson[];
   facilitator: boolean;
+  /** The three-step readout, or undefined when this board has no theming. */
+  steps?: FlowStep[];
 }) {
   return (
     <section
@@ -774,6 +921,8 @@ function BoardToolbar({
             stage-scoped. It was a line of its own in the status panel. */}
         {facilitator && " You can add to any panel."}
       </p>
+
+      {steps && <FlowSteps steps={steps} />}
 
       <div className="flex shrink-0 items-center gap-2.5">
         <LiveState status={status} />
@@ -833,6 +982,49 @@ function BoardToolbar({
  * than writing a composer-sized version is deliberate — a second
  * implementation of the governance rules is a second place for them to drift.
  */
+/**
+ * One step of the capture → theme → prioritise readout.
+ *
+ * `reached` is DERIVED FROM THE DATA, never stored. The stage does not hold a
+ * phase and nothing is locked: UAT asked for the order to be signposted, and
+ * a facilitator running a live room has to be able to go back to capture after
+ * a theme suggests something nobody wrote down. A stored phase would also be a
+ * new column, a new endpoint, a "who may advance" rule and an audit event —
+ * all to enforce an order the room can already see.
+ */
+type FlowStep = { label: string; detail: string; reached: boolean };
+
+function FlowSteps({ steps }: { steps: FlowStep[] }) {
+  // The furthest step with anything in it is the one the room is on. Marked
+  // rather than enforced, which is the whole point.
+  const current = steps.reduce((acc, s, i) => (s.reached ? i : acc), 0);
+  return (
+    <ol className="order-3 flex shrink-0 items-center gap-1.5 lg:order-none" aria-label="Stage progress">
+      {steps.map((s, i) => (
+        <li key={s.label} className="flex items-center gap-1.5">
+          {i > 0 && <span aria-hidden="true" className="text-border">—</span>}
+          <span
+            title={s.detail}
+            aria-current={i === current ? "step" : undefined}
+            className={cn(
+              "flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+              i === current
+                ? "bg-foreground/10 text-foreground"
+                : s.reached
+                  ? "text-muted-foreground"
+                  : "text-muted-foreground/60",
+            )}
+          >
+            <span aria-hidden="true">{s.reached ? "●" : "○"}</span>
+            {s.label}
+            <span className="tabular-nums opacity-70">{s.detail}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function AssistButton({
   assist,
   category,
@@ -964,6 +1156,7 @@ function Quadrant({
   onDelete,
   onMoveTo,
   onRemoveFromTheme,
+  renderThemeRating,
   savingId,
   deletingId,
 }: {
@@ -979,6 +1172,13 @@ function Quadrant({
   canMove: boolean;
   /** The stage's assistant, offered from this panel's composer. */
   assist?: ReactNode;
+  /**
+   * The rating row for one theme, as a node. Passed down rather than
+   * reassembled here for the same reason `assist` is: the weights, who may set
+   * them and the mutation all belong to the board, and a panel that built its
+   * own would be a second place for the rules to drift.
+   */
+  renderThemeRating?: (theme: WorkObject) => ReactNode;
   drag: { factorId: string; categoryKey: string } | null;
   target: DropTarget | null;
   onDragHandle: (f: Factor, e: React.PointerEvent, el: HTMLElement) => void;
@@ -1100,6 +1300,7 @@ function Quadrant({
                   onDragHandle={onDragHandle}
                   onSave={onSave}
                   onRemove={(factorId) => onRemoveFromTheme(block.theme.id, factorId)}
+                  rating={renderThemeRating?.(block.theme)}
                   savingId={savingId}
                 />
               </div>
@@ -1211,6 +1412,7 @@ function ThemeStack({
   onDragHandle,
   onSave,
   onRemove,
+  rating,
   savingId,
 }: {
   theme: WorkObject;
@@ -1218,6 +1420,8 @@ function ThemeStack({
   category: FactorCategory;
   scores: Map<string, NoteScore>;
   canEdit: boolean;
+  /** The group's rating of this theme, when the methodology declares one. */
+  rating?: ReactNode;
   /** Whether a note can be lifted back OUT of this stack. */
   canMove: boolean;
   isTarget: boolean;
@@ -1255,6 +1459,10 @@ function ThemeStack({
           {factors.length}
         </span>
       </div>
+
+      {/* The rating sits with the theme's NAME, above its notes, because it is
+          a judgement about the group and not about any one note in it. */}
+      {rating}
 
       {/* THE SAME TRACK SIZE AS THE WALL OUTSIDE. `grid-cols-2` made a note
           inside a theme bigger than a note beside it — the theme spans the
