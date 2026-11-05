@@ -898,6 +898,80 @@ anything that reads worse than it did — including things nobody asked for.
 | NAV-62 | F | Run it | The change list opens by itself, which is the moment you want it |
 | NAV-63 | F | Have the developer unset `ANTHROPIC_API_KEY` | The reason the button is disabled is shown in full, not hidden behind the disclosure |
 
+# Part L — Invitation email
+
+Five things were reported by real test users, and **the first one cannot be
+judged from inside the app** — you have to read the message in an inbox. The
+invitation is now written by the product rather than by Supabase, because
+Supabase's templates cannot name who invited you or what you were invited to,
+and without those two facts the best subject available is "Reset Your
+Password" — which is the commonest phishing pattern there is.
+
+> **BEFORE ANY OF THIS: is mail switched on?** Open `/admin` → **Invitation
+> emails**. If it says *"No mail server is configured"*, then **MAIL-01 to
+> MAIL-12 cannot pass** and nothing is broken — the server needs `SMTP_HOST`,
+> `SMTP_USERNAME`, `SMTP_PASSWORD` and `MAIL_FROM`. Report that as a
+> configuration blocker, not as a defect, and run Part L.4 onwards, which do
+> not need mail.
+
+## L.1 What the invitation says
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| MAIL-01 | F | Invite yourself at a second address to a workshop, then open the inbox | The subject is **"<your name> has invited you to <workshop name>"**. It is NOT "Reset Your Password" |
+| MAIL-02 | — | Read it | It names **who invited you, by name and address**, the **workshop**, and **your role in it** |
+| MAIL-03 | — | Check the sender | **Reply-To is the inviter's address**, so replying reaches a person and not a no-reply box |
+| MAIL-04 | — | Read the workshop's objective line | If the workshop has an objective it is quoted. If it has none, there is **no blank gap** where it would have been |
+| MAIL-05 | — | Look for images | There are **none** — no logo, no tracking pixel. A remote image in an invitation is the shape of the phishing mail this replaces |
+| MAIL-06 | — | View it as plain text if your client allows | The plain-text version says everything the HTML one does |
+
+## L.2 Opening the link
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| MAIL-07 | invitee | Click the link | A **"Choose a password"** screen. NOT the sign-in page, and you are not asked for an email address |
+| MAIL-08 | invitee | Look at the address bar once it loads | The token is **gone from the URL**. It is a credential and does not belong in history |
+| MAIL-09 | invitee | Set a password | You land in the app, signed in, and a **confirmation email** arrives naming the workshops you are on and a plain sign-in URL to keep |
+| MAIL-10 | invitee | Open the SAME link a second time | **"That invitation link has expired"**, with two buttons: *Email me a new link* and *Sign in instead*. It must not dump you on a blank sign-in form |
+| MAIL-11 | invitee | Sign out, then sign in with the password you chose | It works. This is the thing that was broken: the one session the link gave you used to be the only one you ever got |
+| MAIL-12 | F | Forward an invitation to a colleague on a corporate mail system, then ask them to click it | It should still work. **If it says expired before they ever clicked**, their mail scanner opened it first — report it, with the mail provider named |
+
+## L.3 Editing the wording
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| MAIL-20 | admin | `/admin` → **Invitation emails** | Three tabs: Invitation, Password reset, Confirmation |
+| MAIL-21 | admin | Edit the message and press **Preview** | The preview fills in example values — Dana Okonjo, an example workshop — and contains **no `{{…}}`** |
+| MAIL-22 | admin | Type `{{inviter}}` (not `inviter_name`) and save | **Refused**, and the message names the bad placeholder AND lists the ones that would work |
+| MAIL-23 | admin | Delete `{{action_url}}` from the invitation and save | **Refused** — without it the recipient has no way in |
+| MAIL-24 | admin | Clear the subject and save | Refused |
+| MAIL-25 | admin | Click a placeholder name under the box | It is appended to the message. You should never have to remember the list |
+| MAIL-26 | admin | Save a real change, then invite somebody | The new wording is what arrives |
+| MAIL-27 | admin | Press **Send me a test** | It goes to **your own address** — there is deliberately no box to type someone else's |
+| MAIL-28 | F (not admin) | Open `/admin` | Refused, as before. The invitation wording is administration |
+
+## L.4 "They never received it"
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| MAIL-30 | admin | `/admin` → Invitation emails → **Recent deliveries** | Every attempt, with the address, the subject and the outcome |
+| MAIL-31 | admin | Invite somebody and look again | A new row. **"Sent" means the mail server accepted it** — the panel says so, and says that is not proof it arrived |
+| MAIL-32 | admin | If a send fails | The row is red and quotes **the mail server's own words**, not a guess at the cause |
+| MAIL-33 | admin | With no SMTP configured, invite somebody | The invite still works, and the response SAYS the message went out on Supabase's built-in template and cannot name the inviter or the workshop |
+
+## L.5 Forgotten passwords
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| MAIL-40 | — | Open the sign-in page | There is **no `jane.smith@example.com`** anywhere on it. The email box reads `you@company.com` |
+| MAIL-41 | — | Look beside the Password label | **Forgot your password?** |
+| MAIL-42 | — | Click it and enter an address that HAS an account | "If that address has an account, a link is on its way…" |
+| MAIL-43 | — | Do it again with an address that has **no** account | **Exactly the same message, word for word.** Any difference would let somebody discover which of a client's staff have accounts — report any variation as **Critical** |
+| MAIL-44 | — | Enter something that is not an email address | Refused plainly |
+| MAIL-45 | — | Follow the link that arrives | "Choose a new password" — note it says *new*, since you are not a first-timer |
+| MAIL-46 | admin | Disable an account, then ask for a reset as that person | The same reassuring message, and **no link is sent**. A reset must not hand back access that was withdrawn |
+| MAIL-47 | admin | Check Recent deliveries after MAIL-43 and MAIL-46 | Both are logged as **skipped**, so the silence is explained to you even though it was not explained to them |
+
 ## Defect template
 
 Use the template and severity guide at the end of `UAT_TEST_SCRIPT.md`, and add

@@ -114,15 +114,37 @@ runSuite("iam", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
       "reported as a first-time invite, which is what the person experiences",
       invited.data.link_type);
 
-    // The destination has to be the one the server asked for. Supabase
-    // SILENTLY replaces a redirect_to that is not in the project's Redirect
-    // URLs with the project's Site URL — production's was still
-    // http://localhost:3000, so every invite pointed at the invitee's own
-    // machine while the API returned a perfectly well-formed link.
-    const dest = new URL(invited.data.invite_link).searchParams.get("redirect_to");
-    r.ok(Boolean(dest) && !/\/auth\/callback/.test(dest),
-      "the link targets the app root, not the /auth/callback route that never existed",
-      dest);
+    // WHERE THE LINK LANDS. The property is that following it reaches a route
+    // this app actually serves, carrying a credential — not any particular
+    // query parameter.
+    //
+    // THIS ASSERTION BROKE CORRECTLY and is rewritten rather than retuned. It
+    // used to read `redirect_to` and refuse "/auth/callback", the route that
+    // never existed. The link is now app-hosted — `/welcome?token_hash=…` —
+    // so there is no `redirect_to` AT ALL, because the link no longer passes
+    // through GoTrue's redirect. That is the improvement, not a regression:
+    // the project's Redirect URLs allow-list, the dashboard setting that
+    // silently broke every invite for three attempts, stops mattering.
+    // Asserting the relationship keeps BOTH forms honest, including the
+    // fallback for a project that returns no hashed token.
+    const link = new URL(invited.data.invite_link);
+    const appHosted = /\/welcome$/.test(link.pathname) && link.searchParams.has("token_hash");
+    const viaGoTrue = link.searchParams.get("redirect_to");
+    r.ok(appHosted || (Boolean(viaGoTrue) && !/\/auth\/callback/.test(viaGoTrue)),
+      "the link lands on a route this app serves, carrying a credential — app-hosted, or redirected somewhere real",
+      appHosted ? `app-hosted: ${link.pathname}` : `redirect_to: ${viaGoTrue}`);
+
+    // AND IT IS SPENT BY A POST, not by anything that merely opens it.
+    // GoTrue's own /auth/v1/verify link is consumed by a GET, so Outlook Safe
+    // Links, Gmail's prefetcher, antivirus gateways and a mail provider's
+    // click tracking each destroy a one-time token before the recipient
+    // clicks — which is the reported "the link took me to the login page
+    // without keying in a password". Preferred, not required, because a
+    // project returning no hashed token must still produce a usable link.
+    r.ok(appHosted,
+      "and it is the app-hosted form, which a mail scanner following the link cannot use up",
+      appHosted ? "token_hash on /welcome" : `GoTrue verify link: ${link.pathname}`);
+
     r.ok(!invited.data.link_warning,
       "and no destination warning on a correctly configured project — a warning that cries wolf is worse than none",
       invited.data.link_warning ?? "(none)");
@@ -388,8 +410,21 @@ runSuite("iam", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
       "with a facilitator count, so a workshop nobody can manage is visible");
 
     const reset = await A("POST", `/admin/users/${fUid}/reset-password`, {});
-    r.ok(reset.success && typeof reset.data.reset_link === "string",
-      "a password reset returns a one-time link", reset.error?.message);
+
+    // EXACTLY ONE of the two, never neither and never both.
+    //
+    // This assertion broke correctly when the reset learned to email itself,
+    // and is rewritten rather than retuned: it required `reset_link`, which is
+    // now deliberately withheld when the message was mailed — GoTrue keeps one
+    // token per user per type, so minting a second link to display would
+    // silently kill the one already in the person's inbox. The invariant that
+    // actually matters is that the admin is left with a way to get them in,
+    // and is never shown a link that has been invalidated.
+    const resetEmailed = reset.data?.emailed === true;
+    const resetHasLink = typeof reset.data?.reset_link === "string" && reset.data.reset_link.length > 0;
+    r.ok(reset.success && resetEmailed !== resetHasLink,
+      "a password reset either emails a link or hands one over — never both, because minting a second invalidates the first",
+      reset.success ? `emailed=${resetEmailed} link=${resetHasLink}` : reset.error?.message);
     r.ok(!/password/i.test(JSON.stringify(reset.data).replace(/reset_link|password/gi, "")),
       "and never a password — an admin who chooses one knows it");
 

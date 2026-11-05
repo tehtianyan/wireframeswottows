@@ -33,6 +33,7 @@ const suites = [
   ["executive", "Phase 5 — executive dashboard"],
   ["skins", "Presentation — the five skins, in both modes"],
   ["shell-ui", "Presentation — navigation, and what each screen leads with (no server)"],
+  ["invites", "Invitation email — editable copy, the delivery record, and the way back in"],
   ["branding", "White labelling — per-organization name and logo"],
   ["brand-display", "White labelling — the brand is actually DISPLAYED"],
   ["invite-landing", "Security — where an invite link lands, and in what order"],
