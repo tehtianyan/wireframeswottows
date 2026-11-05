@@ -69,14 +69,42 @@ runSuite("shell-ui", async ({ results: r }) => {
     "...and the active-state test and the menu both read that one statement, rather than repeating the string",
   );
 
-  // ---- the dropdown ----
+  // ---- the two shapes ----
+  //
+  // THE SIDEBAR DISCLOSES IN PLACE; EVERYTHING ELSE USES THE POPOVER. The
+  // first version opened a popover beside the sidebar for every surface, and
+  // UAT read that as the list arriving "at the right" — detached from the
+  // word that produced it and covering the page. The sidebar now expands the
+  // list underneath the entry and pushes the entries below it down.
+  //
+  // Both shapes are asserted because each is right in exactly one place: a
+  // 56px collapsed rail and a phone's bottom bar have no column to disclose
+  // INTO, so a disclosure there would have nowhere to put a workshop's name.
+  r.ok(
+    /function WorkshopsDisclosure\(/.test(appShell),
+    "the sidebar's workshops entry is a disclosure, not a popover",
+  );
   r.ok(
     /function WorkshopsMenu\(/.test(appShell),
-    "the workshops entry opens a menu",
+    "...and the popover survives for the surfaces that have no column to disclose into",
   );
   r.ok(
     /<DropdownMenuTrigger asChild>\{children\}<\/DropdownMenuTrigger>/.test(appShell),
     "...built on the same accessible primitive as the rest of the header, not a hand-rolled popup",
+  );
+
+  // The disclosure must be INLINE, which is the whole of the reported
+  // complaint. A DropdownMenuContent renders through a portal and floats over
+  // the page, so finding one inside this component would mean the list was
+  // still detached from the column however it was labelled.
+  const disclosure = appShell.slice(appShell.indexOf("function WorkshopsDisclosure("));
+  r.ok(
+    disclosure.length > 0 && !/DropdownMenuContent/.test(disclosure),
+    "...it renders no floating layer, so the list sits in the column and pushes the entries below it down",
+  );
+  r.ok(
+    /aria-expanded=\{open\}/.test(disclosure) && /aria-controls=/.test(disclosure),
+    "...and the trigger states its expanded state, since a disclosure is only usable if it says it is one",
   );
 
   // BOTH NAVIGATIONS, OR IT IS UNREACHABLE ON A PHONE. The sidebar is hidden
@@ -91,12 +119,47 @@ runSuite("shell-ui", async ({ results: r }) => {
   r.ok(sidebar.includes("navItems.map") && mobile.includes("navItems.map"),
     "both navigations can be isolated", `${sidebar.length} / ${mobile.length} chars`);
   r.ok(
-    /<WorkshopsMenu/.test(sidebar),
-    "the desktop sidebar uses it",
+    /<WorkshopsDisclosure/.test(sidebar),
+    "the expanded desktop sidebar discloses the list in place",
+  );
+  r.ok(
+    /collapsed\)/.test(sidebar) && /<WorkshopsMenu/.test(sidebar),
+    "...and the collapsed rail falls back to the popover, having no room for a workshop's name",
   );
   r.ok(
     /<WorkshopsMenu/.test(mobile),
-    "...and so does the phone's bottom bar",
+    "...and the phone's bottom bar keeps it too, having no sidebar to disclose into",
+  );
+  r.ok(
+    !/<WorkshopsDisclosure/.test(mobile),
+    "...and does NOT disclose, which in a bottom bar would expand downwards off the screen",
+  );
+
+  // The column scrolls, or the disclosure breaks the thing underneath it. The
+  // Collapse button is pinned with `mt-auto`; a long expanded list in a
+  // fixed-height column would push it past the bottom edge, where nothing can
+  // reach it — the list floated before, so this cost nothing before.
+  r.ok(
+    /overflow-y-auto/.test(sidebar),
+    "the sidebar scrolls, so an expanded list cannot push the Collapse control out of reach",
+  );
+
+  // ONE statement of which workshops, now that two components render them.
+  // This is the rule most likely to rot: a second filter written beside the
+  // first looks right and drifts the day a lifecycle state is added.
+  r.ok(
+    /function useMyWorkshops\(/.test(appShell),
+    "both shapes read one shared source for the list",
+  );
+  r.ok(
+    (appShell.match(/useMyWorkshops\(/g) ?? []).length >= 3,
+    "...declared once and called by each of them, rather than each filtering for itself",
+    `${(appShell.match(/useMyWorkshops\(/g) ?? []).length} references`,
+  );
+  r.ok(
+    (appShell.match(/inPlay\(/g) ?? []).length === 2,
+    "...and inPlay is applied in exactly one place, beside its own definition",
+    `${(appShell.match(/inPlay\(/g) ?? []).length} references (definition + 1 use)`,
   );
 
   // ---- which workshops ----

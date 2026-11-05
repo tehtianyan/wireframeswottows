@@ -178,7 +178,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex">
         <nav
           className={cn(
-            "print:hidden sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-2 transition-all md:flex",
+            // overflow-y-auto because the workshops entry now discloses its
+            // list INTO this column rather than into a popover beside it: a
+            // long list would otherwise push the Collapse button off the
+            // bottom, where nothing can reach it. `mt-auto` on that button
+            // still pins it to the bottom whenever the column is short.
+            "print:hidden sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-sidebar-border bg-sidebar p-2 transition-all md:flex",
             collapsed ? "w-14" : "w-52",
           )}
         >
@@ -191,19 +196,41 @@ export function AppShell({ children }: { children: ReactNode }) {
 
             // The workshops entry opens its list in place rather than
             // navigating to a screen whose only job was to list them.
+            //
+            // IN PLACE MEANS IN THIS COLUMN. It used to open a popover beside
+            // the sidebar, which UAT read as the list arriving "at the right"
+            // — detached from the word that produced it, and covering the
+            // page. It is a disclosure now: the workshops appear directly
+            // under the entry as sublinks and push the entries below them
+            // down, which is the shape the menu already implied.
             if (item.label === WORKSHOPS_LABEL) {
+              // A COLLAPSED RAIL IS THE ONE EXCEPTION, and it is not a
+              // compromise. The rail is 56px and hides every label, so there
+              // is nothing to disclose INTO: sublinks would have no room for
+              // a workshop's name. The popover is the right shape there, and
+              // the trigger is the icon.
+              if (collapsed) {
+                return (
+                  <WorkshopsMenu key={item.label} align="start" side="right">
+                    <button
+                      type="button"
+                      title={item.label}
+                      className={cn(classes, "w-full text-left")}
+                    >
+                      <item.icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
+                    </button>
+                  </WorkshopsMenu>
+                );
+              }
+
               return (
-                <WorkshopsMenu key={item.label} align="start" side="right">
-                  <button type="button" className={cn(classes, "w-full text-left")}>
-                    <item.icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
-                    {!collapsed && (
-                      <>
-                        <span className="truncate">{item.label}</span>
-                        <ChevronRight className="ml-auto size-3.5 shrink-0 opacity-60" />
-                      </>
-                    )}
-                  </button>
-                </WorkshopsMenu>
+                <WorkshopsDisclosure
+                  key={item.label}
+                  label={item.label}
+                  icon={item.icon}
+                  isActive={isActive}
+                  triggerClasses={classes}
+                />
               );
             }
 
@@ -276,6 +303,38 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 /**
+ * The list both shapes render.
+ *
+ * ONE statement of it, because there are now two surfaces — the sidebar's
+ * disclosure and the popover the phone and the collapsed rail use — and
+ * "which workshops belong in the menu" is exactly the rule that would rot if
+ * each one filtered for itself. The query key is shared with the full list
+ * screen, so moving between them costs no extra request.
+ *
+ * `enabled` keeps the fetch lazy: the shell renders on every screen and most
+ * of them have no use for this list, so nothing is requested until somebody
+ * actually opens the menu.
+ */
+function useMyWorkshops(enabled: boolean) {
+  const query = useQuery({
+    queryKey: ["workshops"],
+    queryFn: () => workshopsApi.list(),
+    enabled,
+  });
+  return {
+    live: inPlay(query.data ?? []),
+    isLoading: query.isLoading,
+    isError: query.isError,
+  };
+}
+
+/** What the menu says above the list, in both shapes. */
+function workshopsSummary(isLoading: boolean, count: number): string {
+  if (isLoading) return "Loading…";
+  return count === 0 ? "Nothing in progress" : `${count} in progress`;
+}
+
+/**
  * The workshops you are a member of, as a menu rather than a screen.
  *
  * Opening a workshop used to mean loading a list page and then clicking
@@ -298,27 +357,14 @@ function WorkshopsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-
-  const workshopsQuery = useQuery({
-    queryKey: ["workshops"],
-    queryFn: () => workshopsApi.list(),
-    // Only when the menu is first opened: the shell renders on every screen,
-    // and most of them have no use for this list.
-    enabled: open,
-  });
-
-  const live = inPlay(workshopsQuery.data ?? []);
+  const { live, isLoading, isError } = useMyWorkshops(open);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
       <DropdownMenuContent align={align} side={side} className="max-h-[70vh] w-64 overflow-y-auto">
         <DropdownMenuLabel className="font-normal text-muted-foreground">
-          {workshopsQuery.isLoading
-            ? "Loading…"
-            : live.length === 0
-              ? "Nothing in progress"
-              : `${live.length} in progress`}
+          {workshopsSummary(isLoading, live.length)}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
 
@@ -342,7 +388,7 @@ function WorkshopsMenu({
           );
         })}
 
-        {workshopsQuery.isError && (
+        {isError && (
           <p className="px-2 py-1.5 text-xs text-destructive">Could not load your workshops.</p>
         )}
 
@@ -361,5 +407,127 @@ function WorkshopsMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * The same workshops, disclosed INSIDE the sidebar.
+ *
+ * This is what the sidebar uses whenever it is expanded, and the difference
+ * from WorkshopsMenu is the whole point of it: the list belongs to the column
+ * it was opened from. It sits under the entry, indented against a rail so the
+ * nesting is visible at a glance, and it PUSHES the entries below it down
+ * rather than floating over the page. Nothing is covered, so the rest of the
+ * navigation stays readable while you choose.
+ *
+ * It renders no list at all until it is open, which is what keeps
+ * useMyWorkshops' fetch lazy — the shell is on every screen.
+ *
+ * Deliberately CLOSED on arrival, including on a workshop screen. Opening it
+ * automatically would fetch the list on every one of those screens for a
+ * disclosure nobody asked for, and shift the entries below on load. The
+ * entry itself is already highlighted when you are inside a workshop, which
+ * is what tells you where you are.
+ */
+function WorkshopsDisclosure({
+  label,
+  icon: Icon,
+  isActive,
+  triggerClasses,
+}: {
+  label: string;
+  icon: typeof Layers;
+  isActive: boolean;
+  triggerClasses: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { live, isLoading, isError } = useMyWorkshops(open);
+
+  const subLink =
+    "flex items-center gap-2 rounded-md py-1.5 pl-2 pr-2 text-xs text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground";
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls="sidebar-workshops"
+        className={cn(triggerClasses, "w-full text-left")}
+      >
+        <Icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
+        <span className="truncate">{label}</span>
+        {/* The one chevron, rotated — so the control states which way it is
+            about to move rather than needing two icons kept in step. */}
+        <ChevronRight
+          className={cn(
+            "ml-auto size-3.5 shrink-0 opacity-60 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+
+      {open && (
+        <div
+          id="sidebar-workshops"
+          // Capped so a facilitator with thirty workshops cannot push
+          // Executive, Knowledge and Administration off the bottom of the
+          // column — the list is a way to reach a workshop, not a reason to
+          // lose the rest of the navigation.
+          //
+          // THE CAP IS PROPORTIONAL, NOT A PIXEL COUNT. A fixed 16rem engaged
+          // on ten workshops, which is an ordinary number, so a second
+          // scrollbar appeared inside an already-scrolling column for a list
+          // that would have fitted. Half the viewport leaves the remaining
+          // entries half the column whatever the screen height, and on the
+          // short screens where it does engage it engages for a real reason.
+          // Measured, not guessed: see the geometry probe in the commit.
+          className="mb-1 ml-4 max-h-[50vh] overflow-y-auto overscroll-contain border-l border-sidebar-border pl-1"
+        >
+          <p className="px-2 py-1 text-[10px] text-muted-foreground">
+            {workshopsSummary(isLoading, live.length)}
+          </p>
+
+          {live.map((w) => {
+            const isHere = pathname.startsWith(`/w/${w.id}`);
+            return (
+              <Link
+                key={w.id}
+                to="/w/$workshopId"
+                params={{ workshopId: w.id }}
+                onClick={() => setOpen(false)}
+                // The full name on hover: this column is 175px wide against
+                // the popover's 256px, so a real workshop name truncates
+                // here where it did not before, and several of them share a
+                // first word. Seen in a screenshot, not in the geometry.
+                title={w.name}
+                className={cn(subLink, isHere && "bg-sidebar-accent text-sidebar-foreground")}
+              >
+                <span className={cn("min-w-0 flex-1 truncate", isHere && "font-semibold")}>
+                  {w.name}
+                </span>
+                <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                  {w.status}
+                </span>
+              </Link>
+            );
+          })}
+
+          {isError && (
+            <p className="px-2 py-1 text-xs text-destructive">Could not load your workshops.</p>
+          )}
+
+          <Link to="/w" onClick={() => setOpen(false)} className={subLink}>
+            <Layers className="size-3.5 shrink-0" />
+            <span className="truncate">All workshops, with status</span>
+          </Link>
+          <Link to="/w/new" onClick={() => setOpen(false)} className={subLink}>
+            <Plus className="size-3.5 shrink-0" />
+            <span className="truncate">New workshop</span>
+          </Link>
+        </div>
+      )}
+    </div>
   );
 }
