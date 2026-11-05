@@ -120,3 +120,63 @@ func TestExplainMailFailureDoesNotGuessWrong(t *testing.T) {
 		}
 	}
 }
+
+// AppVerifyURL is the fix for the reported defect that an invitation link
+// "directed the participant to the login page without keying in their
+// password". GoTrue's own link is spent by a GET, so any scanner, prefetcher
+// or click-tracker between the sender and the reader destroys it — and the
+// reader then gets a sign-in form asking for a password they have never set.
+// This form is spent by the POST that verifyOtp makes instead.
+func TestAppVerifyURLIsAppHostedAndCarriesTheTokenHash(t *testing.T) {
+	got := AppVerifyURL("https://example.com/", "abc123", true)
+
+	// It must point at OUR page, not at the project's /auth/v1/verify.
+	if !strings.HasPrefix(got, "https://example.com/welcome?") {
+		t.Fatalf("not app-hosted: %s", got)
+	}
+	if strings.Contains(got, "/auth/v1/verify") {
+		t.Fatalf("still points at GoTrue's GET endpoint: %s", got)
+	}
+	// token_hash, because that is the form verifyOtp exchanges. A bare
+	// `token` would be the GET-consumable one.
+	if !strings.Contains(got, "token_hash=abc123") {
+		t.Fatalf("token_hash missing: %s", got)
+	}
+	// `type` is what the exchange needs; recovery is the only type that works
+	// for an account that already exists, which after CreateUser it always
+	// does. See SignInLinkFor.
+	if !strings.Contains(got, "type=recovery") {
+		t.Fatalf("type missing or wrong: %s", got)
+	}
+}
+
+// `flow` changes the WORDING only. It is in the URL where a recipient can edit
+// it, so it must not be able to grant anything — the server decides what it
+// minted.
+func TestAppVerifyURLFlowDistinguishesFirstTime(t *testing.T) {
+	first := AppVerifyURL("https://example.com", "t", true)
+	again := AppVerifyURL("https://example.com", "t", false)
+	if !strings.Contains(first, "flow=invite") {
+		t.Errorf("first-time flow not marked: %s", first)
+	}
+	if !strings.Contains(again, "flow=reset") {
+		t.Errorf("returning flow not marked: %s", again)
+	}
+	// Both carry the same credential and the same exchange type, so `flow`
+	// cannot be the thing that authorises anything.
+	if strings.Replace(first, "flow=invite", "flow=reset", 1) != again {
+		t.Errorf("flow is not the only difference:\n %s\n %s", first, again)
+	}
+}
+
+// Without a site URL or a hashed token there is nothing to build, and
+// returning a half-formed URL would be worse than returning none: the caller
+// falls back to GoTrue's link, which at least works.
+func TestAppVerifyURLRefusesIncompleteInput(t *testing.T) {
+	if got := AppVerifyURL("", "t", true); got != "" {
+		t.Errorf("no site URL should yield nothing, got %q", got)
+	}
+	if got := AppVerifyURL("https://example.com", "", true); got != "" {
+		t.Errorf("no token should yield nothing, got %q", got)
+	}
+}

@@ -18,6 +18,16 @@ func New() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", handlers.Health)
 
+		// THE ONLY PUBLIC MUTATING ENDPOINT, and it has to be: somebody who
+		// has forgotten their password cannot authenticate to ask for a reset.
+		// Before it existed there was no way back in at all — the sign-in page
+		// simply asked again for the thing they did not know, and the only
+		// remedy was to find an administrator.
+		// Its three safeguards (one unvarying answer so it cannot enumerate
+		// accounts, a refusal for disabled accounts, and a per-address rate
+		// limit checked before any send) are in handlers.ForgotPassword.
+		r.Post("/auth/forgot-password", handlers.ForgotPassword)
+
 		// The catalogue the creation wizard picks from — active methodologies
 		// only, so activating one is a config change, not a release.
 		r.Get("/methodologies", handlers.ListMethodologies)
@@ -71,6 +81,25 @@ func New() http.Handler {
 		// restyle the report that goes to the client's board.
 		r.Get("/admin/organizations", handlers.ListAdminOrganizations)
 		r.Put("/admin/organizations/{orgId}/branding", handlers.UpdateBranding)
+
+		// The invitation copy, editable here rather than in the Supabase
+		// dashboard — which is the only place it could live while GoTrue was
+		// writing the words, and which is why the copy could never name the
+		// inviter or the workshop. The delivery log is beside it because
+		// "they never received it" is answered by the mail server's own words,
+		// not by our record of having tried.
+		r.Get("/admin/email-templates", handlers.ListEmailTemplates)
+		r.Put("/admin/email-templates/{key}", handlers.UpdateEmailTemplate)
+		r.Post("/admin/email-templates/{key}/preview", handlers.PreviewEmailTemplate)
+		r.Post("/admin/email-templates/{key}/test", handlers.SendTestEmail)
+		r.Get("/admin/email-deliveries", handlers.ListEmailDeliveries)
+
+		// The confirmation somebody gets after choosing their password. Its
+		// only possible recipient is the caller's own verified address, which
+		// is what keeps an authenticated endpoint from being a way to mail
+		// strangers.
+		r.Post("/me/password-set", handlers.ConfirmPasswordSet)
+
 		r.Get("/audit-events", handlers.ListAuditEvents)
 
 		r.Route("/workshops", func(r chi.Router) {

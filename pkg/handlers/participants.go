@@ -196,11 +196,27 @@ func InviteParticipant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var workspaceID, workshopName string
+	var objective *string
 	if err := pool.QueryRow(ctx,
-		`select workspace_id::text, name from public.workshops where id = $1`, workshopID,
-	).Scan(&workspaceID, &workshopName); err != nil {
+		`select workspace_id::text, name, objective from public.workshops where id = $1`, workshopID,
+	).Scan(&workspaceID, &workshopName, &objective); err != nil {
 		response.Fail(w, response.CodeNotFound, "workshop not found")
 		return
+	}
+
+	// WHO IS DOING THE INVITING, by name. An invitation from nobody is
+	// indistinguishable from a phishing attempt — the recipient's first
+	// question is "do I know this person?" — and GoTrue's own templates cannot
+	// answer it, which is why the product now writes the message itself.
+	var inviterName, inviterEmail string
+	if err := pool.QueryRow(ctx, `
+		select coalesce(nullif(btrim(display_name), ''), email), email
+		  from public.profiles where id = $1`, actor.ID,
+	).Scan(&inviterName, &inviterEmail); err != nil {
+		// Not fatal: an invitation with a slightly poorer greeting beats no
+		// invitation. The template renders an absent name as a shorter
+		// sentence rather than as a hole.
+		fmt.Fprintf(os.Stderr, "InviteParticipant: inviter profile %s: %v\n", actor.ID, err)
 	}
 
 	// An existing address is REUSED rather than refused. The previous version called
@@ -284,35 +300,49 @@ func InviteParticipant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	byEmail := strings.TrimSpace(strings.ToLower(body.Deliver)) != "link"
-	inv, linkErr := supaadmin.DeliverSignInLink(ctx, email, siteURL(), isNew, byEmail)
+	preferLink := strings.TrimSpace(strings.ToLower(body.Deliver)) == "link"
+	inv := deliverInvite(ctx, pool, actor.ID, inviteFacts{
+		To:            email,
+		RecipientName: name,
+		InviterName:   inviterName,
+		InviterEmail:  inviterEmail,
+		WorkshopID:    workshopID,
+		WorkshopName:  workshopName,
+		Objective:     derefOr(objective, ""),
+		Role:          role,
+		FirstTime:     isNew,
+	}, preferLink)
 
 	// The audit row records HOW it was delivered, because "we emailed it" and
 	// "somebody copied a link" are different facts about how an account came
-	// to be reachable, and only one of them leaves a trace anywhere else.
+	// to be reachable, and only one of them leaves a trace anywhere else. The
+	// ROUTE is recorded too: an invitation sent through Supabase's built-in
+	// template and one sent through our own are different messages, and which
+	// one somebody received is the first thing to establish when they report
+	// that it looked like phishing.
 	audit.Record(ctx, pool, actor.ID, "participant.invited", "workshop_member", userID, "", role,
 		map[string]interface{}{
 			"workshop_id": workshopID, "email": email, "role": role, "new_account": isNew,
-			"delivery": string(inv.Delivery),
+			"delivery": inv.Delivery, "route": inv.Route,
 		})
 
 	out := map[string]interface{}{
 		"user_id": userID, "email": email, "role": role, "new_account": isNew,
-		"delivery": string(inv.Delivery),
+		"delivery": inv.Delivery, "route": inv.Route,
 	}
-	if linkErr != nil {
+	if inv.Err != nil {
 		// The membership is real even when no credential could be produced, so
 		// this says exactly that rather than implying the invite failed.
-		out["link_error"] = "They now have access, but a sign-in link could not be generated: " + linkErr.Error()
-	} else if inv.Delivery == supaadmin.DeliveredByEmail {
+		out["link_error"] = "They now have access, but a sign-in link could not be generated: " + inv.Err.Error()
+	} else if inv.Delivery == "emailed" {
 		// Deliberately NO link in the response. GoTrue keeps one token per
 		// user, so minting one to display here would invalidate the one now
 		// sitting in their inbox.
 		out["emailed_to"] = email
-		out["link_type"] = string(inv.LinkType)
+		out["link_type"] = inv.LinkType
 	} else {
 		out["invite_link"] = inv.Link
-		out["link_type"] = string(inv.LinkType)
+		out["link_type"] = inv.LinkType
 		// Surfaced to the inviter, not swallowed: Supabase silently rewrites a
 		// redirect it does not recognise, so without this the link looks
 		// correct to everyone except the person who cannot open it.
@@ -325,6 +355,9 @@ func InviteParticipant(w http.ResponseWriter, r *http.Request) {
 	// assume it did and say nothing to the invitee.
 	if inv.FellBack != "" {
 		out["delivery_error"] = inv.FellBack
+	}
+	if inv.Notice != "" {
+		out["delivery_notice"] = inv.Notice
 	}
 	response.Created(w, out)
 }

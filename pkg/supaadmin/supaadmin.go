@@ -186,16 +186,25 @@ const (
 // The third return value is a WARNING for the person doing the inviting, empty
 // when all is well. See RedirectWarning: Supabase silently rewrites a
 // redirect_to it does not recognise, and somebody has to be told.
+// It PREFERS the app-hosted form (see AppVerifyURL) and falls back to
+// GoTrue's own link when no hashed token came back. The fallback also
+// restores the redirect warning: an app-hosted link never passes through
+// GoTrue's redirect, so the project's Redirect URLs allow-list — the setting
+// that silently broke every invite for three attempts — stops mattering at
+// all, and there is nothing left to warn about.
 func SignInLinkFor(ctx context.Context, email, redirectTo string, firstTime bool) (string, LinkType, string, error) {
-	link, err := GenerateLink(ctx, LinkRecovery, email, redirectTo)
+	kind := LinkRecovery
+	if firstTime {
+		kind = LinkInvite
+	}
+	minted, err := GenerateLink(ctx, LinkRecovery, email, redirectTo)
 	if err != nil {
 		return "", "", "", err
 	}
-	warn := RedirectWarning(redirectTo, link)
-	if firstTime {
-		return link, LinkInvite, warn, nil
+	if app := AppVerifyURL(redirectTo, minted.HashedToken, firstTime); app != "" {
+		return app, kind, "", nil
 	}
-	return link, LinkRecovery, warn, nil
+	return minted.ActionLink, kind, RedirectWarning(redirectTo, minted.ActionLink), nil
 }
 
 // Delivery says how an invitation actually reached the person.
@@ -371,26 +380,80 @@ func SendRecoveryEmail(ctx context.Context, email, redirectTo string) error {
 	return do(ctx, http.MethodPost, path, map[string]interface{}{"email": email}, nil)
 }
 
-// GenerateLink mints a one-time link without sending any email.
+// Minted is what generate_link gives us. Two usable forms of the same
+// one-time credential, and the choice between them decides whether a corporate
+// mail scanner can destroy the invitation before its recipient reads it.
+type Minted struct {
+	// ActionLink is GoTrue's own URL: a GET to /auth/v1/verify that consumes
+	// the token and redirects with a session in the fragment.
+	//
+	// ANY GET CONSUMES IT. Outlook Safe Links, Gmail's prefetcher, antivirus
+	// gateways and an email provider's own click tracking all follow links in
+	// mail, and each one burns a token that works exactly once. The invitee
+	// then clicks a dead link and lands on the sign-in page being asked for
+	// the password the link existed to let them choose. That is the reported
+	// defect, and it is unfixable while the credential is spent by a GET.
+	ActionLink string
+	// HashedToken is the same credential in a form that is spent by a POST
+	// instead. Put in a link to our OWN page, a scanner fetching that page
+	// consumes nothing: the exchange happens only when the app calls
+	// verifyOtp. See AppVerifyURL.
+	HashedToken string
+}
+
+// GenerateLink mints a one-time credential without sending any email.
 //
-// redirectTo is where the person lands after following it, and must be an
-// allowed redirect URL in the project's auth settings or Supabase will refuse
-// to honour it.
-func GenerateLink(ctx context.Context, t LinkType, email, redirectTo string) (string, error) {
+// redirectTo is where the person lands after following ActionLink, and must be
+// an allowed redirect URL in the project's auth settings or Supabase will
+// refuse to honour it — silently. See RedirectWarning.
+func GenerateLink(ctx context.Context, t LinkType, email, redirectTo string) (Minted, error) {
 	body := map[string]interface{}{"type": string(t), "email": email}
 	if redirectTo != "" {
 		body["redirect_to"] = redirectTo
 	}
 	var out struct {
-		ActionLink string `json:"action_link"`
+		ActionLink  string `json:"action_link"`
+		HashedToken string `json:"hashed_token"`
 	}
 	if err := do(ctx, http.MethodPost, "/auth/v1/admin/generate_link", body, &out); err != nil {
-		return "", err
+		return Minted{}, err
 	}
 	if out.ActionLink == "" {
-		return "", errors.New("supabase admin: no link was returned")
+		return Minted{}, errors.New("supabase admin: no link was returned")
 	}
-	return out.ActionLink, nil
+	return Minted{ActionLink: out.ActionLink, HashedToken: out.HashedToken}, nil
+}
+
+// AppVerifyURL builds a link to the app's own landing page carrying the token
+// hash, rather than a link to GoTrue's verify endpoint.
+//
+// WHY THIS IS THE DEFAULT NOW. The credential is identical; what changes is
+// what spends it. GoTrue's link is spent by a GET, so every scanner, prefetcher
+// and click-tracker in the path between the sender and the reader destroys the
+// invitation — and the invitee's experience of that is "the link took me to a
+// login page and asked for a password I have never set". With this form the
+// scanner gets a page of HTML and the token is still unused; it is spent by the
+// POST that verifyOtp makes, which only happens when a real browser runs the
+// app.
+//
+// `type=recovery` is what the exchange needs, because recovery is the only
+// type that works for an account that already exists (see SignInLinkFor).
+// `flow` is for the WORDING on the screen — a first-time invitee is choosing a
+// password, somebody who asked for a reset is replacing one — and carries no
+// authority: the server decides what it minted, and a visitor editing `flow`
+// changes nothing but the heading.
+//
+// Pure, so the URL shape is tested without a network call.
+func AppVerifyURL(siteURL, hashedToken string, firstTime bool) string {
+	if siteURL == "" || hashedToken == "" {
+		return ""
+	}
+	flow := "reset"
+	if firstTime {
+		flow = "invite"
+	}
+	return strings.TrimRight(siteURL, "/") + "/welcome?token_hash=" +
+		urlQueryEscape(hashedToken) + "&type=recovery&flow=" + flow
 }
 
 // SetUserBanned disables or re-enables sign-in for an account.

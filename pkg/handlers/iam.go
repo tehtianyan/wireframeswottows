@@ -20,6 +20,7 @@ import (
 
 	"swot-tows/pkg/audit"
 	"swot-tows/pkg/httpctx"
+	"swot-tows/pkg/mailer"
 	"swot-tows/pkg/response"
 	"swot-tows/pkg/supaadmin"
 )
@@ -225,32 +226,42 @@ func CreateAdminUser(w http.ResponseWriter, r *http.Request) {
 	// back to a link rather than failing. Creating an account from here and
 	// inviting somebody to a workshop are the same act from the person's side:
 	// either way they need a way in.
-	byEmail := strings.TrimSpace(strings.ToLower(body.Deliver)) != "link"
-	inv, linkErr := supaadmin.DeliverSignInLink(ctx, email, siteURL(), isNew, byEmail)
+	// Through the same ladder as a workshop invite, so this path gets the
+	// delivery log and the honest notice about which template was used. It
+	// names NO workshop, because there is none yet — which means deliverInvite
+	// skips our own invitation copy rather than mailing it with the workshop
+	// and the inviter left blank. See the comment on rung 1.
+	preferLink := strings.TrimSpace(strings.ToLower(body.Deliver)) == "link"
+	inv := deliverInvite(ctx, pool, actor, inviteFacts{
+		To: email, RecipientName: name, FirstTime: isNew,
+	}, preferLink)
 
 	audit.Record(ctx, pool, actor, "user.created", "profile", userID, "", role,
 		map[string]interface{}{
-			"email": email, "new_account": isNew, "delivery": string(inv.Delivery),
+			"email": email, "new_account": isNew, "delivery": inv.Delivery, "route": inv.Route,
 		})
 
 	out := map[string]interface{}{
 		"id": userID, "email": email, "global_role": role, "new_account": isNew,
-		"delivery": string(inv.Delivery),
+		"delivery": inv.Delivery, "route": inv.Route,
 	}
-	if linkErr != nil {
-		out["link_error"] = "The account exists, but a sign-in link could not be generated: " + linkErr.Error()
-	} else if inv.Delivery == supaadmin.DeliveredByEmail {
+	if inv.Err != nil {
+		out["link_error"] = "The account exists, but a sign-in link could not be generated: " + inv.Err.Error()
+	} else if inv.Delivery == "emailed" {
 		out["emailed_to"] = email
-		out["link_type"] = string(inv.LinkType)
+		out["link_type"] = inv.LinkType
 	} else {
 		out["invite_link"] = inv.Link
-		out["link_type"] = string(inv.LinkType)
+		out["link_type"] = inv.LinkType
 		if inv.Warning != "" {
 			out["link_warning"] = inv.Warning
 		}
 	}
 	if inv.FellBack != "" {
 		out["delivery_error"] = inv.FellBack
+	}
+	if inv.Notice != "" {
+		out["delivery_notice"] = inv.Notice
 	}
 	response.Created(w, out)
 }
@@ -293,25 +304,60 @@ func ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link, err := supaadmin.GenerateLink(ctx, supaadmin.LinkRecovery, email, siteURL())
+	// The app-hosted form, so a mail scanner following the link cannot spend
+	// the token before the person reads the message. See
+	// supaadmin.AppVerifyURL.
+	link, err := mintAppLink(ctx, email, false)
 	if err != nil {
 		failDB(w, err)
 		return
 	}
-	linkWarn := supaadmin.RedirectWarning(siteURL(), link)
+
+	// EMAILED when we can, handed over when we cannot. Minting a link and
+	// leaving an administrator to pass it on was the original design, for the
+	// good reason that Supabase's mailer can drop mail to a client domain
+	// silently. With our own SMTP that reason is gone for the ordinary case,
+	// and asking somebody to copy a bearer credential into a chat window is
+	// the worse habit of the two.
+	var name *string
+	_ = pool.QueryRow(ctx,
+		`select nullif(btrim(display_name), '') from public.profiles where id = $1`, targetID).Scan(&name)
+
+	emailed := false
+	var sendErr error
+	if mailConfig().Configured() {
+		_, out := sendTemplated(ctx, pool, mailer.TemplatePasswordReset, email, "",
+			map[string]string{
+				"recipient_name":  firstOrAddress(derefOr(name, ""), email),
+				"recipient_email": email,
+				"action_url":      link,
+				"product_name":    productNameFor(ctx, pool, ""),
+				"site_url":        strings.TrimRight(siteURL(), "/"),
+			}, actor, "")
+		sendErr = out.Err
+		emailed = out.Err == nil
+	}
 
 	// The LINK IS NOT LOGGED — it is a bearer credential for that account, and
 	// an audit trail readable by every admin is the wrong place for one. Only
 	// the fact of the reset is recorded.
 	audit.Record(ctx, pool, actor, "user.password_reset_issued", "profile", targetID, "", "",
-		map[string]interface{}{"email": email})
+		map[string]interface{}{"email": email, "emailed": emailed})
 
 	reset := map[string]interface{}{
-		"id": targetID, "email": email, "reset_link": link,
+		"id": targetID, "email": email, "emailed": emailed,
 		"expires_note": "This link can be used once, and expires according to the project's auth settings.",
 	}
-	if linkWarn != "" {
-		reset["link_warning"] = linkWarn
+	if emailed {
+		// No link alongside it, for the same reason the invite path withholds
+		// one: a second mint would invalidate the one now in their inbox.
+		reset["emailed_to"] = email
+	} else {
+		reset["reset_link"] = link
+		if sendErr != nil {
+			reset["delivery_error"] = "This was NOT emailed (" + sendErr.Error() +
+				"). Pass the link on instead."
+		}
 	}
 	response.OK(w, reset)
 }
