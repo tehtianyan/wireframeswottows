@@ -19,6 +19,23 @@ import { workshopsApi, type Activity, type MethodologyStage, type WorkshopRole }
 // leads, because since 20261106100000 the sequence numbers ARE what the room
 // says out loud.
 //
+// EVERY TILE IS THE SAME SIZE, AND IT TAKES A REAL GRID (2026-11-07).
+//
+// The first version was a wrapping FLEX row of `flex-1` tiles, which is the one
+// layout that cannot do this: a flex line distributes its own free space, so
+// ten stages over two rows came out as six narrow tiles above four wide ones —
+// the same ragged result the capture board's notes had, from the same cause.
+// `items-start` then let each tile take its own height, so a two-line stage name
+// made its tile shorter than its neighbours as well as narrower.
+//
+// A grid's tracks are shared by every row, so one declaration sizes all ten.
+// `auto-rows-fr` equalises the heights and the name clamps at two lines, which
+// is what stops the longest name in the methodology from setting the height of
+// every tile in it. Note the contrast with a NOTE on the capture board, which
+// is deliberately NOT `1fr`: a post-it does not change size with the space
+// around it, but a nav tile in a fixed list of ten is exactly the thing that
+// should divide its row evenly.
+//
 // What each tile had to keep:
 //  * the NUMBER and the NAME. Everything else was secondary.
 //  * the STATUS, as a colour and a dot rather than the words "NOT STARTED" —
@@ -80,7 +97,10 @@ export function StageList({
   const facilitator = myRole === "facilitator" && !readOnly;
 
   return (
-    <div className="flex flex-wrap gap-2 p-3">
+    <div
+      className="grid auto-rows-fr gap-2 p-3"
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(10.5rem, 1fr))" }}
+    >
       {stages.map((stage) => {
         const activity = activityByStage.get(stage.key);
         const status = activity?.status ?? "not_started";
@@ -94,7 +114,7 @@ export function StageList({
           <div
             key={stage.key}
             className={cn(
-              "group flex min-w-[9.5rem] max-w-[15rem] flex-1 items-start gap-2 rounded border px-2.5 py-2 transition-colors",
+              "group flex min-w-0 items-start gap-2 rounded border px-2.5 py-2 transition-colors",
               STATUS_RING[status] ?? STATUS_RING["not_started"],
               aside && "border-dashed",
             )}
@@ -115,7 +135,12 @@ export function StageList({
                 <span className="font-mono text-[11px] tabular-nums opacity-70">
                   {stage.sequence_number}
                 </span>
-                <span className="min-w-0 text-xs font-medium leading-snug text-foreground">
+                {/* Two lines at most. "Recommendation Generation" is the
+                    longest name SWOT-TOWS has and it wraps to two at this
+                    track width; a third line in one tile would otherwise set
+                    the height of all ten, since the rows are 1fr. The full
+                    name is in the tile's own title attribute either way. */}
+                <span className="line-clamp-2 min-w-0 text-xs font-medium leading-snug text-foreground">
                   {stage.name}
                 </span>
               </span>

@@ -24,6 +24,7 @@ import { CleanupPanel } from "./CleanupPanel";
 import { ThemeRating } from "./ThemeRating";
 import { useFactorChannel, type ChannelStatus } from "@/lib/useFactorChannel";
 import { useWorkshopPresenceContext } from "@/lib/workshop-presence";
+import { boardColumns } from "@/lib/grid";
 import type { PresentMember } from "@/lib/useWorkshopPresence";
 import {
   objectKindsApi,
@@ -58,12 +59,9 @@ import {
 //  - THE GROUP'S FIGURE IS ON THE NOTE, with the number of people behind it.
 //  - A THEME IS MADE BY STACKING, the way it is made on a physical wall.
 
-/** Columns for n panels. 4 gives the 2x2 a SWOT board is expected to be. */
-export function boardColumns(n: number): number {
-  if (n <= 2) return Math.max(1, n);
-  if (n <= 4) return 2;
-  return 3;
-}
+// `boardColumns` moved to src/lib/grid.ts on 2026-11-07: the relationship
+// matrix needs the same "4 gives a 2x2" answer from its relationship-type
+// count, and two copies of that rule is two chances to disagree about it.
 
 /**
  * Display order within a category: hand-set position first, then creation
@@ -1214,7 +1212,28 @@ function Quadrant({
         // SCROLLS INSIDE ITSELF, so every panel stays on screen however much
         // is on the wall. The height is capped rather than fixed: a panel with
         // three notes does not reserve space for thirty.
-        view === "columns" ? "w-[19rem] shrink-0" : "",
+        //
+        // THE STRIP FILLS THE WIDTH IT IS GIVEN (2026-11-07). This was a fixed
+        // `w-[19rem]`, so four panels came to ~1252px and stopped there: on any
+        // display wider than that the wall was visibly narrower than the header
+        // panel above it, with dead space to its right. `flex-1` lets them
+        // share whatever the column has.
+        //
+        // THE FLOOR HAD TO COME DOWN WITH IT, and keeping 19rem was the first
+        // version's mistake — measured, not guessed. 4 × 19rem plus three gaps
+        // is 1252px, and the content column at a 1440 viewport is 1192: a floor
+        // ABOVE the available width can never be grown out of, so the panels
+        // stayed 304px wide and simply overflowed into this strip's own scroll.
+        // The whole change would have done nothing, while reading as done.
+        // 15rem is the real floor — the width at which a panel still holds two
+        // 7.5rem notes side by side once its padding is taken off — so four
+        // panels fit at 1192 and grow from there, and nine PESTLE categories
+        // still overflow into the sideways scroll, which is what that is for.
+        //
+        // This is the opposite call to a NOTE, which must not grow with its
+        // container, and for the opposite reason: a post-it has a real size,
+        // and a panel is the space a post-it goes on.
+        view === "columns" ? "min-w-[15rem] flex-1" : "",
         wholePanel && "shadow-lg",
       )}
       style={{
@@ -1247,7 +1266,18 @@ function Quadrant({
         </div>
       </div>
 
-      {focused && category.guidance_text && (
+      {/* EVERY PANEL CARRIES ITS OWN GUIDANCE (2026-11-07).
+          It was gated on `focused`, so on stage 1 only Strengths said what it
+          was for and the other three were four coloured boxes — yet a
+          facilitator may add to any of them, and anybody may drag a note into
+          one. A panel you can write in that does not say what belongs in it is
+          the thing the methodology-first principle exists to prevent, and this
+          text is per-CATEGORY config, not per-stage: it is as true in the
+          Threats panel on stage 1 as it is on stage 4.
+          It also made the four panels different heights, which is what pushed
+          the composers out of line — see `mt-auto` below for the half of that
+          fix which does not depend on the text being the same length. */}
+      {category.guidance_text && (
         <p className="shrink-0 border-b border-border/60 px-3 py-2 text-xs leading-snug text-muted-foreground">
           {category.guidance_text}
         </p>
@@ -1319,7 +1349,53 @@ function Quadrant({
           )}
         </div>
 
-        {canAdd && (
+        {/* THE FOOT OF THE PANEL, PINNED THERE.
+            `mt-auto` takes the leftover space in this column, so "Add a note…"
+            sits on the panel's bottom edge rather than wherever the content
+            above happens to end. Both views lay the panels out with the default
+            `stretch`, so every panel in a row is already the same height — and
+            that is what makes this enough: the composers line up whatever the
+            guidance text's length, however many notes are on the wall, and in
+            grid view and column view alike. Measuring or clamping the guidance
+            to equalise the heights would have been the same answer reached the
+            fragile way.
+            The keyboard move-select is INSIDE this group and above the form,
+            because it renders only when there is something to move: below the
+            form it would have shifted the composer by its own height in
+            whichever panels had notes, which is the misalignment again from a
+            second cause. */}
+        <div className="mt-auto shrink-0">
+          {/* Keyboard equivalent of dragging, so recategorising is not mouse-only. */}
+          {canMove && movable.length > 0 && (
+            <div className="border-t border-border/60 px-3 py-1.5">
+              <label className="sr-only" htmlFor={`move-${category.key}`}>
+                Move a note out of {category.name}
+              </label>
+              <select
+                id={`move-${category.key}`}
+                defaultValue=""
+                onChange={(e) => {
+                  const [id, key] = e.target.value.split("|");
+                  if (id && key) onMoveTo(id, key);
+                  e.currentTarget.value = "";
+                }}
+                className="w-full bg-transparent font-mono text-[10px] text-muted-foreground outline-none"
+              >
+                <option value="">Move a note to…</option>
+                {movable.flatMap((f) =>
+                  categories
+                    .filter((c) => c.key !== category.key)
+                    .map((c) => (
+                      <option key={`${f.id}|${c.key}`} value={`${f.id}|${c.key}`}>
+                        {f.title.slice(0, 28)} → {c.name}
+                      </option>
+                    )),
+                )}
+              </select>
+            </div>
+          )}
+
+          {canAdd && (
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1328,7 +1404,7 @@ function Quadrant({
               onAdd(t);
               setDraft("");
             }}
-            className="shrink-0 border-t border-border/60 p-3"
+            className="border-t border-border/60 p-3"
           >
             <label className="sr-only" htmlFor={`add-${category.key}`}>
               Add a note to {category.name}
@@ -1362,38 +1438,9 @@ function Quadrant({
               {assist && <AssistButton assist={assist} category={category} className="mt-0.5" />}
             </div>
           </form>
-        )}
-      </div>
-
-      {/* Keyboard equivalent of dragging, so recategorising is not mouse-only. */}
-      {canMove && movable.length > 0 && (
-        <div className="shrink-0 border-t border-border/60 px-3 py-1.5">
-          <label className="sr-only" htmlFor={`move-${category.key}`}>
-            Move a note out of {category.name}
-          </label>
-          <select
-            id={`move-${category.key}`}
-            defaultValue=""
-            onChange={(e) => {
-              const [id, key] = e.target.value.split("|");
-              if (id && key) onMoveTo(id, key);
-              e.currentTarget.value = "";
-            }}
-            className="w-full bg-transparent font-mono text-[10px] text-muted-foreground outline-none"
-          >
-            <option value="">Move a note to…</option>
-            {movable.flatMap((f) =>
-              categories
-                .filter((c) => c.key !== category.key)
-                .map((c) => (
-                  <option key={`${f.id}|${c.key}`} value={`${f.id}|${c.key}`}>
-                    {f.title.slice(0, 28)} → {c.name}
-                  </option>
-                )),
-            )}
-          </select>
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }

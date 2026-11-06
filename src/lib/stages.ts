@@ -83,9 +83,25 @@ export function stageAsideFromFlow(stage: MethodologyStage): boolean {
  * Null when there is nowhere sensible to land, which the caller renders as the
  * overview instead of an empty screen. Three reasons it can be null, and each
  * is a real state rather than an error:
- *  - the workshop is a draft (still being configured) or archived (finished);
+ *  - the workshop is archived, so the work has ended;
  *  - the caller's role sees no stages at all;
  *  - every stage this role can see is of a type with no renderer yet.
+ *
+ * `draft` IS NOT ONE OF THEM, and the first version had it wrong (2026-11-07).
+ *
+ * It read `draft` as "still being configured" and sent those workshops to the
+ * overview. That is not what the status means here: §8.7's lifecycle is
+ * `draft → configured → active`, two manual advances that NOTHING in capture,
+ * theming, rating or review requires — so a workshop sits in `draft` because
+ * nobody pressed Advance twice, not because it is unready. Production proved
+ * it: five of seven workshops were drafts, one with seven members and a wall of
+ * real notes, and every one of them landed on the overview. The rule meant to
+ * fire on the exception fired on the normal case.
+ *
+ * `archived` stays, because that one is a real end state: writes are frozen by
+ * a trigger on every workshop-scoped table, so a capture board there would
+ * refuse everything a person tried. The overview is the page that says why, and
+ * it still carries the reports.
  *
  * It reads `visibleStages`, so it is the SAME rule as the stage header and the
  * overview list — a redirect that landed somebody on a stage their navigation
@@ -98,7 +114,7 @@ export function firstStageFor(workshop: {
   my_role: WorkshopRole;
   methodology: Methodology;
 }): MethodologyStage | null {
-  if (workshop.status === "draft" || workshop.status === "archived") return null;
+  if (workshop.status === "archived") return null;
   const visible = visibleStages(workshop.methodology.stages, workshop.my_role);
   return visible.find((s) => RENDERABLE_STAGE_TYPES.has(s.stage_type)) ?? null;
 }

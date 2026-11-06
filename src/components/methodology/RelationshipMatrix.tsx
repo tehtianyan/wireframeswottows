@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { PanelHeading } from "@/components/workshop-ui";
 import { ObjectCard } from "./ObjectCard";
 import { useStageObjects } from "./useStageObjects";
+import { boardColumns } from "@/lib/grid";
 import {
   canReview as roleCanReview,
   objectsApi,
@@ -225,9 +226,26 @@ export function RelationshipMatrix({
           )}
         </p>
 
+        {/* FOUR RELATIONSHIP TYPES MAKE A 2x2, NOT A 3 AND A 1 (2026-11-07).
+            This was `minmax(min(100%, 300px), 1fr)` alone, which packs in as
+            many 300px cells as fit: correct at the 852px the content column
+            used to be (two across, so SWOT-TOWS drew its square), and wrong the
+            moment the AI column came out and the same rule started drawing
+            three across with the fourth stranded on its own row.
+            So the count comes from the same rule the capture board's panels
+            use — `boardColumns`, which is where "4 gives a 2x2" is already
+            stated once for any methodology: 4 types give 2 columns, 6 give 3,
+            and a methodology with one relationship type gets one. Nothing here
+            knows what TOWS is; it knows how many cells it was given.
+            The 300px floor stays inside the `max()`, so a narrow screen still
+            collapses to a single column instead of squeezing the square. */}
         <div
           className="grid gap-px bg-border"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))" }}
+          style={{
+            gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, max(300px, ${(
+              100 / boardColumns(types.length)
+            ).toFixed(4)}% - 1rem)), 1fr))`,
+          }}
         >
           {types.map((type) => {
             const cellObjects = objects.filter((o) => o.relationship_type_id === type.id);

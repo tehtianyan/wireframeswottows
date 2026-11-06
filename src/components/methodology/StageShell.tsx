@@ -7,15 +7,22 @@ import { BuildBadge } from "@/components/workshop-ui";
 import type { Activity, FactorCategory, MethodologyStage, WorkshopDetail } from "@/lib/api";
 
 // The wrapper every wireframe workspace (§1-10) repeats identically: Activity
-// Header -> Guidance Panel -> primary content -> AI Assistant slot. Driven
-// entirely by the stage/category config passed in — nothing here names a
-// methodology.
+// Header -> Guidance Panel -> primary content, with the AI assistant offered
+// from the header. Driven entirely by the stage/category config passed in —
+// nothing here names a methodology.
+//
+// THERE IS NO AI COLUMN ANY MORE (2026-11-07). It was a 340px track beside the
+// content on every stage type but the capture board, which gave it up on
+// 2026-11-05 — so the move was half-made, and the half that remained spent a
+// quarter of a 1192px screen on a panel of one or two buttons. `assistant` is
+// the same panel behind a header button; see StageAssistant for why the trigger
+// has to know whether there is anything behind it.
 export function StageShell({
   workshop,
   stage,
   category,
   guidance,
-  aiPanel,
+  assistant,
   reviewMode = false,
   dense = false,
   children,
@@ -24,7 +31,8 @@ export function StageShell({
   stage: MethodologyStage;
   category?: FactorCategory;
   guidance?: string;
-  aiPanel?: ReactNode;
+  /** The stage's AI actions, as a header control. Renders itself or nothing. */
+  assistant?: ReactNode;
   reviewMode?: boolean;
   /**
    * The content IS the screen — used by the capture board.
@@ -112,17 +120,22 @@ export function StageShell({
                 ))}
             </div>
 
-            {/* Review Mode is available on every workspace per the wireframe
-                spec, so it belongs to the shell rather than to any one stage. */}
-            <Link
-              to="/w/$workshopId/stage/$stageKey"
-              params={{ workshopId: workshop.id, stageKey: stage.key }}
-              search={reviewMode ? {} : { mode: "review" as const }}
-              className="inline-flex shrink-0 items-center gap-1.5 self-start rounded border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {reviewMode ? <PenLine className="size-3.5" /> : <ClipboardCheck className="size-3.5" />}
-              {reviewMode ? "Back to stage" : "Review mode"}
-            </Link>
+            {/* The stage's own controls. Review Mode is available on every
+                workspace per the wireframe spec, and the assistant is now
+                offered the same way, so both belong to the shell rather than to
+                any one stage. */}
+            <div className="flex shrink-0 items-center gap-2 self-start">
+              {assistant}
+              <Link
+                to="/w/$workshopId/stage/$stageKey"
+                params={{ workshopId: workshop.id, stageKey: stage.key }}
+                search={reviewMode ? {} : { mode: "review" as const }}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {reviewMode ? <PenLine className="size-3.5" /> : <ClipboardCheck className="size-3.5" />}
+                {reviewMode ? "Back to stage" : "Review mode"}
+              </Link>
+            </div>
           </div>
 
           {/* Stage navigation, built from methodology config — the order and
@@ -183,22 +196,22 @@ export function StageShell({
         {/* `min-w-0` IS LOAD-BEARING, and it was being supplied by accident.
             A grid item's default `min-width` is `auto`, so this column refuses
             to shrink below the min-content width of whatever is in it. The
-            capture board's column view is a strip of FIXED-WIDTH panels, whose
-            min-content is their total — so the column grew to ~1252px inside a
-            1192px track and pushed the whole document sideways, which is the
-            one layout failure that makes the board unusable rather than merely
-            ugly.
+            capture board's column view is a strip of panels with a minimum
+            width each, whose min-content is their total — so the column grew to
+            ~1252px inside a 1192px track and pushed the whole document
+            sideways, which is the one layout failure that makes the board
+            unusable rather than merely ugly.
             It never showed before because `aiPanel` was always passed on this
             stage, and the two-column class brought a `minmax(0,1fr)` track
             whose 0 minimum did this job. Taking the panel out of the board
             stage took the 0 with it. Stated here instead, so it holds at every
             width and for every stage type rather than only where that class
-            happens to apply.
+            happens to apply — including now that the AI column is gone from all
+            of them and no `minmax(0,1fr)` is left anywhere to supply it.
             Found by visual-board.js measuring the real document; no source-level
             check would have seen it, and neither did tsc or the build. */}
-        <div className={cn("grid gap-4", aiPanel && "xl:grid-cols-[minmax(0,1fr)_340px]")}>
+        <div className="grid gap-4">
           <div className="min-w-0 space-y-4">{children}</div>
-          {aiPanel && <div className="min-w-0 space-y-4">{aiPanel}</div>}
         </div>
       </div>
     </div>

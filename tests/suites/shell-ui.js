@@ -280,6 +280,85 @@ runSuite("shell-ui", async ({ results: r }) => {
   );
 
   // ================================================================
+  r.section("Clicking a workshop lands in stage 1, drafts included");
+  // ================================================================
+
+  // UAT, the day after the redirect shipped: "My Workshops → workshop still
+  // brings the user to the Overview page. It should have brought the user
+  // straight to Stage 1."
+  //
+  // The redirect was there and worked; `firstStageFor` sent every DRAFT
+  // workshop to the overview instead, reading `draft` as "still being set up".
+  // §8.7's lifecycle is draft → configured → active, two manual advances that
+  // nothing in capture, theming, rating or review requires — so production had
+  // five of its seven workshops in `draft`, one of them with seven members and
+  // a wall of real notes, and the rule meant for the exception fired on the
+  // normal case.
+  //
+  // This is phrased about the STATUS LIST rather than by re-implementing the
+  // function, because the bug was a status being in it.
+  const stages = codeOnly(read("src", "lib", "stages.ts"));
+  // `\n}` alone matched the END OF THE PARAMETER OBJECT — `}): MethodologyStage`
+  // — so the first version of this captured the signature and nothing else, and
+  // the "no draft" check below passed because the body was not in the string.
+  // The archived check is what caught it. Read the reason, not the PASS.
+  const firstStage = /export function firstStageFor[\s\S]*?\n\}\n/.exec(stages)?.[0] ?? "";
+  r.ok(
+    /status === "archived"/.test(firstStage),
+    "firstStageFor's BODY can be located, not just its signature",
+    `${firstStage.length} chars`,
+  );
+  r.ok(
+    !/"draft"/.test(firstStage),
+    "a draft workshop lands in stage 1 like any other: draft is a lifecycle label, not an unready screen",
+  );
+  r.ok(
+    /"archived"/.test(firstStage),
+    "...and an archived one still goes to the overview, which is the page that says why writes are refused",
+  );
+  // The entry point must stay a COMPONENT. As a route loader it ran on the
+  // server for a hard navigation, where this app's client-side session does not
+  // exist, so a pasted or bookmarked /w/{id} 401'd and showed "This page didn't
+  // load". Every suite passed through that; only a real browser caught it.
+  const entry = codeOnly(read("src", "routes", "w.$workshopId.index.tsx"));
+  r.ok(
+    /component: WorkshopEntry/.test(entry) && !/loader:/.test(entry),
+    "the entry route resolves the redirect in a component, never in a loader — auth here is client-side",
+  );
+
+  // ================================================================
+  r.section("Every stage tile is the same size");
+  // ================================================================
+
+  // UAT: "the Stages in the overview page should have a more consistent size."
+  // A wrapping FLEX row of `flex-1` tiles cannot be consistent: a flex line
+  // shares out its OWN free space, so ten stages over two rows came out six
+  // narrow above four wide. A grid's tracks are shared by every row.
+  const stageList = codeOnly(read("src", "components", "methodology", "StageList.tsx"));
+  r.ok(
+    /gridTemplateColumns: "repeat\(auto-fill, minmax\([\d.]+rem, 1fr\)\)"/.test(stageList),
+    "the tiles are grid tracks, so one declaration sizes every row the same",
+  );
+  // Asked of the TILE's own class, not of the file: the link inside a tile is
+  // legitimately `flex-1` (it fills the tile), and a blanket search for that
+  // utility would fail on a correct implementation — which is how a check ends
+  // up loosened until it asserts nothing.
+  const tileClass = /"group flex[^"]*"/.exec(stageList)?.[0] ?? "";
+  r.ok(tileClass.length > 0, "the tile's own class list can be located", tileClass);
+  r.ok(
+    !/flex-wrap/.test(stageList) && !/flex-1/.test(tileClass) && !/max-w-/.test(tileClass),
+    "...and no tile sizes itself, which is what made one row's tiles differ from the next's",
+  );
+  r.ok(
+    /auto-rows-fr/.test(stageList),
+    "the rows are equal height too, so a two-line stage name does not make a short tile",
+  );
+  r.ok(
+    /line-clamp-2[^"]*text-xs font-medium/.test(stageList),
+    "...which takes a clamp on the name, or the longest name in the methodology sets the height of all ten",
+  );
+
+  // ================================================================
   r.section("Type is part of a skin, and the picker shows it");
   // ================================================================
 

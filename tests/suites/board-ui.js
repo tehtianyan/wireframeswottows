@@ -316,6 +316,57 @@ runSuite("board-ui", async ({ results: r }) => {
     "...and the choice is remembered per viewer, without taking the board down if storage is blocked",
   );
 
+  // THE STRIP FILLS THE WIDTH IT IS GIVEN (2026-11-07). UAT: "the SWOT in
+  // columns view should span the full width as with other panels. Currently the
+  // combined SWOT width in columns view looks shorter than the full width of
+  // the panels above it." Four fixed 19rem panels come to ~1252px and stop
+  // there, so on anything wider the wall was visibly narrower than its own
+  // header with dead space beside it.
+  r.ok(
+    /view === "columns" \? "min-w-\[15rem\] flex-1"/.test(board),
+    "a column-view panel grows to share the width, with a floor rather than a fixed size",
+  );
+  // THE FLOOR IS PART OF THE FIX, NOT A DETAIL. 4 x 19rem plus gaps is 1252px
+  // and the content column at 1440 is 1192, so the first version kept a floor
+  // ABOVE the width it was trying to fill: the panels stayed 304px and
+  // overflowed into the strip's own scroll instead of growing. Nothing changed
+  // on screen while every source check passed. visual verification caught it.
+  r.ok(
+    !/min-w-\[1[6-9]rem\]/.test(board) && !/min-w-\[2[0-9]rem\]/.test(board),
+    "...and that floor is low enough for four panels to fit the column they are growing into",
+  );
+  r.ok(
+    !/w-\[19rem\] shrink-0/.test(board),
+    "...so no panel is pinned to a width the screen is wider than",
+  );
+  // The floor is what keeps the sideways scroll honest when the categories
+  // genuinely cannot fit — nine PESTLE categories, or a tablet. Growing without
+  // one would squeeze nine panels into a viewport and make every one unusable.
+  r.ok(
+    /overflow-x-auto/.test(board),
+    "...and the strip still scrolls sideways when they cannot fit",
+  );
+
+  // "ADD A NOTE" SITS IN THE SAME PLACE IN EVERY PANEL. UAT asked for this as a
+  // consequence of the guidance text, and equal-length guidance is the fragile
+  // way to get it: the panels are laid out with the default `stretch`, so
+  // pinning the composer to the bottom of its own panel aligns all four
+  // whatever the text's length and however many notes are on the wall.
+  r.ok(
+    /<div className="mt-auto shrink-0">/.test(board),
+    "the composer is pinned to the foot of the panel, not left wherever the content above ends",
+  );
+  // The move-select renders only when there IS something to move, so below the
+  // composer it would have shifted it by its own height in some panels and not
+  // others — the same misalignment from a second cause.
+  const foot = /<div className="mt-auto shrink-0">([\s\S]*?)\n        <\/div>/.exec(board)?.[1] ?? "";
+  r.ok(
+    foot.indexOf("Move a note to…") !== -1 &&
+      foot.indexOf("Move a note to…") < foot.indexOf("Add a note…"),
+    "...with the keyboard move-select above it, since that control is conditional and the composer is not",
+    `select at ${foot.indexOf("Move a note to…")}, composer at ${foot.indexOf("Add a note…")}`,
+  );
+
   // ================================================================
   r.section("Stacking notes into a theme");
   // ================================================================
@@ -489,17 +540,62 @@ runSuite("board-ui", async ({ results: r }) => {
     /aiSlot=\{<AiActionPanel/.test(boardBranch),
     "...it hands the same panel to the board instead, so the route stays the only place AI is wired",
   );
+  // THE OTHER SIX STAGE TYPES LOST THE COLUMN TOO (2026-11-07).
+  //
+  // This check used to assert the opposite — "the column is still there for
+  // every other stage type, which did not ask for this" — and then UAT asked:
+  // "integrate the AI Assistant function into the panels on the left so that we
+  // can remove the AI Assistant panel altogether and free up the screen space
+  // at the right." The board's move was simply half-made. A 340px track of a
+  // 1192px screen for one or two buttons, and on the TOWS matrix that column
+  // rendered EMPTY beside the matrix at 1440.
   r.ok(
-    /xl:grid-cols-\[minmax\(0,1fr\)_340px\]/.test(shell) && /aiPanel &&/.test(shell),
-    "...and the column is still there for every other stage type, which did not ask for this",
+    !/340px/.test(shell) && !/aiPanel/.test(shell),
+    "no stage type reserves a 340px column any more: the shell has no second track at all",
   );
   r.ok(
+    !/aiPanel=/.test(stageRoute) && (stageRoute.match(/assistant=\{<StageAssistant/g) ?? []).length >= 5,
+    "...and every non-board stage type passes the same panel as a header control instead",
+  );
+  // A COLUMN THAT IS NOT CONFIGURED SIMPLY DOES NOT APPEAR; A BUTTON SITS THERE
+  // AND OPENS NOTHING. AiActionPanel returning null was enough for the one and
+  // is not enough for the other, so the availability question is asked before
+  // the trigger exists — the same shape as `scope='object'` with empty
+  // `applies_to`, and as a "disable user" that disabled nothing.
+  const assistant = codeOnly(read("src", "components", "methodology", "StageAssistant.tsx"));
+  r.ok(
+    /if \(!available\) return null;/.test(assistant),
+    "the header trigger renders nothing when the stage has no stage-scoped AI function",
+  );
+  r.ok(
+    /queryKey: \["ai-status", workshopId, stageKey\]/.test(assistant),
+    "...and it asks through the panel's own query key, so the gate costs no extra request",
+  );
+  r.ok(
+    /f\.scope === "stage"/.test(assistant),
+    "...filtering to stage scope, since an object-scoped action could not run from here",
+  );
+  r.ok(
+    !/aiApi\.execute/.test(assistant) && /<AiActionPanel/.test(assistant),
+    "the panel is reused rather than reimplemented, so the rate limit and the review rules have one home",
+  );
+
+  r.ok(
     !/guidance=/.test(boardBranch),
-    "the shell's guidance block is not passed either — the focused panel already prints that text",
+    "the shell's guidance block is not passed either — the panels already print that text",
   );
   r.ok(
     /category\.guidance_text/.test(board),
     "...and it genuinely does print it, so dropping it from the shell loses nothing",
+  );
+  // EVERY PANEL, NOT JUST THE FOCUSED ONE (2026-11-07). UAT: "the methodology
+  // guidance for each SWOT should all appear throughout Stage 1-4." It was
+  // gated on `focused`, so three of the four panels a facilitator can write in
+  // said nothing about what belongs in them — and the odd one out being taller
+  // is what pushed the composers out of line.
+  r.ok(
+    !/focused && category\.guidance_text/.test(board),
+    "a panel's guidance is not gated on the stage being focused: it is per-category config",
   );
   r.ok(/dense\b/.test(boardBranch) && /dense = false/.test(shell),
     "the header runs in its dense form, and dense is OFF by default for every other stage",

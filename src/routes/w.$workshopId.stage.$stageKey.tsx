@@ -9,6 +9,7 @@ import { ReviewBoard } from "@/components/methodology/ReviewBoard";
 import { EvidenceBoard } from "@/components/methodology/EvidenceBoard";
 import { RelationshipMatrix } from "@/components/methodology/RelationshipMatrix";
 import { AiActionPanel } from "@/components/methodology/AiActionPanel";
+import { StageAssistant } from "@/components/methodology/StageAssistant";
 import { ReportBuilder } from "@/components/methodology/ReportBuilder";
 import { workshopsApi, type MethodologyStage } from "@/lib/api";
 import { useCurrentPerson } from "@/lib/useCurrentPerson";
@@ -130,8 +131,14 @@ function StagePage() {
       //    somebody wanting help with wording actually is. It is passed from
       //    here, as it always was, so the route stays the one place AI is
       //    wired up and the board itself knows nothing about it.
+      //    The board keeps the COMPOSER placement rather than taking the
+      //    header button every other stage now has (`assistant`, below): a
+      //    capture stage's one stage-scoped function suggests notes, so it
+      //    belongs beside the box you are stuck in front of. Elsewhere the
+      //    functions act on the stage as a whole, and the header is where that
+      //    belongs.
       //  - the shell's guidance block, which repeated the category guidance
-      //    the focused panel already prints inside itself.
+      //    the panels already print inside themselves.
       //  - two thirds of the header, via `dense`.
       if (board) {
         return (
@@ -154,7 +161,7 @@ function StagePage() {
           stage={stage}
           category={category}
           guidance={category.guidance_text}
-          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+          assistant={<StageAssistant workshop={workshop} stage={stage} />}
         >
           <CaptureCanvas workshopId={workshop.id} category={category} myRole={workshop.my_role} />
         </StageShell>
@@ -167,7 +174,7 @@ function StagePage() {
           workshop={workshop}
           stage={stage}
           guidance="Spend your votes on the factors that matter most to the objective. Votes are visible to the facilitator in aggregate, and you can move them until the stage closes."
-          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+          assistant={<StageAssistant workshop={workshop} stage={stage} />}
         >
           <PrioritizationGrid
             workshopId={workshop.id}
@@ -188,7 +195,7 @@ function StagePage() {
           workshop={workshop}
           stage={stage}
           {...guidanceFor(stage)}
-          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+          assistant={<StageAssistant workshop={workshop} stage={stage} />}
         >
           <EvidenceBoard workshop={workshop} stage={stage} />
         </StageShell>
@@ -200,7 +207,7 @@ function StagePage() {
           workshop={workshop}
           stage={stage}
           {...guidanceFor(stage)}
-          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+          assistant={<StageAssistant workshop={workshop} stage={stage} />}
         >
           <ReportBuilder workshop={workshop} stage={stage} />
         </StageShell>
@@ -212,7 +219,7 @@ function StagePage() {
           workshop={workshop}
           stage={stage}
           {...guidanceFor(stage)}
-          aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
+          assistant={<StageAssistant workshop={workshop} stage={stage} />}
         >
           <RelationshipMatrix workshop={workshop} stage={stage} />
         </StageShell>
