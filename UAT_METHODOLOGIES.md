@@ -676,7 +676,8 @@ Use a real address you control that has **never** been in this system.
 
 | ID | Role | Steps | Expected result |
 | --- | --- | --- | --- |
-| IAM-10 | F | Participants → **Invite**, enter the address, pick a role, Invite | "Account created…" and a **one-time link** shown with a Copy button. No email is sent — that is deliberate; see the note below |
+| IAM-10 | F | Participants → **Invite**, enter the address, pick a role, Invite | With SMTP configured: "**Invitation emailed to …**" and no link. Without it: a **one-time link** with a Copy button, above a line saying the mail did NOT go and why. See the note below |
+| IAM-10b | F | Read the form's own help text before inviting | It must describe the SAME outcome the result panel then reports. Until 2026-11-06 it said "No email is sent" while the panel confirmed one had been — left over from when inviting only minted a link |
 | IAM-10a | F | Read the link before sending it | It points at the **real site**, not `localhost` and not a `/auth/callback` path. Both were wrong until 2026-10-20 and are the reason the first real invite could not be opened |
 | IAM-11 | F | Copy the link and open it in a private window | A **Choose a password** screen, naming the address. Setting one signs you in |
 | IAM-11a | F | Look at the address bar on that screen | The `#access_token=…` fragment is **gone**. Until used it is a credential for that account, and it must not sit in browser history |
@@ -688,10 +689,17 @@ Use a real address you control that has **never** been in this system.
 | IAM-16 | F | Invite a malformed address, e.g. `bob@` | Refused with a clear message, nothing created |
 | IAM-17 | F | Use an invite link **twice** | The second use is refused by Supabase. One-time means one time |
 
-> **Why no email.** Supabase's built-in sender is heavily rate-limited and on newer projects
-> only delivers to the project owners' own addresses — so mail to a client domain can vanish
-> with no error, and you would believe somebody had been invited. A link always exists and you
-> can send it however you already talk to them. Treat it like a password.
+> **Delivery is a ladder, and every rung reports itself.** (1) Our own message, when `SMTP_*`
+> and `MAIL_FROM` are set AND the invite has a workshop; (2) Supabase's own mailer otherwise —
+> heavily rate-limited, and on newer projects it only delivers to the project owners' own
+> addresses, so mail to a client domain can vanish with no error; (3) a one-time link to hand
+> over. Treat a link like a password.
+>
+> **"Emailed" means the mail server ACCEPTED it — not that it arrived.** Everything after that
+> is the receiving domain's decision, and a corporate gateway will quietly quarantine a message
+> whose From domain has no SPF/DKIM alignment with whoever relayed it. If a recipient reports
+> nothing arrived, the answer is in `/admin` → **Invitation emails**, which stores the mail
+> server's own words per attempt, and then in the relay's own dashboard — not in this app.
 
 > **IAM-11b is the regression case.** The password screen is the only thing standing between an
 > invitation and a person who can never sign in again.

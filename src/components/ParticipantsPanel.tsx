@@ -229,10 +229,18 @@ export function ParticipantsPanel({
               ))}
             </SelectContent>
           </Select>
+          {/* THIS TEXT DESCRIBED THE OPPOSITE OF WHAT HAPPENS, until 2026-11-06.
+              It was written when inviting only ever minted a link ("No email is
+              sent — you get a one-time link to pass on"), and was not updated
+              when mail became the default. So the form promised no email while
+              the result panel below it confirmed one had been sent, and a
+              facilitator reading both could not tell which to believe.
+              It says the LADDER now, because which rung runs is decided by
+              server configuration this form cannot see. */}
           <p className="text-[11px] leading-snug text-muted-foreground">
-            Creates an account if they do not have one and gives them access to this workshop. No
-            email is sent — you get a one-time link to pass on, so you always know the invite
-            exists.
+            Creates an account if they do not have one and gives them access to this workshop. We
+            email the invitation; if mail is not configured or the send is refused, you get a
+            one-time link to pass on instead — either way you are told which happened.
           </p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setInviteOpen(false)}>

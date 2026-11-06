@@ -23,6 +23,7 @@
 // administrator is expected to have customised and a test must put back what
 // it found — the lesson from iam.js and knowledge.js both resetting a
 // global_role they never set.
+import { readFileSync } from "node:fs";
 import { runSuite, clients, env, ACCOUNTS } from "../lib/harness.js";
 
 // An address with an account (the demo analyst) and one without. Both get the
@@ -248,6 +249,55 @@ runSuite("invites", async ({ baseUrl, results: r, c }) => {
     r.ok(reasonless !== "accepted",
       "a failed delivery cannot be stored without a reason — enforced in the database, not by the handler",
       typeof reasonless === "string" ? reasonless.split("\n")[0].slice(0, 90) : reasonless);
+
+    r.section("the invite form promises what the result panel then reports");
+
+    // SOURCE, not the API. Every endpoint was correct throughout this defect:
+    // the invite was sent, the panel said so, and the help text six lines above
+    // it said "No email is sent — you get a one-time link to pass on". That
+    // sentence was true when inviting only ever minted a link and was not
+    // updated when mail became the default, so a facilitator was told both
+    // things at once and could not tell which had happened. Reported from
+    // production 2026-11-06 after an invite to a corporate address went
+    // missing — the copy is what made an ordinary delivery failure unreadable.
+    //
+    // Phrased against the CONTRADICTION rather than against today's wording, so
+    // it survives a rewrite of the sentence and still fails if the claim comes
+    // back.
+    const panel = readFileSync(
+      new URL("../../src/components/ParticipantsPanel.tsx", import.meta.url),
+      "utf8",
+    );
+    // Strip comments first: the one explaining this fix quotes the old claim,
+    // and matching the argument FOR a property instead of the property is how
+    // two checks in participant-flow.js failed when they were first written.
+    const panelCode = panel
+      .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    const claimsNoEmail = /no\s+email\s+is\s+sent/i.test(panelCode);
+    r.ok(
+      !claimsNoEmail,
+      "the invite form does not tell the facilitator that no email is sent",
+      // Printed on pass as well as fail, so it states the FINDING rather than
+      // the fault — a detail line reading "still claims mail is never sent"
+      // beside the word PASS is the log misreading this suite exists to stop.
+      claimsNoEmail ? "ParticipantsPanel still carries the pre-2026-11-06 claim" : "claim absent",
+    );
+    r.ok(
+      /email the invitation/i.test(panelCode),
+      "it says mail is attempted, with the link as the stated fallback",
+    );
+    // The result panel is the other half of the pair. If this ever stops
+    // reporting which rung ran, the form's promise becomes unverifiable again.
+    const result = readFileSync(
+      new URL("../../src/components/OneTimeLink.tsx", import.meta.url),
+      "utf8",
+    );
+    r.ok(
+      /This was NOT emailed/.test(result) && /emailed to/.test(result),
+      "and the result panel still distinguishes 'emailed' from 'here is a link instead'",
+    );
 
     r.section("a forgotten password has a way back, and it cannot say who has an account");
 
