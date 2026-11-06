@@ -112,6 +112,16 @@ func New() http.Handler {
 			r.Post("/{id}/reporting", handlers.TransitionWorkshop("reporting"))
 			r.Post("/{id}/complete", handlers.CompleteWorkshop)
 			r.Get("/{id}/activities", handlers.ListActivities)
+
+			// Closing a stage. "stages" is another literal at the same depth as
+			// the {kind} wildcard below, so it is registered up here with
+			// "activities", "weights" and "ai"; router_test.go holds that.
+			//
+			// A stage's PROGRESS is derived from its content and needs no
+			// endpoint — only the facilitator's decision that a stage is
+			// finished is stored, because no count can mean "the room is done
+			// talking about strengths". See pkg/handlers/stage_status.go.
+			r.Put("/{id}/stages/{stageKey}/complete", handlers.SetStageComplete)
 			r.Get("/{id}/factors", handlers.ListFactors)
 			r.Post("/{id}/factors", handlers.CreateFactor)
 			r.Patch("/{id}/factors/{factorId}", handlers.UpdateFactor)

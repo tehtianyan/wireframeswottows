@@ -14,7 +14,10 @@
 // this file and never request input — the generic SQL builder relies on that.
 package objects
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // Field is a kind-specific column beyond the shared ones. The UI renders its
 // form from these rather than hardcoding what a recommendation looks like.
@@ -47,15 +50,85 @@ type EvidenceLink struct {
 }
 
 // Pairing describes a kind whose evidence is an ordered pair held in its own
-// columns rather than a link table — a TOWS relationship pairs one factor
+// columns rather than a link table — a TOWS relationship pairs one thing
 // with another under a relationship type. Kinds without a Pairing simply
 // leave it nil and the generic handlers skip those columns entirely.
+//
+// WHAT IT PAIRS IS METHODOLOGY CONFIGURATION (DECIDED 2026-11-06).
+//
+// UAT asked for the TOWS matrix to pair THEMES rather than individual factors,
+// which follows the participant flow: the room captures strengths, groups them
+// into themes and rates those themes, so the thing worth pairing against an
+// opportunity theme is a strength theme, not one sticky note.
+//
+// It could not become the engine's new behaviour, because two other configured
+// methodologies use a relate stage over factors — Business Model Canvas pairs
+// revenue streams with cost structures, and Transformation Planning declares an
+// any-to-any dependency between factors. Changing the engine would have
+// silently rewritten both. So `Targets` lists what a relationship MAY join and
+// the relate stage's own config picks one with `"pairs": "<registry key>"`,
+// defaulting to `DefaultTarget`. A new methodology still needs no code.
 type Pairing struct {
-	SourceCol  string `json:"-"`
-	TargetCol  string `json:"-"`
-	TypeCol    string `json:"-"`
-	PairsTable string `json:"-"` // table both endpoints live in
-	PairsKind  string `json:"pairs_kind"`
+	TypeCol string `json:"-"`
+	// Keyed by object registry key: "factor", "synthesis".
+	Targets map[string]PairTarget `json:"-"`
+	// Used when the relate stage's config declares no `pairs`.
+	DefaultTarget string `json:"default_target"`
+}
+
+// PairTarget is one kind of thing a relationship may join, with the columns
+// that hold it and the SQL that answers "which factor category is this?".
+type PairTarget struct {
+	SourceCol string
+	TargetCol string
+	// Table holding the endpoints, for the belongs-to-this-workshop check.
+	Table string
+	// Noun used in validation messages the user reads ("factor", "theme").
+	Noun string
+	// CategoriesSQL takes ($1 = object id, $2 = workshop id) and returns zero
+	// or more factor category ids.
+	//
+	// A factor HAS a category, so it returns exactly one row. A theme does
+	// NOT — `syntheses` has no category column, deliberately: whether a theme
+	// may span categories is a methodology question the engine refuses to
+	// answer, so the category is DERIVED from the notes the theme cites. That
+	// also means it stays correct when notes are regrouped, which a column
+	// stamped at creation would not.
+	//
+	// More than one row is therefore a real state and not an error: a theme
+	// holding both strengths and weaknesses has no single category, so it
+	// cannot sit in an SO cell. resolvePairing refuses it and says which
+	// categories it found, rather than picking one.
+	CategoriesSQL string
+}
+
+// TargetKeys returns every pair target's registry key in a STABLE order.
+//
+// Go map iteration is randomised, and the generic SQL builder selects these
+// columns positionally — the read path's column list and the scanner's
+// destination list have to agree every time or a relationship comes back with
+// its endpoints swapped between kinds, intermittently. Sorted, so the order is
+// a property of the registry rather than of one process's hash seed.
+func (p *Pairing) TargetKeys() []string {
+	keys := make([]string, 0, len(p.Targets))
+	for k := range p.Targets {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// TargetFor returns the pair target a relate stage's config selects.
+//
+// An unknown `pairs` value falls back to the default rather than failing: the
+// value comes from methodology config, and a typo there should not make the
+// stage unusable — but it must not invent a table either, which is why only
+// registry keys resolve.
+func (p *Pairing) TargetFor(pairs string) PairTarget {
+	if t, ok := p.Targets[pairs]; ok {
+		return t
+	}
+	return p.Targets[p.DefaultTarget]
 }
 
 type Kind struct {
@@ -130,11 +203,32 @@ var registry = map[string]*Kind{
 		// not a link table, so it declares a Pairing instead.
 		Evidence: []EvidenceLink{},
 		Pairing: &Pairing{
-			SourceCol:  "source_factor_id",
-			TargetCol:  "target_factor_id",
-			TypeCol:    "relationship_type_id",
-			PairsTable: "factors",
-			PairsKind:  "factor",
+			TypeCol:       "relationship_type_id",
+			DefaultTarget: "factor",
+			Targets: map[string]PairTarget{
+				"factor": {
+					SourceCol: "source_factor_id",
+					TargetCol: "target_factor_id",
+					Table:     "factors",
+					Noun:      "factor",
+					CategoriesSQL: `select factor_category_id::text from public.factors
+						where id = $1 and workshop_id = $2`,
+				},
+				"synthesis": {
+					SourceCol: "source_synthesis_id",
+					TargetCol: "target_synthesis_id",
+					Table:     "syntheses",
+					Noun:      "theme",
+					// DERIVED, because `syntheses` has no category column. One
+					// row means the theme's notes all share a category; several
+					// mean it spans them, which resolvePairing reports rather
+					// than resolving — see PairTarget.CategoriesSQL.
+					CategoriesSQL: `select distinct f.factor_category_id::text
+						from public.synthesis_factors sf
+						join public.factors f on f.id = sf.factor_id
+						where sf.synthesis_id = $1 and f.workshop_id = $2`,
+				},
+			},
 		},
 	},
 	"insight": {

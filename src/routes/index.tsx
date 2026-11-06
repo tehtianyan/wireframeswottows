@@ -1,14 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ClipboardCheck, Loader2, Plus } from "lucide-react";
+import { ArrowRight, ClipboardCheck, History, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PanelHeading } from "@/components/workshop-ui";
+import { ActivityList, DrawerLink } from "@/components/DrawerLink";
 import { cn } from "@/lib/utils";
-import {
-  dashboardApi,
-  describeActivity,
-  type DashboardWorkshop,
-} from "@/lib/api";
+import { dashboardApi, type DashboardWorkshop } from "@/lib/api";
 
 // The dashboard — "what requires my attention today?" (CLAUDE.md).
 //
@@ -115,46 +112,39 @@ function DashboardPage() {
               </section>
             )}
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <section className="console-panel" data-build="live">
-                <PanelHeading
-                  build="live"
-                  title="Your workshops"
-                  hint={`${data.workshops.length} total`}
-                />
-                <div className="divide-y divide-border">
-                  {data.workshops.map((w) => (
-                    <WorkshopRow key={w.id} workshop={w} />
-                  ))}
-                </div>
-              </section>
+            {/* THE WORKSHOPS ARE THE DASHBOARD.
+                "Recent activity" held a 360px column beside them — a trail of
+                what has already happened, permanently occupying a third of the
+                screen on a page whose question is "what requires my attention
+                today?". It is reference, so it is a link with its count on it,
+                the same treatment the workshop overview gives its own roster
+                and trail. The workshop list now has the full width. */}
+            <section className="console-panel" data-build="live">
+              <PanelHeading
+                build="live"
+                title="Your workshops"
+                hint={`${data.workshops.length} total`}
+              />
+              <div className="divide-y divide-border">
+                {data.workshops.map((w) => (
+                  <WorkshopRow key={w.id} workshop={w} />
+                ))}
+              </div>
+            </section>
 
-              <section className="console-panel" data-build="live">
-                <PanelHeading
-                  build="live"
-                  title="Recent activity"
-                  hint={`${data.recent_activity.length} events`}
+            <div className="flex flex-wrap gap-2">
+              <DrawerLink
+                icon={<History className="size-3.5" />}
+                label="Recent activity"
+                count={data.recent_activity.length}
+                title="Recent activity"
+                description="The real audit trail across every workshop you belong to, newest first."
+              >
+                <ActivityList
+                  events={data.recent_activity}
+                  emptyMessage="Nothing has happened yet in your workshops."
                 />
-                {data.recent_activity.length === 0 ? (
-                  <p className="p-4 text-xs text-muted-foreground">
-                    Nothing has happened yet in your workshops.
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border">
-                    {data.recent_activity.map((e, i) => (
-                      <li key={i} className="px-4 py-2.5">
-                        <p className="text-xs">
-                          <span className="font-medium">{e.actor_name}</span>{" "}
-                          <span className="text-muted-foreground">{describeActivity(e)}</span>
-                        </p>
-                        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                          {new Date(e.created_at).toLocaleString()}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
+              </DrawerLink>
             </div>
           </>
         )}

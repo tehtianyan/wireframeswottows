@@ -1,427 +1,53 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
-import { ChevronRight, History, Loader2, Users } from "lucide-react";
-import { PanelHeading } from "@/components/workshop-ui";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import { AiInlineActions } from "@/components/methodology/AiInlineActions";
-import { ArchiveWorkshopControl } from "@/components/ArchiveWorkshopControl";
-import { ParticipantsPanel } from "@/components/ParticipantsPanel";
-import { cn } from "@/lib/utils";
-import { stageAsideFromFlow, visibleStages } from "@/lib/stages";
-import {
-  dashboardApi,
-  describeActivity,
-  workshopsApi,
-  type Activity,
-  type ActivityEvent,
-  type MethodologyStage,
-  type WorkshopSummary,
-} from "@/lib/api";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { workshopsApi } from "@/lib/api";
+import { firstStageFor } from "@/lib/stages";
 
-// Workshop overview: the methodology's stages in order, with the workshop's
-// own progress against them. The list is entirely config-driven — a PESTLE
-// workshop shows PESTLE's stages here without this file knowing they exist.
+// CLICKING A WORKSHOP PUTS YOU IN IT (2026-11-06).
+//
+// UAT: "the Facilitator clicks on the Workshop of choice and should land into
+// Stage 1, skip the workshop page two directories above it." Eight places in
+// the app link to `/w/{id}` — the nav menu's dropdown, the workshop list, the
+// dashboard's cards and attention list, notifications, knowledge and the
+// executive dashboard. Rewriting all eight would have left the next new link to
+// get it wrong, and the ones pointing here from a notification genuinely mean
+// "this workshop" rather than "this step of it".
+//
+// So the REDIRECT lives here, at the one address they all share, and the
+// overview moved to `/w/{id}/overview`. One statement of the rule, and every
+// existing and future link to a workshop lands in the work.
+//
+// IT IS A LOADER, NOT AN EFFECT. Redirecting from a rendered component means
+// painting a screen and then leaving it, which reads as a flash of the wrong
+// page — and on the server there is no window to navigate with at all. Throwing
+// from the loader means the stage is what the browser is ever asked to draw.
 
 export const Route = createFileRoute("/w/$workshopId/")({
-  component: WorkshopOverview,
+  loader: async ({ params, context }) => {
+    // Served from cache when the caller arrived from a screen that already
+    // loaded this workshop, which is most of them.
+    const workshop = await context.queryClient.ensureQueryData({
+      queryKey: ["workshop", params.workshopId],
+      queryFn: () => workshopsApi.get(params.workshopId),
+    });
+
+    const target = firstStageFor(workshop);
+    if (!target) {
+      // NO STAGE TO LAND ON, so show the page that can explain why. A draft
+      // workshop is still being set up, an archived one is finished, and
+      // somebody whose role sees no stages at all has nothing to be dropped
+      // into. In each case the overview carries the status badge, the objective
+      // and the archive notice — the redirect would have hidden all of it
+      // behind an empty stage.
+      throw redirect({
+        to: "/w/$workshopId/overview",
+        params: { workshopId: params.workshopId },
+      });
+    }
+
+    throw redirect({
+      to: "/w/$workshopId/stage/$stageKey",
+      params: { workshopId: params.workshopId, stageKey: target.key },
+      search: {},
+    });
+  },
 });
-
-const STATUS_STYLES: Record<string, string> = {
-  not_started: "border-border text-muted-foreground",
-  in_progress: "border-amber-500/40 text-amber-600 dark:text-amber-400",
-  completed: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
-};
-
-// Every stage type now has a renderer. `knowledge` is the one exception —
-// the Knowledge Workspace is explicitly deferred (CLAUDE.md, Phase 5).
-const RENDERABLE = new Set([
-  "capture", "prioritize", "synthesize", "relate", "interpret", "recommend", "report",
-]);
-
-function WorkshopOverview() {
-  const { workshopId } = Route.useParams();
-
-  const workshopQuery = useQuery({
-    queryKey: ["workshop", workshopId],
-    queryFn: () => workshopsApi.get(workshopId),
-  });
-  const activitiesQuery = useQuery({
-    queryKey: ["activities", workshopId],
-    queryFn: () => workshopsApi.activities(workshopId),
-  });
-  const factorsQuery = useQuery({
-    queryKey: ["factors", workshopId, "all"],
-    queryFn: () => workshopsApi.factors(workshopId),
-  });
-  const summaryQuery = useQuery({
-    queryKey: ["workshop-summary", workshopId],
-    queryFn: () => dashboardApi.workshopSummary(workshopId),
-  });
-
-  if (workshopQuery.isLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-  if (workshopQuery.isError || !workshopQuery.data) {
-    return <p className="p-6 text-sm text-destructive">Could not load this workshop.</p>;
-  }
-
-  const workshop = workshopQuery.data;
-  const activityByStage = new Map<string, Activity>(
-    (activitiesQuery.data ?? []).map((a) => [a.stage_key, a]),
-  );
-  const factors = factorsQuery.data ?? [];
-  const awaitingReview = factors.filter((f) => f.state === "submitted").length;
-  // The same rule the stage header's navigation uses, from the same module —
-  // two surfaces listing stages by different rules is how one of them ends up
-  // offering a stage the other hides.
-  const myStages = workshop ? visibleStages(workshop.methodology.stages, workshop.my_role) : [];
-
-  return (
-    <div className="grid-backdrop min-h-[calc(100vh-3.5rem)]">
-      <div className="mx-auto max-w-[1100px] space-y-4 p-3 md:p-5">
-        <section className="console-panel p-4 md:p-5" data-build="live">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="label-caps">{workshop.methodology.name}</span>
-            <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              {workshop.status}
-            </span>
-            <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              you: {workshop.my_role}
-            </span>
-          </div>
-          <div className="mt-1.5 flex flex-wrap items-start justify-between gap-3">
-            <h1 className="text-xl font-semibold md:text-2xl">{workshop.name}</h1>
-            {/* Archiving ends a workshop's working life, so it sits with the
-                workshop rather than buried in admin — a facilitator finishing
-                a workshop should not need an administrator. */}
-            {workshop.my_role === "facilitator" && (
-              <ArchiveWorkshopControl workshopId={workshop.id} status={workshop.status} />
-            )}
-          </div>
-          {workshop.objective && (
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{workshop.objective}</p>
-          )}
-          <p className="mt-3 font-mono text-xs text-muted-foreground">
-            {factors.length} factors captured
-            {awaitingReview > 0 && ` · ${awaitingReview} awaiting review`}
-            {workshop.votes_per_participant > 0 && ` · ${workshop.votes_per_participant} votes per participant`}
-          </p>
-
-          {/* THE ROSTER AND THE TRAIL ARE REFERENCE, NOT THE WORK.
-              Both were full-width panels on the way to the stages, which is
-              the wrong order of attention: you come to this screen to get into
-              the workshop, and read who else is in it occasionally. They are
-              the same components, in drawers, one line from here. */}
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-3">
-            <DrawerLink
-              icon={<Users className="size-3.5" />}
-              label="Participants"
-              count={summaryQuery.data?.participants}
-              title="Participants"
-              description="Who is in this workshop, and what they may do in it. Roles are enforced by the server, not by this screen."
-            >
-              <ParticipantsPanel
-                workshopId={workshop.id}
-                canManage={workshop.my_role === "facilitator"}
-                readOnly={workshop.status === "archived"}
-              />
-            </DrawerLink>
-
-            <DrawerLink
-              icon={<History className="size-3.5" />}
-              label="Recent activity"
-              count={summaryQuery.data?.recent_activity.length}
-              title="Recent activity"
-              description="The real audit trail for this workshop, newest first."
-            >
-              <ActivityList events={summaryQuery.data?.recent_activity ?? []} />
-            </DrawerLink>
-          </div>
-        </section>
-
-        {workshop.status === "archived" && (
-          <section className="console-panel border-warning/40 bg-warning/5 px-4 py-3" data-build="live">
-            <p className="text-sm text-foreground">This workshop is archived and read-only.</p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Its reports, themes and knowledge stay fully readable — archiving ends the work, it
-              does not hide it. Nothing can be captured, voted on or reviewed until a facilitator
-              un-archives it, and that is enforced by the database rather than by this screen.
-            </p>
-          </section>
-        )}
-
-        {/* STAGES FIRST. This is the way in to the work — the capture board,
-            the matrix, the report all hang off it — and it used to sit below
-            the metrics, the health score, the roster and the activity feed. */}
-        <section className="console-panel" data-build="live">
-          <PanelHeading
-            build="live"
-            title="Stages"
-            // The count is what THIS role can reach, not what the methodology
-            // declares: "10 configured" above a list of seven reads as a
-            // rendering fault rather than as a deliberately shorter flow.
-            hint={`${myStages.length} configured`}
-          />
-          <div className="divide-y divide-border">
-            {myStages.map((stage) => (
-              <StageRow
-                key={stage.key}
-                workshopId={workshop.id}
-                stage={stage}
-                activity={activityByStage.get(stage.key)}
-                factorCount={
-                  typeof stage.config["factor_category_key"] === "string"
-                    ? factors.filter((f) => f.category_key === stage.config["factor_category_key"]).length
-                    : undefined
-                }
-              />
-            ))}
-          </div>
-        </section>
-
-        {summaryQuery.data && <SummaryPanels summary={summaryQuery.data} />}
-
-        {/* "Summarize Workshop" — App Spec §13.10 puts its trigger here, on the
-            Workshop Overview, and not on a stage panel. It was previously
-            offered on every stage, where it produced output the panel could not
-            render and nobody could read. */}
-        <AiInlineActions workshopId={workshop.id} scope="workshop" label="Where this workshop stands" />
-      </div>
-    </div>
-  );
-}
-
-/**
- * A panel moved off the page and behind a link.
- *
- * A drawer rather than a collapsed section: a disclosure still costs a row of
- * the page each, and these two are read occasionally, by a facilitator, about
- * a workshop they are already inside. The count is on the link, so the thing
- * the glance was for — how many people, has anything happened — is answered
- * without opening it.
- */
-function DrawerLink({
-  icon,
-  label,
-  count,
-  title,
-  description,
-  children,
-}: {
-  icon: ReactNode;
-  label: string;
-  count: number | undefined;
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
-        >
-          {icon}
-          {label}
-          {count !== undefined && (
-            <span className="font-mono text-[10px] tabular-nums">{count}</span>
-          )}
-        </button>
-      </SheetTrigger>
-      {/* Wider than the default sm:max-w-sm: the roster carries a role control
-          and an invite form, which a narrow drawer wraps into unreadability. */}
-      <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
-        <SheetHeader>
-          <SheetTitle>{title}</SheetTitle>
-          <SheetDescription>{description}</SheetDescription>
-        </SheetHeader>
-        <div className="mt-4">{children}</div>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function ActivityList({ events }: { events: ActivityEvent[] }) {
-  if (events.length === 0) {
-    return <p className="text-xs text-muted-foreground">Nothing has happened yet.</p>;
-  }
-  return (
-    <ul className="divide-y divide-border">
-      {events.map((e, i) => (
-        <li key={i} className="py-2.5">
-          <p className="text-xs">
-            <span className="font-medium">{e.actor_name}</span>{" "}
-            <span className="text-muted-foreground">{describeActivity(e)}</span>
-          </p>
-          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-            {new Date(e.created_at).toLocaleString()}
-          </p>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function StageRow({
-  workshopId,
-  stage,
-  activity,
-  factorCount,
-}: {
-  workshopId: string;
-  stage: MethodologyStage;
-  activity: Activity | undefined;
-  factorCount: number | undefined;
-}) {
-  const status = activity?.status ?? "not_started";
-  const renderable = RENDERABLE.has(stage.stage_type);
-
-  return (
-    <Link
-      to="/w/$workshopId/stage/$stageKey"
-      params={{ workshopId, stageKey: stage.key }}
-      search={{}}
-      className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-elevated/50"
-    >
-      <span className="w-6 shrink-0 font-mono text-xs text-muted-foreground">{stage.sequence_number}</span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <p className="text-sm font-medium">{stage.name}</p>
-          <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            {stage.stage_type}
-          </span>
-          {!renderable && (
-            <span className="font-mono text-[10px] text-muted-foreground">later phase</span>
-          )}
-          {/* Only a role that can see the stage at all ever renders this row,
-              so the badge explains the numbering gap rather than advertising
-              something hidden. */}
-          {stageAsideFromFlow(stage) && (
-            <span className="rounded border border-dashed border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              not in participant flow
-            </span>
-          )}
-        </div>
-        {factorCount !== undefined && (
-          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{factorCount} captured</p>
-        )}
-      </div>
-      <span
-        className={cn(
-          "shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
-          STATUS_STYLES[status] ?? "border-border text-muted-foreground",
-        )}
-      >
-        {status.replace("_", " ")}
-      </span>
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-    </Link>
-  );
-}
-
-// The workshop dashboard panels from wireframe §1: metrics (§1.13) and health
-// (§1.19). Every number is a real count from the API — the earlier mock
-// dashboard showed a health score of 84 with nothing behind it.
-//
-// §1.15's activity feed is still here, in the drawer behind the "Recent
-// activity" link at the top: it is reference, and it was occupying a column of
-// the page on the way to the stages.
-function SummaryPanels({ summary }: { summary: WorkshopSummary }) {
-  return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="space-y-4">
-        <section className="console-panel" data-build="live">
-          <PanelHeading build="live" title="Metrics" hint="live counts" />
-          <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3">
-            {summary.counts.map((c) => (
-              <div key={c.kind} className="bg-background p-3.5">
-                <p className="font-mono text-2xl font-semibold tabular-nums">{c.total}</p>
-                <p className="label-caps mt-0.5">{c.label}</p>
-                {c.awaiting_review > 0 && (
-                  <p className="mt-0.5 font-mono text-[10px] text-amber-600 dark:text-amber-400">
-                    {c.awaiting_review} in review
-                  </p>
-                )}
-              </div>
-            ))}
-            <div className="bg-background p-3.5">
-              <p className="font-mono text-2xl font-semibold tabular-nums">{summary.participants}</p>
-              <p className="label-caps mt-0.5">Participants</p>
-            </div>
-          </div>
-
-          {summary.factors_by_category.length > 0 && (
-            <div className="border-t border-border p-3.5">
-              <p className="label-caps">By category</p>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
-                {summary.factors_by_category.map((c) => (
-                  <span key={c.key} className="inline-flex items-center gap-1.5 text-xs">
-                    <span
-                      className="size-2 rounded-full"
-                      style={{ background: `var(--${c.color_token})` }}
-                    />
-                    {c.name}
-                    <span className="font-mono text-muted-foreground">{c.count}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-
-      </div>
-
-      <section className="console-panel" data-build="live">
-        <PanelHeading build="live" title="Workshop health" hint={`${summary.health_score}/100`} />
-        <div className="p-4">
-          <div className="flex items-baseline gap-2">
-            <span className="font-mono text-3xl font-semibold tabular-nums">
-              {summary.health_score}
-            </span>
-            <span className="text-xs text-muted-foreground">/ 100</span>
-          </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-elevated">
-            <div
-              className="h-full bg-foreground/60 transition-all"
-              style={{ width: `${summary.health_score}%` }}
-            />
-          </div>
-          {/* The score is the mean of the signals below, minus a penalty for a
-              review backlog. Shown so it can be acted on, not admired. */}
-          <ul className="mt-3 space-y-2.5">
-            {summary.health_signals.map((sig) => (
-              <li key={sig.key}>
-                <div className="flex items-center justify-between">
-                  <span className="label-caps">{sig.label}</span>
-                  <span className="font-mono text-xs tabular-nums">
-                    {sig.value}
-                    {sig.target > 0 && sig.key !== "review" ? ` / ${sig.target}` : ""}
-                    {sig.key === "review" ? "%" : ""}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                  {sig.message}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-    </div>
-  );
-}

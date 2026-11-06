@@ -284,7 +284,20 @@ export interface Activity {
   id: string;
   stage_key: string;
   title: string;
+  /**
+   * What to SHOW: not_started | in_progress | completed.
+   *
+   * DERIVED from the stage's content by the server, except when a facilitator
+   * has closed the stage. `activities.status` was written once at workshop
+   * creation and never updated, so every stage read NOT STARTED forever — see
+   * pkg/handlers/stage_status.go for the split between derived progress and
+   * decided completion.
+   */
   status: string;
+  /** Whether a facilitator has explicitly closed the stage. */
+  marked_complete: boolean;
+  /** How many objects exist in the stage — what `status` was derived from. */
+  content_count: number;
 }
 
 export interface Factor {
@@ -356,7 +369,15 @@ export interface ObjectKind {
   description_label: string;
   fields: ObjectField[];
   evidence: { cites_kind: CitableKind }[];
-  pairing?: { pairs_kind: CitableKind };
+  /**
+   * Present for a kind whose evidence is an ordered pair in its own columns.
+   *
+   * `default_target` is what it pairs when the relate stage says nothing. WHAT
+   * A GIVEN WORKSHOP PAIRS IS METHODOLOGY CONFIG — read `stage.config.pairs`,
+   * not this: SWOT-TOWS pairs themes from 2026-11-06 while Business Model
+   * Canvas and Transformation Planning still pair factors.
+   */
+  pairing?: { default_target: CitableKind };
 }
 
 export interface WorkObject {
@@ -378,6 +399,15 @@ export interface WorkObject {
   source_id?: string;
   target_id?: string;
   relationship_type_id?: string;
+  /**
+   * Which kind this row's endpoints are — "factor" or "synthesis".
+   *
+   * PER ROW, not per stage. SWOT-TOWS pairs themes now, but relationships
+   * created before that pair factors and are approved analysis somebody did;
+   * reading the pair kind from the stage's current config would render every
+   * one of them with two empty endpoints.
+   */
+  pairs_kind?: CitableKind;
 }
 
 export interface WriteObjectInput {
@@ -1267,6 +1297,18 @@ export const workshopsApi = {
   list: () => apiGet<Workshop[]>("/workshops"),
   get: (id: string) => apiGet<WorkshopDetail>(`/workshops/${id}`),
   activities: (id: string) => apiGet<Activity[]>(`/workshops/${id}/activities`),
+
+  /**
+   * Open or close a stage. Facilitator only, and refused by the server for
+   * anybody else — this is a boundary, not an affordance: closing a stage feeds
+   * the health score, the executive dashboard and §8.30's gate on completing
+   * the workshop.
+   */
+  setStageComplete: (id: string, stageKey: string, complete: boolean) =>
+    apiPut<{ id: string; stage_key: string; status: string }>(
+      `/workshops/${id}/stages/${stageKey}/complete`,
+      { complete },
+    ),
 
   create: (input: {
     workspace_id: string;

@@ -77,8 +77,30 @@ runSuite("defects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     // untitled row, and a test that leans on another test's litter is a test
     // that passes for the wrong reason.
     const byCat = (k) => factors.filter((f) => f.category_key === k)[0];
+
+    // SWOT-TOWS pairs THEMES since 2026-11-06, so the endpoints are themes
+    // here. The defect under test is unchanged — a relationship may have no
+    // title, and the picker must still be able to name it from its endpoints.
+    // What it pairs is read from the stage's own config rather than assumed,
+    // so this case follows a methodology that changes its mind again.
+    const relStage = (await F("GET", `/workshops/${WS}`)).data?.methodology?.stages
+      ?.find((s) => s.stage_type === "relate");
+    const pairsThemes = relStage?.config?.pairs === "synthesis";
+
+    const endpointFor = async (categoryKey) => {
+      if (!pairsThemes) return byCat(categoryKey).id;
+      const t = await F("POST", `/workshops/${WS}/syntheses`, {
+        title: `VERIFY defects ${categoryKey} theme`,
+        evidence: { factor: [byCat(categoryKey).id] },
+      });
+      if (t.data) made.syntheses.push(t.data.id);
+      return t.data?.id;
+    };
+    const srcEnd = await endpointFor("strength");
+    const tgtEnd = await endpointFor("opportunity");
+
     const pair = await F("POST", `/workshops/${WS}/relationships`, {
-      source_id: byCat("strength").id, target_id: byCat("opportunity").id,
+      source_id: srcEnd, target_id: tgtEnd,
       relationship_type_key: "so",
       fields: { narrative: "created by the defects suite" },
     });
@@ -91,9 +113,19 @@ runSuite("defects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
       "every relationship exposes source_id and target_id, so the insight " +
       "picker can render 'source → target' instead of '(untitled)'",
       `${rels.filter((x) => !x.title).length} of ${rels.length} have no title`);
-    const ids = new Set(factors.map((f) => f.id));
-    r.ok(rels.every((x) => ids.has(x.source_id) && ids.has(x.target_id)),
-      "and both endpoints resolve to factors in this workshop");
+
+    // ENDPOINTS RESOLVE TO WHATEVER THE ROW SAYS IT JOINS, per row. The demo
+    // workshop can hold relationships from before the switch, which pair
+    // FACTORS and are perfectly valid; a check that demanded themes for all of
+    // them would fail on real historical data and look like a bug in the API.
+    const factorIds = new Set(factors.map((f) => f.id));
+    const themeIds = new Set(((await F("GET", `/workshops/${WS}/syntheses`)).data ?? []).map((s) => s.id));
+    r.ok(rels.every((x) =>
+      x.pairs_kind === "factor"
+        ? factorIds.has(x.source_id) && factorIds.has(x.target_id)
+        : themeIds.has(x.source_id) && themeIds.has(x.target_id)),
+      "and both endpoints resolve to objects of the kind the row reports",
+      rels.map((x) => x.pairs_kind).join(","));
 
     // ---- 8: search looked like it returned unrelated results ---------
     r.section("8 — search shows why a result matched, and ranks by relevance");

@@ -94,7 +94,7 @@ runSuite("participant-flow", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS 
     r.ok(!/methodology\.stages\.map\(/.test(shell),
       "the header no longer maps the unfiltered stage list");
 
-    const overview = SRC("routes/w.$workshopId.index.tsx");
+    const overview = SRC("routes/w.$workshopId.overview.tsx");
     r.ok(overview.includes("visibleStages(workshop.methodology.stages, workshop.my_role)"),
       "the workshop overview filters the same way");
     r.ok(!/methodology\.stages\.map\(/.test(overview),
@@ -329,6 +329,103 @@ runSuite("participant-flow", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS 
       && ff.rows[0].aggregate === "latest",
       "Five Forces still rates a synthesis its own way",
       JSON.stringify(ff.rows[0] ?? null));
+
+    // ================================================================
+    r.section("a stage's progress is derived; only completion is stored");
+    // ================================================================
+    //
+    // `activities.status` was written ONCE at workshop creation and never
+    // updated, so every stage read NOT STARTED forever and App Spec §8.30's
+    // gate on completing a workshop could never be satisfied by anything. The
+    // split now: not_started vs in_progress is computed from content every
+    // time, and `completed` is a facilitator's decision.
+    //
+    // THE DEMO WORKSHOP HAS FACTORS, so its capture stages must read
+    // in_progress. Asserting that rather than a particular stage key, because
+    // a count is what the status is derived FROM and the suite should fail if
+    // the derivation stops happening — not if somebody renames a stage.
+    const acts = await F("GET", `/workshops/${WS}/activities`);
+    r.ok(acts.success && acts.data?.length > 0, "activities list loads",
+      acts.success ? `n=${acts.data.length}` : acts.error?.message);
+
+    // GUARDED, because the three checks below are all `every(...)` over a
+    // filtered list and EVERY ONE OF THEM PASSES VACUOUSLY on an empty array.
+    // The first version did exactly that: the endpoint 500'd, the list was
+    // empty, and two checks reported PASS underneath the failure. That is the
+    // shape CLAUDE.md warns about — read the reason, not the PASS.
+    const rows = acts.success ? (acts.data ?? []) : [];
+    const withContent = rows.filter((a) => a.content_count > 0);
+    r.ok(withContent.length > 0,
+      "some stages have content in the demo workshop", withContent.length);
+    r.ok(withContent.length > 0 && withContent.every((a) => a.status !== "not_started"),
+      "...and NONE of those still reads not_started — the reported defect",
+      withContent.map((a) => `${a.stage_key}=${a.status}(${a.content_count})`).join(" ") || "nothing to check");
+
+    // The paired negative: an empty stage must still read not_started, or
+    // "derived" has quietly become "everything is in progress".
+    const empty = rows.filter((a) => a.content_count === 0);
+    r.ok(rows.length > 0 &&
+      empty.every((a) => a.status === "not_started" || a.marked_complete),
+      "an empty stage reads not_started unless a facilitator closed it",
+      empty.map((a) => `${a.stage_key}=${a.status}`).join(" ") || "none empty");
+
+    const target = rows[0];
+    if (!target) {
+      // Say so once, rather than throwing an undefined-property error that
+      // reads like a bug in the endpoint under test.
+      r.ok(false, "a stage to open and close (skipping the rest of this section)");
+      return;
+    }
+    const wasComplete = target.marked_complete;
+
+    // CLOSING A STAGE IS A BOUNDARY, not an affordance — it feeds the health
+    // score, the executive dashboard and the §8.30 gate. Unlike
+    // `visible_to_roles`, which only removes clutter and is deliberately
+    // bypassable by pasting a URL.
+    const closeAsParticipant = await P("PUT",
+      `/workshops/${WS}/stages/${target.stage_key}/complete`, { complete: true });
+    r.ok(!closeAsParticipant.success, "a participant cannot close a stage",
+      closeAsParticipant.error?.message);
+    const closeAsAnalyst = await A("PUT",
+      `/workshops/${WS}/stages/${target.stage_key}/complete`, { complete: true });
+    r.ok(!closeAsAnalyst.success, "nor can an analyst", closeAsAnalyst.error?.message);
+
+    // ABSENT IS NOT FALSE. As a plain bool, a request that forgot the field
+    // would silently reopen a stage the facilitator meant to close — the same
+    // reason reviewAIBody.Index had to become a pointer.
+    const noField = await F("PUT", `/workshops/${WS}/stages/${target.stage_key}/complete`, {});
+    r.ok(!noField.success, "a request with no `complete` field is refused, not read as false",
+      noField.error?.message);
+
+    const closed = await F("PUT",
+      `/workshops/${WS}/stages/${target.stage_key}/complete`, { complete: true });
+    r.ok(closed.success, "a facilitator closes it", closed.error?.message);
+    const after = await F("GET", `/workshops/${WS}/activities`);
+    const closedRow = after.data?.find((a) => a.stage_key === target.stage_key);
+    r.ok(closedRow?.status === "completed" && closedRow?.marked_complete === true,
+      "...and it reads completed, with the decision distinguishable from the derivation",
+      `${closedRow?.status}/${closedRow?.marked_complete}`);
+
+    // REOPENABLE ON PURPOSE: a theme regularly sends a facilitator back to
+    // capture, and a one-way gate would make that impossible.
+    const reopened = await F("PUT",
+      `/workshops/${WS}/stages/${target.stage_key}/complete`, { complete: false });
+    r.ok(reopened.success, "and can reopen it", reopened.error?.message);
+    const back = (await F("GET", `/workshops/${WS}/activities`))
+      .data?.find((a) => a.stage_key === target.stage_key);
+    r.ok(back?.marked_complete === false && back?.status !== "completed",
+      "...which returns the stage to its derived status",
+      `${back?.status}/${back?.marked_complete}`);
+
+    // Leave the workshop as it was found: this suite shares a database.
+    if (wasComplete) {
+      await F("PUT", `/workshops/${WS}/stages/${target.stage_key}/complete`, { complete: true });
+    }
+
+    const unknown = await F("PUT", `/workshops/${WS}/stages/no-such-stage/complete`,
+      { complete: true });
+    r.ok(!unknown.success && unknown.error?.code === "NOT_FOUND",
+      "an unknown stage key is a 404", unknown.error?.message);
   } finally {
     await c.query(`delete from public.weights where weight_key = $1`, [PROBE_WEIGHT]);
     await c.query(`delete from public.methodology_weights where key = $1`, [PROBE_WEIGHT]);

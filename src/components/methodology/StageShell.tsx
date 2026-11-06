@@ -64,19 +64,37 @@ export function StageShell({
                 <span className="label-caps">Stage {stage.sequence_number}</span>
                 <BuildBadge state="live" />
               </div>
+              {/* THE WORKSHOP'S NAME IS THE WAY BACK TO THE OVERVIEW.
+                  Since `/w/{id}` redirects into stage 1, this is the only route
+                  to the status, the objective, the roster, the trail, the
+                  metrics and the archive control. It has to be a real link or
+                  that page becomes unreachable — the same shape as a control
+                  rendered and wired to nothing. */}
               {dense ? (
                 // The workshop's name on the same line as the stage's, because
                 // the two together are the one thing the header has to say.
                 <h1 className="mt-1 text-lg font-semibold">
                   {stage.name}
-                  <span className="ml-2 align-middle text-xs font-normal text-muted-foreground">
+                  <Link
+                    to="/w/$workshopId/overview"
+                    params={{ workshopId: workshop.id }}
+                    title="Workshop overview"
+                    className="ml-2 align-middle text-xs font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
                     {workshop.name}
-                  </span>
+                  </Link>
                 </h1>
               ) : (
                 <>
                   <h1 className="mt-1.5 text-xl font-semibold md:text-2xl">{stage.name}</h1>
-                  <p className="mt-1 text-xs text-muted-foreground">{workshop.name}</p>
+                  <Link
+                    to="/w/$workshopId/overview"
+                    params={{ workshopId: workshop.id }}
+                    title="Workshop overview"
+                    className="mt-1 inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    {workshop.name}
+                  </Link>
                 </>
               )}
               {workshop.objective &&

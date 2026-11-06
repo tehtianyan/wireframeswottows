@@ -36,7 +36,7 @@ function codeOnly(src) {
 
 runSuite("shell-ui", async ({ results: r }) => {
   const appShell = codeOnly(read("src", "components", "AppShell.tsx"));
-  const overview = codeOnly(read("src", "routes", "w.$workshopId.index.tsx"));
+  const overview = codeOnly(read("src", "routes", "w.$workshopId.overview.tsx"));
   const listScreen = codeOnly(read("src", "routes", "w.index.tsx"));
 
   // ================================================================
@@ -197,12 +197,20 @@ runSuite("shell-ui", async ({ results: r }) => {
   r.section("The roster and the audit trail are links, not panels");
   // ================================================================
 
+  // DrawerLink was local to the overview until 2026-11-06, when the dashboard's
+  // own "Recent activity" panel needed the same treatment and it moved to
+  // src/components/DrawerLink.tsx. The property under test is unchanged — these
+  // are drawers rather than page panels — so it is asserted where it now lives
+  // rather than relaxed. Two copies of this component would have drifted the
+  // way the two presence channels did.
+  const drawer = codeOnly(read("src", "components", "DrawerLink.tsx"));
+
   r.ok(
-    /function DrawerLink\(/.test(overview),
+    /from "@\/components\/DrawerLink"/.test(overview) && /<DrawerLink/.test(overview),
     "the overview has a link-that-opens-a-drawer",
   );
   r.ok(
-    /<SheetTrigger asChild>/.test(overview) && /<SheetContent/.test(overview),
+    /<SheetTrigger asChild>/.test(drawer) && /<SheetContent/.test(drawer),
     "...implemented as a real drawer, so it occupies no page space until opened",
   );
 
@@ -210,14 +218,13 @@ runSuite("shell-ui", async ({ results: r }) => {
   // `console-panel` blocks between the header and the stages. A disclosure
   // would still have cost a row each; a drawer costs a chip.
   const participantsUse = overview.indexOf("<ParticipantsPanel");
-  const drawerStart = overview.indexOf("function DrawerLink(");
   r.ok(participantsUse !== -1, "the roster is still rendered — moved, not removed");
   r.ok(
     /label="Participants"/.test(overview) && /label="Recent activity"/.test(overview),
     "both are behind labelled links",
   );
   r.ok(
-    participantsUse < drawerStart && /<DrawerLink[\s\S]{0,400}<ParticipantsPanel/.test(overview),
+    /<DrawerLink[\s\S]{0,400}<ParticipantsPanel/.test(overview),
     "...and the roster is INSIDE one of them rather than beside it",
   );
   r.ok(

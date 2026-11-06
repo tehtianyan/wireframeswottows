@@ -1,4 +1,22 @@
-import type { MethodologyStage, WorkshopRole } from "@/lib/api";
+import type { Methodology, MethodologyStage, WorkshopRole } from "@/lib/api";
+
+/**
+ * Stage types that have a renderer. `knowledge` is the one that does not —
+ * the Knowledge Workspace is its own screen, deliberately deferred.
+ *
+ * Stated here rather than in a route file because two surfaces need the same
+ * answer: the overview's stage list marks an unrenderable stage "later phase",
+ * and the `/w/{id}` redirect must not drop somebody onto one.
+ */
+export const RENDERABLE_STAGE_TYPES = new Set([
+  "capture",
+  "prioritize",
+  "synthesize",
+  "relate",
+  "interpret",
+  "recommend",
+  "report",
+]);
 
 /**
  * Which stages a role sees in navigation.
@@ -56,6 +74,33 @@ export function visibleStages(
  */
 export function stageAsideFromFlow(stage: MethodologyStage): boolean {
   return stageVisibleRoles(stage) !== null;
+}
+
+/**
+ * The stage a person should land on when they open a workshop — "Stage 1" as
+ * the room says it.
+ *
+ * Null when there is nowhere sensible to land, which the caller renders as the
+ * overview instead of an empty screen. Three reasons it can be null, and each
+ * is a real state rather than an error:
+ *  - the workshop is a draft (still being configured) or archived (finished);
+ *  - the caller's role sees no stages at all;
+ *  - every stage this role can see is of a type with no renderer yet.
+ *
+ * It reads `visibleStages`, so it is the SAME rule as the stage header and the
+ * overview list — a redirect that landed somebody on a stage their navigation
+ * then hid would be the worst of both. It takes the first visible stage in the
+ * methodology's own order, which since 20261106100000 is the participant flow's
+ * order: for SWOT-TOWS a participant's stage 1 is Strengths.
+ */
+export function firstStageFor(workshop: {
+  status: string;
+  my_role: WorkshopRole;
+  methodology: Methodology;
+}): MethodologyStage | null {
+  if (workshop.status === "draft" || workshop.status === "archived") return null;
+  const visible = visibleStages(workshop.methodology.stages, workshop.my_role);
+  return visible.find((s) => RENDERABLE_STAGE_TYPES.has(s.stage_type)) ?? null;
 }
 
 /**

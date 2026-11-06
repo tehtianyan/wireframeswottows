@@ -16,8 +16,10 @@ import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as WIndexRouteImport } from './routes/w.index'
+import { Route as WWorkshopIdRouteRouteImport } from './routes/w.$workshopId.route'
 import { Route as WNewRouteImport } from './routes/w.new'
 import { Route as WWorkshopIdIndexRouteImport } from './routes/w.$workshopId.index'
+import { Route as WWorkshopIdOverviewRouteImport } from './routes/w.$workshopId.overview'
 import { Route as WWorkshopIdStageStageKeyRouteImport } from './routes/w.$workshopId.stage.$stageKey'
 
 const IndexRoute = IndexRouteImport.update({
@@ -55,21 +57,31 @@ const WIndexRoute = WIndexRouteImport.update({
   path: '/w/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WWorkshopIdRouteRoute = WWorkshopIdRouteRouteImport.update({
+  id: '/w/$workshopId',
+  path: '/w/$workshopId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WNewRoute = WNewRouteImport.update({
   id: '/w/new',
   path: '/w/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WWorkshopIdIndexRoute = WWorkshopIdIndexRouteImport.update({
-  id: '/w/$workshopId/',
-  path: '/w/$workshopId/',
-  getParentRoute: () => rootRouteImport,
+  id: '/',
+  path: '/',
+  getParentRoute: () => WWorkshopIdRouteRoute,
+} as any)
+const WWorkshopIdOverviewRoute = WWorkshopIdOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => WWorkshopIdRouteRoute,
 } as any)
 const WWorkshopIdStageStageKeyRoute =
   WWorkshopIdStageStageKeyRouteImport.update({
-    id: '/w/$workshopId/stage/$stageKey',
-    path: '/w/$workshopId/stage/$stageKey',
-    getParentRoute: () => rootRouteImport,
+    id: '/stage/$stageKey',
+    path: '/stage/$stageKey',
+    getParentRoute: () => WWorkshopIdRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -79,8 +91,10 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/knowledge': typeof KnowledgeRoute
   '/welcome': typeof WelcomeRoute
+  '/w/$workshopId': typeof WWorkshopIdRouteRouteWithChildren
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
+  '/w/$workshopId/overview': typeof WWorkshopIdOverviewRoute
   '/w/$workshopId/': typeof WWorkshopIdIndexRoute
   '/w/$workshopId/stage/$stageKey': typeof WWorkshopIdStageStageKeyRoute
 }
@@ -93,6 +107,7 @@ export interface FileRoutesByTo {
   '/welcome': typeof WelcomeRoute
   '/w/new': typeof WNewRoute
   '/w': typeof WIndexRoute
+  '/w/$workshopId/overview': typeof WWorkshopIdOverviewRoute
   '/w/$workshopId': typeof WWorkshopIdIndexRoute
   '/w/$workshopId/stage/$stageKey': typeof WWorkshopIdStageStageKeyRoute
 }
@@ -104,8 +119,10 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/knowledge': typeof KnowledgeRoute
   '/welcome': typeof WelcomeRoute
+  '/w/$workshopId': typeof WWorkshopIdRouteRouteWithChildren
   '/w/new': typeof WNewRoute
   '/w/': typeof WIndexRoute
+  '/w/$workshopId/overview': typeof WWorkshopIdOverviewRoute
   '/w/$workshopId/': typeof WWorkshopIdIndexRoute
   '/w/$workshopId/stage/$stageKey': typeof WWorkshopIdStageStageKeyRoute
 }
@@ -118,8 +135,10 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/knowledge'
     | '/welcome'
+    | '/w/$workshopId'
     | '/w/new'
     | '/w/'
+    | '/w/$workshopId/overview'
     | '/w/$workshopId/'
     | '/w/$workshopId/stage/$stageKey'
   fileRoutesByTo: FileRoutesByTo
@@ -132,6 +151,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/w/new'
     | '/w'
+    | '/w/$workshopId/overview'
     | '/w/$workshopId'
     | '/w/$workshopId/stage/$stageKey'
   id:
@@ -142,8 +162,10 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/knowledge'
     | '/welcome'
+    | '/w/$workshopId'
     | '/w/new'
     | '/w/'
+    | '/w/$workshopId/overview'
     | '/w/$workshopId/'
     | '/w/$workshopId/stage/$stageKey'
   fileRoutesById: FileRoutesById
@@ -155,10 +177,9 @@ export interface RootRouteChildren {
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   KnowledgeRoute: typeof KnowledgeRoute
   WelcomeRoute: typeof WelcomeRoute
+  WWorkshopIdRouteRoute: typeof WWorkshopIdRouteRouteWithChildren
   WNewRoute: typeof WNewRoute
   WIndexRoute: typeof WIndexRoute
-  WWorkshopIdIndexRoute: typeof WWorkshopIdIndexRoute
-  WWorkshopIdStageStageKeyRoute: typeof WWorkshopIdStageStageKeyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -212,6 +233,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/w/$workshopId': {
+      id: '/w/$workshopId'
+      path: '/w/$workshopId'
+      fullPath: '/w/$workshopId'
+      preLoaderRoute: typeof WWorkshopIdRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/w/new': {
       id: '/w/new'
       path: '/w/new'
@@ -221,20 +249,42 @@ declare module '@tanstack/react-router' {
     }
     '/w/$workshopId/': {
       id: '/w/$workshopId/'
-      path: '/w/$workshopId'
+      path: '/'
       fullPath: '/w/$workshopId/'
       preLoaderRoute: typeof WWorkshopIdIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof WWorkshopIdRouteRoute
+    }
+    '/w/$workshopId/overview': {
+      id: '/w/$workshopId/overview'
+      path: '/overview'
+      fullPath: '/w/$workshopId/overview'
+      preLoaderRoute: typeof WWorkshopIdOverviewRouteImport
+      parentRoute: typeof WWorkshopIdRouteRoute
     }
     '/w/$workshopId/stage/$stageKey': {
       id: '/w/$workshopId/stage/$stageKey'
-      path: '/w/$workshopId/stage/$stageKey'
+      path: '/stage/$stageKey'
       fullPath: '/w/$workshopId/stage/$stageKey'
       preLoaderRoute: typeof WWorkshopIdStageStageKeyRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof WWorkshopIdRouteRoute
     }
   }
 }
+
+interface WWorkshopIdRouteRouteChildren {
+  WWorkshopIdOverviewRoute: typeof WWorkshopIdOverviewRoute
+  WWorkshopIdIndexRoute: typeof WWorkshopIdIndexRoute
+  WWorkshopIdStageStageKeyRoute: typeof WWorkshopIdStageStageKeyRoute
+}
+
+const WWorkshopIdRouteRouteChildren: WWorkshopIdRouteRouteChildren = {
+  WWorkshopIdOverviewRoute: WWorkshopIdOverviewRoute,
+  WWorkshopIdIndexRoute: WWorkshopIdIndexRoute,
+  WWorkshopIdStageStageKeyRoute: WWorkshopIdStageStageKeyRoute,
+}
+
+const WWorkshopIdRouteRouteWithChildren =
+  WWorkshopIdRouteRoute._addFileChildren(WWorkshopIdRouteRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -243,10 +293,9 @@ const rootRouteChildren: RootRouteChildren = {
   ForgotPasswordRoute: ForgotPasswordRoute,
   KnowledgeRoute: KnowledgeRoute,
   WelcomeRoute: WelcomeRoute,
+  WWorkshopIdRouteRoute: WWorkshopIdRouteRouteWithChildren,
   WNewRoute: WNewRoute,
   WIndexRoute: WIndexRoute,
-  WWorkshopIdIndexRoute: WWorkshopIdIndexRoute,
-  WWorkshopIdStageStageKeyRoute: WWorkshopIdStageStageKeyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

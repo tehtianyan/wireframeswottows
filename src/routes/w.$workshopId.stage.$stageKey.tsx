@@ -10,7 +10,7 @@ import { EvidenceBoard } from "@/components/methodology/EvidenceBoard";
 import { RelationshipMatrix } from "@/components/methodology/RelationshipMatrix";
 import { AiActionPanel } from "@/components/methodology/AiActionPanel";
 import { ReportBuilder } from "@/components/methodology/ReportBuilder";
-import { workshopsApi } from "@/lib/api";
+import { workshopsApi, type MethodologyStage } from "@/lib/api";
 import { useCurrentPerson } from "@/lib/useCurrentPerson";
 
 // Search params are the stage's own view mode. `validateSearch` must return a
@@ -24,8 +24,12 @@ type StageSearch = { mode?: "review" };
 const GUIDANCE: Record<string, string> = {
   synthesize:
     "Group related factors into a smaller number of themes. Every theme must cite the factors it rests on, so the analysis stays traceable back to what the workshop actually captured.",
+  // The noun is filled in from the stage's own `pair_noun_plural`, because
+  // what a relate stage pairs is methodology config: SWOT-TOWS pairs themes,
+  // Business Model Canvas and Transformation Planning pair factors. A literal
+  // "factors" here described one methodology's choice as the platform's rule.
   relate:
-    "Pair factors across categories to find strategic moves. Each cell only offers the factor categories its relationship type allows.",
+    "Pair {pairs} across categories to find strategic moves. Each cell only offers the categories its relationship type allows.",
   interpret:
     "State what the analysis means. An insight must cite the themes or relationships that support it — an insight with no evidence is an opinion.",
   recommend:
@@ -36,9 +40,20 @@ const GUIDANCE: Record<string, string> = {
 
 // Returns `{}` rather than `{ guidance: undefined }`, which
 // exactOptionalPropertyTypes rejects.
-function guidanceFor(stageType: string): { guidance?: string } {
-  const g = GUIDANCE[stageType];
-  return g ? { guidance: g } : {};
+//
+// `{pairs}` is filled from the stage's own config so the sentence names what
+// this methodology actually pairs. The fallback is the generic word, never one
+// methodology's noun.
+function guidanceFor(stage: MethodologyStage): { guidance?: string } {
+  const g = GUIDANCE[stage.stage_type];
+  if (!g) return {};
+  const pairs =
+    typeof stage.config["pair_noun_plural"] === "string"
+      ? stage.config["pair_noun_plural"]
+      : stage.config["pairs"] === "synthesis"
+        ? "themes"
+        : "factors";
+  return { guidance: g.replace("{pairs}", pairs) };
 }
 
 export const Route = createFileRoute("/w/$workshopId/stage/$stageKey")({
@@ -172,7 +187,7 @@ function StagePage() {
         <StageShell
           workshop={workshop}
           stage={stage}
-          {...guidanceFor(stage.stage_type)}
+          {...guidanceFor(stage)}
           aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
         >
           <EvidenceBoard workshop={workshop} stage={stage} />
@@ -184,7 +199,7 @@ function StagePage() {
         <StageShell
           workshop={workshop}
           stage={stage}
-          {...guidanceFor("report")}
+          {...guidanceFor(stage)}
           aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
         >
           <ReportBuilder workshop={workshop} stage={stage} />
@@ -196,7 +211,7 @@ function StagePage() {
         <StageShell
           workshop={workshop}
           stage={stage}
-          {...guidanceFor("relate")}
+          {...guidanceFor(stage)}
           aiPanel={<AiActionPanel workshop={workshop} stage={stage} />}
         >
           <RelationshipMatrix workshop={workshop} stage={stage} />

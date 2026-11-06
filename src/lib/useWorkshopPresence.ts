@@ -16,9 +16,25 @@ import { supabase } from "@/integrations/supabase/client";
 //     earlier fix deliberately relabelled the dot "joined" and said so, because
 //     the product had no realtime at the time.
 //
-// It does now. The capture board already announces presence on its own channel,
-// so this generalises that to a workshop-wide channel anybody in the workshop
-// joins, which is what lets the roster show genuine online status.
+// ONE CHANNEL FOR THE WHOLE WORKSHOP, AND THAT IS THE FIX FOR 2026-11-06.
+// UAT: two people were in one workshop at the same time and NEITHER appeared in
+// the other's Participants panel. Two independent faults, and the API was
+// correct throughout both:
+//
+//   1. THERE WERE TWO PRESENCE CHANNELS. The capture board announced itself on
+//      `workshop:{id}` (the factors channel, via useFactorChannel) while the
+//      roster listened on `workshop:{id}:presence`. Different channels, so
+//      nobody doing actual work could ever appear in the roster. Presence has
+//      left useFactorChannel entirely — that channel now carries change
+//      notifications and nothing else, which is all its name ever claimed.
+//   2. IT WAS ANNOUNCED BY THE PANEL THAT DISPLAYS IT. ParticipantsPanel calls
+//      the hook, and it renders inside a Radix Sheet, which UNMOUNTS when
+//      closed. So a person was present only while looking at the roster — and
+//      two people could only ever see each other by having that one drawer open
+//      at the same instant. You are present because you are IN the workshop,
+//      not because you are reading the list of who is, so this is now mounted
+//      once by the workshop's layout route and shared through context.
+//      See src/lib/workshop-presence.tsx.
 //
 // SAME CAVEAT AS THE CAPTURE BOARD: this is a Realtime channel, authorised by
 // RLS alone rather than by Go. It carries no workshop DATA — only a list of
@@ -28,14 +44,26 @@ import { supabase } from "@/integrations/supabase/client";
 export interface PresentMember {
   user_id: string;
   name: string;
+  /** The announcer's own claim about their workshop role, for display only. */
+  role: string;
   /** When this browser announced itself; used to show "active just now". */
   online_at: string;
 }
 
 export type PresenceStatus = "connecting" | "live" | "unavailable";
 
+export interface WorkshopPresence {
+  status: PresenceStatus;
+  present: PresentMember[];
+  onlineIds: Set<string>;
+}
+
 /**
  * Announces the caller and reports everyone else present in the same workshop.
+ *
+ * Call this ONCE per workshop, from the layout route, and read it elsewhere
+ * through `useWorkshopPresenceContext`. Calling it from a component that
+ * unmounts is the defect described above.
  *
  * Returns `unavailable` rather than throwing when the socket cannot be
  * established, so a roster stays usable and can say that live status is not
@@ -44,8 +72,8 @@ export type PresenceStatus = "connecting" | "live" | "unavailable";
  */
 export function useWorkshopPresence(
   workshopId: string,
-  me: { user_id: string; name: string } | null,
-) {
+  me: { user_id: string; name: string; role: string } | null,
+): WorkshopPresence {
   const [status, setStatus] = useState<PresenceStatus>("connecting");
   const [present, setPresent] = useState<PresentMember[]>([]);
 
@@ -85,6 +113,7 @@ export function useWorkshopPresence(
             void channel.track({
               user_id: m.user_id,
               name: m.name,
+              role: m.role,
               online_at: new Date().toISOString(),
             });
           }
@@ -98,7 +127,7 @@ export function useWorkshopPresence(
       void supabase.removeChannel(channel);
     };
     // me.user_id rather than me: the identity is what the channel keys on, and
-    // the display name is read through the ref.
+    // the display name and role are read through the ref.
   }, [workshopId, me?.user_id]);
 
   return { status, present, onlineIds: new Set(present.map((p) => p.user_id)) };

@@ -1,31 +1,44 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus } from "lucide-react";
+import { AlertTriangle, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { PanelHeading } from "@/components/workshop-ui";
-import { cn } from "@/lib/utils";
 import { ObjectCard } from "./ObjectCard";
 import { useStageObjects } from "./useStageObjects";
 import {
   canReview as roleCanReview,
   objectsApi,
   workshopsApi,
-  type Factor,
+  type CitableKind,
   type MethodologyStage,
   type RelationshipType,
+  type WorkObject,
   type WorkshopDetail,
 } from "@/lib/api";
 
 // The relate stage. For SWOT-TOWS this renders the familiar SO / ST / WO / WT
 // matrix — but nothing here knows those names. Each cell is a row from
-// methodology_relationship_types, and the factors offered in a cell are
-// filtered by that row's declared source and target categories.
+// methodology_relationship_types, and what a cell offers is filtered by that
+// row's declared source and target categories.
 //
-// A methodology with no relate stage never reaches this component, and one
-// with three relationship types gets three cells.
+// WHAT IT PAIRS IS METHODOLOGY CONFIG (2026-11-06). The relate stage declares
+// `"pairs": "factor" | "synthesis"`. SWOT-TOWS pairs THEMES, because the
+// participant flow has the room group notes into themes and rate them before
+// it ever reaches this screen — so pairing one sticky note against another
+// throws away the grouping the previous stage existed to produce. Business
+// Model Canvas and Transformation Planning still pair factors, unchanged, and
+// this file cannot tell which it is rendering.
+//
+// A THEME'S CATEGORY IS DERIVED FROM THE NOTES IT CITES, because `syntheses`
+// has no category column — whether a theme may span categories is a
+// methodology question the engine refuses to answer. A theme whose notes are
+// all strengths is a strength theme. One holding both strengths and weaknesses
+// has no single category, so it cannot sit in an SO cell: it is LISTED as
+// unplaceable with the reason, never silently dropped. Go refuses the same
+// pairing with the same reasoning, so the screen and the server agree.
 
 export function RelationshipMatrix({
   workshop,
@@ -37,11 +50,35 @@ export function RelationshipMatrix({
   const queryClient = useQueryClient();
   const [openCell, setOpenCell] = useState<string | null>(null);
 
-  const { kind, allCitable, objects, isLoading } = useStageObjects(workshop, stage);
+  const { kind, allCitable, objects, isLoading, kindsQuery } = useStageObjects(workshop, stage);
+
+  // Config first, the registry's default second. Never a literal: a `"factor"`
+  // written in here would be exactly the hardcoding the engine forbids.
+  const pairsKind: CitableKind =
+    (typeof stage.config["pairs"] === "string"
+      ? (stage.config["pairs"] as CitableKind)
+      : undefined) ??
+    kind?.pairing?.default_target ??
+    "factor";
+
+  const pairNoun = typeof stage.config["pair_noun"] === "string" ? stage.config["pair_noun"] : pairsKind === "synthesis" ? "theme" : "factor";
+  const pairNounPlural =
+    typeof stage.config["pair_noun_plural"] === "string"
+      ? stage.config["pair_noun_plural"]
+      : `${pairNoun}s`;
 
   const factorsQuery = useQuery({
     queryKey: ["factors", workshop.id, "all"],
     queryFn: () => workshopsApi.factors(workshop.id),
+  });
+
+  // The themes, when that is what this stage pairs. The route comes from the
+  // object registry rather than the string "syntheses".
+  const synthesisRoute = kindsQuery.data?.find((k) => k.key === "synthesis")?.route;
+  const themesQuery = useQuery({
+    queryKey: ["objects", workshop.id, synthesisRoute],
+    queryFn: () => objectsApi.list(workshop.id, synthesisRoute!),
+    enabled: Boolean(synthesisRoute),
   });
 
   const reviewer = roleCanReview(workshop.my_role);
@@ -51,17 +88,76 @@ export function RelationshipMatrix({
     () => new Map(workshop.methodology.factor_categories.map((c) => [c.id, c])),
     [workshop.methodology.factor_categories],
   );
+  const categoryIdByKey = useMemo(
+    () => new Map(workshop.methodology.factor_categories.map((c) => [c.key, c.id])),
+    [workshop.methodology.factor_categories],
+  );
 
-  const factorsByCategoryId = useMemo(() => {
-    const m = new Map<string, Factor[]>();
-    for (const c of workshop.methodology.factor_categories) m.set(c.id, []);
-    for (const f of factorsQuery.data ?? []) {
-      if (f.state === "rejected") continue;
-      const cat = workshop.methodology.factor_categories.find((c) => c.key === f.category_key);
-      if (cat) m.get(cat.id)!.push(f);
+  /** Every endpoint this stage could pair, with the category it belongs to. */
+  const endpoints = useMemo((): Endpoint[] => {
+    if (pairsKind === "synthesis") {
+      const categoryKeyOf = new Map((factorsQuery.data ?? []).map((f) => [f.id, f.category_key]));
+      return (themesQuery.data ?? [])
+        .filter((t) => t.state !== "rejected" && t.state !== "archived")
+        .map((t) => {
+          // DISTINCT categories of the cited notes. `synthesis_factors` is
+          // many-to-many, so a theme can hold notes from several categories
+          // even though the capture board only offers same-category stacking —
+          // that is a client affordance, deliberately not enforced in Go.
+          const keys = [
+            ...new Set(
+              (t.evidence.factor ?? [])
+                .map((id) => categoryKeyOf.get(id))
+                .filter((k): k is string => Boolean(k)),
+            ),
+          ];
+          const ids = keys.map((k) => categoryIdByKey.get(k)).filter((k): k is string => Boolean(k));
+          return {
+            id: t.id,
+            label: t.title ?? "(untitled theme)",
+            categoryIds: ids,
+            noteCount: (t.evidence.factor ?? []).length,
+          };
+        });
     }
+    return (factorsQuery.data ?? [])
+      .filter((f) => f.state !== "rejected" && f.state !== "archived")
+      .map((f) => {
+        const id = categoryIdByKey.get(f.category_key);
+        return {
+          id: f.id,
+          label: f.title,
+          categoryIds: id ? [id] : [],
+          noteCount: 1,
+        };
+      });
+  }, [pairsKind, themesQuery.data, factorsQuery.data, categoryIdByKey]);
+
+  /** Endpoints that can sit in a cell: exactly one category. */
+  const placeable = useMemo(
+    () => endpoints.filter((e) => e.categoryIds.length === 1),
+    [endpoints],
+  );
+  /** The rest, kept visible with the reason — see the header comment. */
+  const unplaceable = useMemo(
+    () => endpoints.filter((e) => e.categoryIds.length !== 1),
+    [endpoints],
+  );
+
+  const byCategoryId = useMemo(() => {
+    const m = new Map<string, Endpoint[]>();
+    for (const c of workshop.methodology.factor_categories) m.set(c.id, []);
+    for (const e of placeable) m.get(e.categoryIds[0]!)?.push(e);
     return m;
-  }, [factorsQuery.data, workshop.methodology.factor_categories]);
+  }, [placeable, workshop.methodology.factor_categories]);
+
+  /** Labels for an EXISTING relationship, whichever kind it joined. */
+  const labelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of factorsQuery.data ?? []) m.set(f.id, f.title);
+    for (const t of themesQuery.data ?? []) m.set(t.id, t.title ?? "(untitled theme)");
+    return m;
+  }, [factorsQuery.data, themesQuery.data]);
 
   const review = useMutation({
     mutationFn: (v: { id: string; action: "approve" | "reject"; note?: string }) =>
@@ -85,7 +181,7 @@ export function RelationshipMatrix({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (isLoading || factorsQuery.isLoading) {
+  if (isLoading || factorsQuery.isLoading || (pairsKind === "synthesis" && themesQuery.isLoading)) {
     return (
       <section className="console-panel p-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -118,8 +214,15 @@ export function RelationshipMatrix({
       <section className="console-panel" data-build="live">
         <PanelHeading build="live" title="Relationship matrix" hint={`${objects.length} created`} />
         <p className="border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
-          Each cell pairs factors from two categories. The pairing rules come from the methodology, so only
-          valid combinations are offered.
+          Each cell pairs {pairNounPlural} from two categories. The pairing rules come from the
+          methodology, so only valid combinations are offered.
+          {pairsKind === "synthesis" && (
+            <>
+              {" "}
+              A theme takes its category from the notes it groups, so a theme holding notes from
+              more than one category cannot be paired here.
+            </>
+          )}
         </p>
 
         <div
@@ -158,11 +261,7 @@ export function RelationshipMatrix({
                           : review.mutate({ id: o.id, action, note: "Rejected from the matrix view" })
                       }
                       isBusy={remove.isPending || review.isPending}
-                      extraHeader={
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {labelFor(o.source_id, factorsQuery.data)} → {labelFor(o.target_id, factorsQuery.data)}
-                        </span>
-                      }
+                      extraHeader={<EndpointTrail object={o} labelById={labelById} />}
                     />
                   ))}
                   {cellObjects.length === 0 && (
@@ -177,8 +276,10 @@ export function RelationshipMatrix({
                         workshopId={workshop.id}
                         route={kind.route}
                         type={type}
-                        sources={factorsByCategoryId.get(type.source_category_id) ?? []}
-                        targets={factorsByCategoryId.get(type.target_category_id) ?? []}
+                        noun={pairNoun}
+                        nounPlural={pairNounPlural}
+                        sources={byCategoryId.get(type.source_category_id) ?? []}
+                        targets={byCategoryId.get(type.target_category_id) ?? []}
                         onDone={() => {
                           setOpenCell(null);
                           queryClient.invalidateQueries({ queryKey: ["objects", workshop.id] });
@@ -188,7 +289,7 @@ export function RelationshipMatrix({
                     ) : (
                       <Button size="sm" variant="outline" className="w-full" onClick={() => setOpenCell(type.id)}>
                         <Plus className="size-3.5" />
-                        Pair factors
+                        Pair {pairNounPlural}
                       </Button>
                     )}
                   </div>
@@ -198,20 +299,91 @@ export function RelationshipMatrix({
           })}
         </div>
       </section>
+
+      {/* LISTED, NOT DROPPED. A theme that cannot be paired is work somebody
+          did, and silently omitting it from this screen would read as the
+          theme having been lost. It says which categories it spans, so the fix
+          — split it on the Theme Analysis stage — is obvious from here. */}
+      {pairsKind === "synthesis" && unplaceable.length > 0 && (
+        <section className="console-panel" data-build="live">
+          <PanelHeading
+            build="live"
+            title="Themes that cannot be paired"
+            hint={`${unplaceable.length} of ${endpoints.length}`}
+          />
+          <ul className="divide-y divide-border">
+            {unplaceable.map((e) => (
+              <li key={e.id} className="flex items-start gap-2 px-4 py-2.5">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium">{e.label}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {e.categoryIds.length === 0
+                      ? e.noteCount === 0
+                        ? "Groups no notes, so it has no category."
+                        : "Its notes have no category."
+                      : `Spans ${e.categoryIds
+                          .map((id) => categoryById.get(id)?.name ?? "?")
+                          .join(" and ")}, so it has no single category to pair on.`}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
 
-function labelFor(id: string | undefined, factors: Factor[] | undefined) {
-  if (!id) return "?";
-  const f = factors?.find((x) => x.id === id);
-  return f ? (f.title.length > 24 ? f.title.slice(0, 24) + "…" : f.title) : "?";
+/** One thing a relationship may join, with the categories it belongs to. */
+interface Endpoint {
+  id: string;
+  label: string;
+  /** One for a factor; zero, one or many for a theme. */
+  categoryIds: string[];
+  noteCount: number;
+}
+
+/**
+ * `source → target` for an existing relationship.
+ *
+ * Reads `pairs_kind` off the ROW rather than the stage, so relationships
+ * created when SWOT-TOWS paired factors still render their endpoints instead of
+ * two question marks. That matters: they are approved analysis, and a screen
+ * that blanks them looks exactly like data loss.
+ */
+function EndpointTrail({
+  object,
+  labelById,
+}: {
+  object: WorkObject;
+  labelById: Map<string, string>;
+}) {
+  const short = (id: string | undefined) => {
+    if (!id) return "?";
+    const l = labelById.get(id);
+    if (!l) return "?";
+    return l.length > 24 ? l.slice(0, 24) + "…" : l;
+  };
+  return (
+    <span className="font-mono text-[10px] text-muted-foreground">
+      {object.pairs_kind === "factor" && (
+        <span className="mr-1 rounded border border-border px-1 py-px uppercase tracking-wider">
+          factors
+        </span>
+      )}
+      {short(object.source_id)} → {short(object.target_id)}
+    </span>
+  );
 }
 
 function PairForm({
   workshopId,
   route,
   type,
+  noun,
+  nounPlural,
   sources,
   targets,
   onDone,
@@ -220,8 +392,10 @@ function PairForm({
   workshopId: string;
   route: string;
   type: RelationshipType;
-  sources: Factor[];
-  targets: Factor[];
+  noun: string;
+  nounPlural: string;
+  sources: Endpoint[];
+  targets: Endpoint[];
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -251,12 +425,12 @@ function PairForm({
   });
 
   const ready = sourceId && targetId;
-  const empty = sources.length === 0 || targets.length === 0;
 
-  if (empty) {
+  if (sources.length === 0 || targets.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
-        Both categories need captured factors before you can pair them here.
+        Both categories need {nounPlural} before you can pair them here.
+        {noun === "theme" && " Group notes into themes on the capture board first."}
       </p>
     );
   }
@@ -268,10 +442,11 @@ function PairForm({
         onChange={(e) => setSourceId(e.target.value)}
         className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
       >
-        <option value="">Source factor…</option>
-        {sources.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.title}
+        <option value="">Source {noun}…</option>
+        {sources.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.label}
+            {noun === "theme" ? ` (${e.noteCount} note${e.noteCount === 1 ? "" : "s"})` : ""}
           </option>
         ))}
       </select>
@@ -280,10 +455,11 @@ function PairForm({
         onChange={(e) => setTargetId(e.target.value)}
         className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
       >
-        <option value="">Target factor…</option>
-        {targets.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.title}
+        <option value="">Target {noun}…</option>
+        {targets.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.label}
+            {noun === "theme" ? ` (${e.noteCount} note${e.noteCount === 1 ? "" : "s"})` : ""}
           </option>
         ))}
       </select>
@@ -305,7 +481,7 @@ function PairForm({
         value={strategicOption}
         onChange={(e) => setStrategicOption(e.target.value)}
       />
-      <div className={cn("flex justify-end gap-2")}>
+      <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>

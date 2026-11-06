@@ -55,14 +55,32 @@ type Object struct {
 	SourceID           *string `json:"source_id,omitempty"`
 	TargetID           *string `json:"target_id,omitempty"`
 	RelationshipTypeID *string `json:"relationship_type_id,omitempty"`
+	// Which kind the endpoints are — "factor" or "synthesis".
+	//
+	// REPORTED PER ROW, NOT PER STAGE, and that is the point. SWOT-TOWS pairs
+	// themes from 2026-11-06 onwards, but relationships already created pair
+	// FACTORS, and they are approved analysis somebody did. Reading the pair
+	// kind from the stage's current config would have made every one of them
+	// render with two empty endpoints — work silently disappearing from the
+	// matrix, which is the shape of defect this codebase keeps finding.
+	// So the row says what it joins, and the matrix labels it accordingly.
+	PairsKind *string `json:"pairs_kind,omitempty"`
 }
 
 // pairingColumns returns the extra columns a paired kind selects, in order.
+//
+// EVERY target's columns, not just the configured one — see Object.PairsKind.
+// The order is Pairing.TargetKeys()' stable order and scanObject depends on it.
 func pairingColumns(kind *objects.Kind) []string {
 	if kind.Pairing == nil {
 		return nil
 	}
-	return []string{kind.Pairing.SourceCol, kind.Pairing.TargetCol, kind.Pairing.TypeCol}
+	cols := []string{}
+	for _, key := range kind.Pairing.TargetKeys() {
+		t := kind.Pairing.Targets[key]
+		cols = append(cols, t.SourceCol, t.TargetCol)
+	}
+	return append(cols, kind.Pairing.TypeCol)
 }
 
 // ListObjectKinds — GET /object-kinds. The catalogue the UI builds its forms
@@ -172,11 +190,29 @@ func scanObject(rows pgx.Rows, kind *objects.Kind) (*Object, error) {
 	for i := range kind.Fields {
 		dest = append(dest, &fieldVals[i])
 	}
+	// One source/target pair per possible target kind, in TargetKeys() order,
+	// then the relationship type. Only one pair is populated on any row — the
+	// DB CHECK makes the alternative unrepresentable.
+	var pairKeys []string
+	var pairVals [][2]*string
 	if kind.Pairing != nil {
-		dest = append(dest, &o.SourceID, &o.TargetID, &o.RelationshipTypeID)
+		pairKeys = kind.Pairing.TargetKeys()
+		pairVals = make([][2]*string, len(pairKeys))
+		for i := range pairKeys {
+			dest = append(dest, &pairVals[i][0], &pairVals[i][1])
+		}
+		dest = append(dest, &o.RelationshipTypeID)
 	}
 	if err := rows.Scan(dest...); err != nil {
 		return nil, err
+	}
+	for i, key := range pairKeys {
+		if pairVals[i][0] != nil || pairVals[i][1] != nil {
+			o.SourceID, o.TargetID = pairVals[i][0], pairVals[i][1]
+			k := key
+			o.PairsKind = &k
+			break
+		}
 	}
 
 	o.Kind = kind.Key
@@ -387,11 +423,16 @@ func insertObject(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
 	}
 
 	if kind.Pairing != nil {
-		srcID, tgtID, typeID, msg := resolvePairing(ctx, pool, kind, workshopID, body)
+		// The TARGET decides which columns the endpoints go in, and it comes
+		// from the relate stage's config. The other target's columns are left
+		// NULL, which the DB CHECK requires: exactly one pair is populated, so
+		// a row joining a factor to a theme is unrepresentable rather than
+		// merely refused here.
+		target, srcID, tgtID, typeID, msg := resolvePairing(ctx, pool, kind, workshopID, body)
 		if msg != "" {
 			return "", msg, nil
 		}
-		cols = append(cols, kind.Pairing.SourceCol, kind.Pairing.TargetCol, kind.Pairing.TypeCol)
+		cols = append(cols, target.SourceCol, target.TargetCol, kind.Pairing.TypeCol)
 		args = append(args, srcID, tgtID, typeID)
 	}
 
@@ -665,60 +706,207 @@ func loadObjectForWrite(w http.ResponseWriter, r *http.Request) (
 	return ctx, pool, kind, user, row, true
 }
 
-// resolvePairing validates a paired kind's endpoints and relationship type.
+// relatePairsKind returns the registry key a workshop's relate stage pairs.
+//
+// From `methodology_stages.config->>'pairs'`, defaulting to the Pairing's own
+// default. Methodology config, so SWOT-TOWS pairs themes while Business Model
+// Canvas and Transformation Planning go on pairing factors with no code aware
+// of either.
+func relatePairsKind(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
+	workshopID string) (string, error) {
+
+	var pairs *string
+	err := pool.QueryRow(ctx, `
+		select s.config->>'pairs'
+		from public.methodology_stages s
+		join public.workshops w on w.methodology_id = s.methodology_id
+		where w.id = $1 and s.stage_type = $2
+		order by s.sequence_number
+		limit 1`, workshopID, kind.StageType).Scan(&pairs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// requireStageForKind has already refused this case with a better
+		// message; the default keeps us from returning an empty target.
+		return kind.Pairing.DefaultTarget, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if pairs == nil || *pairs == "" {
+		return kind.Pairing.DefaultTarget, nil
+	}
+	return *pairs, nil
+}
+
+// resolvePairing validates a paired kind's endpoints and relationship type,
+// and reports WHICH columns the endpoints belong in.
 //
 // The category rule is the interesting part and it is entirely config-driven:
 // methodology_relationship_types says an "so" relationship runs from a
 // strength to an opportunity, so pairing a weakness into an SO cell is
 // refused without this file knowing what SO, strength or opportunity mean. A
 // methodology with different pairings gets its own rules for free.
+//
+// A THEME'S CATEGORY IS DERIVED FROM ITS NOTES (2026-11-06). `syntheses` has no
+// category column, because whether a theme may span categories is a
+// methodology question the engine deliberately refuses to answer. So the
+// category comes from the factors the theme cites, which also keeps it correct
+// when notes are regrouped. A theme spanning two categories has no single one
+// and is REFUSED with both named — not silently resolved to the first, and not
+// reported as "invalid category", which would send somebody looking for a
+// mistake they did not make.
 func resolvePairing(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
-	workshopID string, body *writeObjectBody) (src, tgt, typeID string, msg string) {
+	workshopID string, body *writeObjectBody) (target objects.PairTarget, src, tgt, typeID string, msg string) {
+
+	pairsKind, err := relatePairsKind(ctx, pool, kind, workshopID)
+	if err != nil {
+		return target, "", "", "", err.Error()
+	}
+	target = kind.Pairing.TargetFor(pairsKind)
 
 	if body.SourceID == nil || body.TargetID == nil || body.RelationshipTypeKey == nil {
-		return "", "", "", "source_id, target_id and relationship_type_key are all required."
+		return target, "", "", "", "source_id, target_id and relationship_type_key are all required."
 	}
 	if *body.SourceID == *body.TargetID {
-		return "", "", "", "A relationship must join two different factors."
+		return target, "", "", "", fmt.Sprintf("A relationship must join two different %ss.", target.Noun)
 	}
 
 	var srcCat, tgtCat string
 	for _, p := range []struct {
-		id  string
-		cat *string
-	}{{*body.SourceID, &srcCat}, {*body.TargetID, &tgtCat}} {
-		err := pool.QueryRow(ctx, fmt.Sprintf(
-			`select factor_category_id::text from public.%s where id = $1 and workshop_id = $2`,
-			kind.Pairing.PairsTable), p.id, workshopID).Scan(p.cat)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", "", "", "Both factors must belong to this workshop."
+		id    string
+		cat   *string
+		which string
+	}{{*body.SourceID, &srcCat, "source"}, {*body.TargetID, &tgtCat, "target"}} {
+		// Belongs to this workshop? Asked separately from the category, so
+		// "no such theme here" and "that theme cites nothing" are different
+		// answers. Derived categories return zero rows for both, and telling
+		// somebody their theme is in the wrong workshop when it is simply
+		// empty would be a confidently wrong message.
+		var exists bool
+		if err := pool.QueryRow(ctx, fmt.Sprintf(
+			`select exists (select 1 from public.%s where id = $1 and workshop_id = $2)`,
+			target.Table), p.id, workshopID).Scan(&exists); err != nil {
+			return target, "", "", "", err.Error()
 		}
+		if !exists {
+			// WRONG KIND IS NOT WRONG WORKSHOP, and saying so matters.
+			// Passing a factor id to a stage that pairs themes used to be
+			// refused with "Both themes must belong to this workshop" — the id
+			// IS in the workshop, so that sends somebody checking membership
+			// for a problem that is really "this stage pairs themes now".
+			// Same family as explainMailFailure blaming missing SMTP for a rate
+			// limit: name the actual cause or quote nothing.
+			for _, key := range kind.Pairing.TargetKeys() {
+				other := kind.Pairing.Targets[key]
+				if other.Table == target.Table {
+					continue
+				}
+				var isOther bool
+				if err := pool.QueryRow(ctx, fmt.Sprintf(
+					`select exists (select 1 from public.%s where id = $1 and workshop_id = $2)`,
+					other.Table), p.id, workshopID).Scan(&isOther); err == nil && isOther {
+					return target, "", "", "", fmt.Sprintf(
+						"The %s is a %s, but this stage pairs %ss.", p.which, other.Noun, target.Noun)
+				}
+			}
+			return target, "", "", "", fmt.Sprintf("Both %ss must belong to this workshop.", target.Noun)
+		}
+
+		cats, err := categoriesOf(ctx, pool, target, p.id, workshopID)
 		if err != nil {
-			return "", "", "", err.Error()
+			return target, "", "", "", err.Error()
+		}
+		switch len(cats) {
+		case 1:
+			*p.cat = cats[0]
+		case 0:
+			return target, "", "", "", fmt.Sprintf(
+				"The %s %s has no category yet — a theme takes its category from the notes it groups, so it needs at least one.",
+				p.which, target.Noun)
+		default:
+			names, err := categoryNames(ctx, pool, cats)
+			if err != nil {
+				return target, "", "", "", err.Error()
+			}
+			return target, "", "", "", fmt.Sprintf(
+				"The %s %s spans %s, so it has no single category to pair on. Split it, or pair a %s whose notes are all from one category.",
+				p.which, target.Noun, strings.Join(names, " and "), target.Noun)
 		}
 	}
 
 	var wantSrc, wantTgt, typeName string
-	err := pool.QueryRow(ctx, `
+	err = pool.QueryRow(ctx, `
 		select mrt.id::text, coalesce(mrt.source_category_id::text,''), coalesce(mrt.target_category_id::text,''), mrt.name
 		from public.methodology_relationship_types mrt
 		join public.workshops w on w.methodology_id = mrt.methodology_id
 		where w.id = $1 and mrt.key = $2`, workshopID, *body.RelationshipTypeKey,
 	).Scan(&typeID, &wantSrc, &wantTgt, &typeName)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", "", "Unknown relationship type for this workshop's methodology."
+		return target, "", "", "", "Unknown relationship type for this workshop's methodology."
 	}
 	if err != nil {
-		return "", "", "", err.Error()
+		return target, "", "", "", err.Error()
 	}
 
 	if wantSrc != "" && srcCat != wantSrc {
-		return "", "", "", fmt.Sprintf("The source factor's category is not valid for %s.", typeName)
+		return target, "", "", "", fmt.Sprintf("The source %s's category is not valid for %s.", target.Noun, typeName)
 	}
 	if wantTgt != "" && tgtCat != wantTgt {
-		return "", "", "", fmt.Sprintf("The target factor's category is not valid for %s.", typeName)
+		return target, "", "", "", fmt.Sprintf("The target %s's category is not valid for %s.", target.Noun, typeName)
 	}
-	return *body.SourceID, *body.TargetID, typeID, ""
+	return target, *body.SourceID, *body.TargetID, typeID, ""
+}
+
+// categoriesOf returns the factor categories one endpoint belongs to.
+//
+// One row for a factor, which has a category column. Zero or more for a theme,
+// which does not — see objects.PairTarget.CategoriesSQL. The SQL is a registry
+// constant and never request input, the same property the generic SQL builder
+// depends on throughout this file.
+func categoriesOf(ctx context.Context, pool *pgxpool.Pool, target objects.PairTarget,
+	objectID, workshopID string) ([]string, error) {
+
+	rows, err := pool.Query(ctx, target.CategoriesSQL, objectID, workshopID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cats := []string{}
+	for rows.Next() {
+		var c *string
+		if err := rows.Scan(&c); err != nil {
+			return nil, err
+		}
+		// A factor with a null category is possible in the schema; it has no
+		// category to pair on, which the caller reports as the zero case.
+		if c != nil && *c != "" {
+			cats = append(cats, *c)
+		}
+	}
+	return cats, rows.Err()
+}
+
+// categoryNames turns category ids into the methodology's own labels, so a
+// refusal names "Strengths and Weaknesses" rather than two uuids.
+func categoryNames(ctx context.Context, pool *pgxpool.Pool, ids []string) ([]string, error) {
+	// `sort_order`, which is what methodology.Load orders categories by —
+	// `sequence_number` is methodology_stages' column, and naming it here cost
+	// a 42703 that the suite caught at once.
+	rows, err := pool.Query(ctx, `
+		select name from public.methodology_factor_categories
+		where id::text = any($1) order by sort_order`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	names := []string{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
 }
 
 func trimPtr(s *string) *string {

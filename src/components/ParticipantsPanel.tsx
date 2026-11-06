@@ -15,7 +15,7 @@ import { PanelHeading } from "@/components/workshop-ui";
 import { cn } from "@/lib/utils";
 import { OneTimeLink } from "@/components/OneTimeLink";
 import { useCurrentPerson } from "@/lib/useCurrentPerson";
-import { useWorkshopPresence } from "@/lib/useWorkshopPresence";
+import { useWorkshopPresenceContext } from "@/lib/workshop-presence";
 import {
   assignableRoles,
   initials,
@@ -67,7 +67,12 @@ export function ParticipantsPanel({
 }) {
   const queryClient = useQueryClient();
   const me = useCurrentPerson();
-  const { status: presenceStatus, onlineIds } = useWorkshopPresence(workshopId, me);
+  // READ, NEVER ANNOUNCE. This panel used to call useWorkshopPresence itself,
+  // and it renders inside a drawer that unmounts when closed — so a person was
+  // only present while looking at the list of who was present, and two people
+  // in one workshop never saw each other. The workshop's layout route announces
+  // now; this reads the shared answer.
+  const { status: presenceStatus, onlineIds } = useWorkshopPresenceContext();
 
   const { data: people = [], isLoading, isError } = useQuery(participantsQueryOptions(workshopId));
 

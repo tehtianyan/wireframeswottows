@@ -22,7 +22,9 @@ import { synthesisWeightKeys } from "@/lib/stages";
 import { StickyNote, type NoteScore } from "./StickyNote";
 import { CleanupPanel } from "./CleanupPanel";
 import { ThemeRating } from "./ThemeRating";
-import { useFactorChannel, type ChannelStatus, type PresentPerson } from "@/lib/useFactorChannel";
+import { useFactorChannel, type ChannelStatus } from "@/lib/useFactorChannel";
+import { useWorkshopPresenceContext } from "@/lib/workshop-presence";
+import type { PresentMember } from "@/lib/useWorkshopPresence";
 import {
   objectKindsApi,
   objectsApi,
@@ -189,7 +191,12 @@ export function CaptureBoard({
   const contributor = facilitator || myRole === "participant" || myRole === "analyst";
   const canAddTo = (key: string) => contributor && (facilitator || key === focusedKey);
 
-  const { status, present } = useFactorChannel(workshopId, me ? { ...me, role: myRole } : null);
+  // The factors channel keeps the board live; presence comes from the workshop
+  // layout route, which is the one place anybody is announced. The board used
+  // to read presence off the factors channel — a second channel the roster
+  // never listened to, so the two surfaces disagreed by construction.
+  const { status } = useFactorChannel(workshopId);
+  const { present } = useWorkshopPresenceContext();
 
   const factorsQuery = useQuery({
     queryKey: ["factors", workshopId, "all"],
@@ -886,7 +893,7 @@ function BoardToolbar({
   canStack: boolean;
   themeLabel: string;
   status: ChannelStatus;
-  present: PresentPerson[];
+  present: PresentMember[];
   facilitator: boolean;
   /** The three-step readout, or undefined when this board has no theming. */
   steps?: FlowStep[];
@@ -1107,7 +1114,7 @@ function LiveState({ status }: { status: ChannelStatus }) {
 }
 
 /** Who is here NOW, per the presence channel. An absent dot is honest; a grey one is a guess. */
-function Presence({ present }: { present: PresentPerson[] }) {
+function Presence({ present }: { present: PresentMember[] }) {
   if (present.length === 0) return null;
   return (
     <span

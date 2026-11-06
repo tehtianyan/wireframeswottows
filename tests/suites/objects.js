@@ -17,8 +17,25 @@ runSuite("objects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     const rec = kinds.data?.find((k) => k.key === "recommendation");
     r.ok(rec?.fields?.some((f) => f.name === "priority" && f.type === "enum"),
       "recommendation declares its own fields", rec?.fields?.map((f) => f.name).join(","));
-    r.ok(kinds.data?.find((k) => k.key === "factor_relationship")?.pairing?.pairs_kind === "factor",
+    const relKind = kinds.data?.find((k) => k.key === "factor_relationship");
+    r.ok(Boolean(relKind?.pairing),
       "relationship declares a pairing rather than a link table");
+
+    // WHAT IT PAIRS IS METHODOLOGY CONFIG, SO THIS ASSERTS THE RELATIONSHIP.
+    // The registry's own default is `factor` — that is the PLATFORM's answer,
+    // and Business Model Canvas and Transformation Planning rely on it. This
+    // workshop's relate stage overrides it to `synthesis`. Asserting the
+    // literal "factor" here is what broke when SWOT-TOWS moved to themes, and
+    // replacing it with the literal "synthesis" would rebuild the same trap
+    // one methodology along — the same mistake as pinning a magic section
+    // count. See the magic-number note in CLAUDE.md.
+    r.ok(relKind?.pairing?.default_target === "factor",
+      "...whose PLATFORM default is factors", relKind?.pairing?.default_target);
+    const relStage = (await F("GET", `/workshops/${WS}`)).data?.methodology?.stages
+      ?.find((s) => s.stage_type === "relate");
+    r.ok(relStage?.config?.pairs === "synthesis",
+      "...and this methodology's relate stage overrides it in CONFIG, with no code",
+      relStage?.config?.pairs);
 
     r.section("the traceability chain, end to end");
     const factors = (await F("GET", `/workshops/${WS}/factors`)).data;
@@ -38,11 +55,30 @@ runSuite("objects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     r.ok(mine?.evidence?.factor?.length === 2, "theme reports its cited factors",
       mine?.evidence?.factor?.length);
 
+    // SWOT-TOWS PAIRS THEMES FROM 2026-11-06, so the matrix needs one theme
+    // per category. The pairing rules below are unchanged — a weakness is
+    // still refused in an SO cell — but a THEME's category is DERIVED from the
+    // notes it cites rather than read off a column, which is the new property
+    // these cases actually exercise.
+    const themeFor = async (label, factor) => {
+      const t = await F("POST", `/workshops/${WS}/syntheses`, {
+        title: `VERIFY ${label} theme`,
+        evidence: { factor: [factor.id] },
+      });
+      r.ok(t.success, `create a ${label} theme (category derived from its notes)`, t.error?.message);
+      if (t.data) created.syntheses.push(t.data.id);
+      return t.data;
+    };
+    const sTheme = await themeFor("strength", strength);
+    const wTheme = await themeFor("weakness", weakness);
+    const oTheme = await themeFor("opportunity", opportunity);
+    const tTheme = await themeFor("threat", threat);
+
     const rel = await F("POST", `/workshops/${WS}/relationships`, {
-      source_id: strength.id, target_id: opportunity.id, relationship_type_key: "so",
+      source_id: sTheme.id, target_id: oTheme.id, relationship_type_key: "so",
       title: "VERIFY SO pairing", fields: { narrative: "n", strategic_option: "s" },
     });
-    r.ok(rel.success, "create an SO relationship (strength x opportunity)", rel.error?.message);
+    r.ok(rel.success, "create an SO relationship (strength theme x opportunity theme)", rel.error?.message);
     if (rel.data) created.relationships.push(rel.data.id);
 
     const ins = await F("POST", `/workshops/${WS}/insights`, {
@@ -73,33 +109,70 @@ runSuite("objects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
         `list ${route} returns the created row`, list.success ? `n=${list.data.length}` : list.error.message);
     }
     const relRow = (await F("GET", `/workshops/${WS}/relationships`)).data.find((x) => x.id === rel.data.id);
-    r.ok(relRow?.source_id === strength.id && relRow?.target_id === opportunity.id,
+    r.ok(relRow?.source_id === sTheme.id && relRow?.target_id === oTheme.id,
       "relationship round-trips its pairing");
+    // THE ROW SAYS WHAT IT JOINS, not the stage. Relationships created before
+    // 2026-11-06 pair factors and are approved analysis; reading the pair kind
+    // from the stage's current config would render every one of them with two
+    // empty endpoints — work appearing to have been lost.
+    r.ok(relRow?.pairs_kind === "synthesis",
+      "and reports the KIND of its endpoints, per row", relRow?.pairs_kind);
     r.ok(relRow?.fields?.narrative === "n",
       "relationship round-trips narrative (it has no description column)");
 
     r.section("methodology config drives the pairing rules, not code");
     const bad = await F("POST", `/workshops/${WS}/relationships`, {
-      source_id: weakness.id, target_id: opportunity.id, relationship_type_key: "so",
+      source_id: wTheme.id, target_id: oTheme.id, relationship_type_key: "so",
     });
     r.ok(!bad.success && bad.error.code === "VALIDATION_ERROR",
-      "a weakness is refused in an SO cell", bad.error?.message);
+      "a weakness theme is refused in an SO cell", bad.error?.message);
 
     const wo = await F("POST", `/workshops/${WS}/relationships`, {
-      source_id: weakness.id, target_id: opportunity.id, relationship_type_key: "wo",
+      source_id: wTheme.id, target_id: oTheme.id, relationship_type_key: "wo",
     });
-    r.ok(wo.success, "the same weakness is accepted in a WO cell", wo.error?.message);
+    r.ok(wo.success, "the same weakness theme is accepted in a WO cell", wo.error?.message);
     if (wo.data) created.relationships.push(wo.data.id);
 
     const wt = await F("POST", `/workshops/${WS}/relationships`, {
-      source_id: strength.id, target_id: threat.id, relationship_type_key: "wt",
+      source_id: sTheme.id, target_id: tTheme.id, relationship_type_key: "wt",
     });
-    r.ok(!wt.success, "a strength is refused in a WT cell", wt.error?.message);
+    r.ok(!wt.success, "a strength theme is refused in a WT cell", wt.error?.message);
 
     const self = await F("POST", `/workshops/${WS}/relationships`, {
-      source_id: strength.id, target_id: strength.id, relationship_type_key: "so",
+      source_id: sTheme.id, target_id: sTheme.id, relationship_type_key: "so",
     });
-    r.ok(!self.success, "a factor cannot be paired with itself", self.error?.message);
+    r.ok(!self.success, "a theme cannot be paired with itself", self.error?.message);
+
+    // A THEME SPANNING CATEGORIES HAS NO CATEGORY TO PAIR ON. `syn` above
+    // cites a strength AND a weakness, which the capture board would not
+    // produce (same-category stacking is a client affordance) but which the
+    // API allows on purpose — whether a theme may span categories is a
+    // methodology question the engine refuses to answer. So it is refused
+    // HERE, at the pairing, and the refusal has to name both categories: told
+    // only "invalid category", somebody goes looking for a mistake they did
+    // not make.
+    const spanning = await F("POST", `/workshops/${WS}/relationships`, {
+      source_id: syn.data.id, target_id: oTheme.id, relationship_type_key: "so",
+    });
+    r.ok(!spanning.success, "a theme spanning two categories is refused", spanning.error?.message);
+    r.ok(/spans/i.test(spanning.error?.message ?? "") &&
+      /\band\b/.test(spanning.error?.message ?? ""),
+      "...and the refusal names the categories it spans, not just 'invalid'",
+      spanning.error?.message);
+
+    // WRONG KIND IS NOT WRONG WORKSHOP. A factor id here used to be refused
+    // with "Both themes must belong to this workshop" — the factor IS in the
+    // workshop, so that sends somebody checking membership for a problem that
+    // is really "this stage pairs themes now".
+    const wrongKind = await F("POST", `/workshops/${WS}/relationships`, {
+      source_id: strength.id, target_id: oTheme.id, relationship_type_key: "so",
+    });
+    r.ok(!wrongKind.success, "a factor is refused where the stage pairs themes",
+      wrongKind.error?.message);
+    r.ok(/is a factor/i.test(wrongKind.error?.message ?? "") &&
+      !/belong to this workshop/i.test(wrongKind.error?.message ?? ""),
+      "...and the refusal says it is the wrong KIND, not the wrong workshop",
+      wrongKind.error?.message);
 
     r.section("citation rules come from the registry");
     const illegal = await F("POST", `/workshops/${WS}/syntheses`, {
