@@ -12,8 +12,36 @@ runSuite("objects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
   try {
     r.section("object-kinds catalogue drives the UI forms");
     const kinds = await F("GET", "/object-kinds");
-    r.ok(kinds.success && kinds.data.length === 4, "four kinds registered",
+    // A COUNT WAS THE WRONG QUESTION, and it broke the day `initiative` was
+    // added — a correct change failing a check that was really pinning the
+    // number 4. Replacing it with 5 rebuilds the same trap one kind along, so
+    // this asks what the catalogue is FOR: the UI builds every object form
+    // from it, so each entry must be renderable.
+    r.ok(kinds.success && kinds.data.length > 0, "the catalogue lists the registered kinds",
       kinds.data && kinds.data.map((k) => k.key).join(", "));
+    r.ok(
+      (kinds.data ?? []).every((k) => k.key && k.route && k.label),
+      "every kind carries the key, route and label a form needs",
+      (kinds.data ?? []).filter((k) => !(k.key && k.route && k.label)).map((k) => k.key).join(",") || "all complete",
+    );
+
+    // THE INVARIANT `ByStageType` DEPENDS ON, asserted rather than assumed.
+    //
+    // That lookup scans a Go MAP, whose iteration order is randomised, and
+    // returns the first kind whose stage_type matches. Two kinds claiming one
+    // stage type would therefore resolve differently between requests — the
+    // dashboard counting relationships on one call and initiatives on the
+    // next, intermittently and with nothing in the logs. It is exactly the
+    // shortcut `initiative` was tempted into taking (it is created inside the
+    // relate stage), and it declares an empty stage_type with `hosted_by`
+    // instead for this reason.
+    const claimed = (kinds.data ?? []).filter((k) => k.stage_type).map((k) => k.stage_type);
+    r.ok(new Set(claimed).size === claimed.length,
+      "no two kinds claim the same stage type", claimed.join(", "));
+    const hosted = (kinds.data ?? []).filter((k) => !k.stage_type);
+    r.ok(hosted.every((k) => (k.hosted_by ?? []).length > 0),
+      "a kind no stage produces says which stages may host it",
+      hosted.map((k) => `${k.key}:${(k.hosted_by ?? []).join("/") || "NONE"}`).join(", ") || "none");
     const rec = kinds.data?.find((k) => k.key === "recommendation");
     r.ok(rec?.fields?.some((f) => f.name === "priority" && f.type === "enum"),
       "recommendation declares its own fields", rec?.fields?.map((f) => f.name).join(","));

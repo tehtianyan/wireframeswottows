@@ -52,6 +52,21 @@ func TestRoutePrecedence(t *testing.T) {
 		{"PUT", "/api/v1/workshops/abc/recommendations/r1/weights/value",
 			"/api/v1/workshops/{id}/{kind}/{objectId}/weights/{weightKey}"},
 
+		// The facilitator's running order on the TOWS matrix. "order" sits
+		// where {objectId} sits, the same collision /factors/order has — and
+		// here the two patterns do not even differ by verb from each other,
+		// only from the PATCH and DELETE on {objectId}. If the wildcard won,
+		// a reorder would arrive at UpdateObject looking for an object whose
+		// id is the literal "order" and come back 404 "not found in this
+		// workshop", which reads as missing data rather than a bad route.
+		{"PUT", "/api/v1/workshops/abc/recommendations/order",
+			"/api/v1/workshops/{id}/{kind}/order"},
+		{"PUT", "/api/v1/workshops/abc/initiatives/order",
+			"/api/v1/workshops/{id}/{kind}/order"},
+		// ...and an ordinary object id must still reach the object routes.
+		{"PATCH", "/api/v1/workshops/abc/initiatives/i1", "/api/v1/workshops/{id}/{kind}/{objectId}"},
+		{"DELETE", "/api/v1/workshops/abc/recommendations/r1", "/api/v1/workshops/{id}/{kind}/{objectId}"},
+
 		// "ai" must not be swallowed by the {kind} wildcard.
 		{"GET", "/api/v1/workshops/abc/ai", "/api/v1/workshops/{id}/ai"},
 		{"POST", "/api/v1/workshops/abc/ai/execute", "/api/v1/workshops/{id}/ai/execute"},

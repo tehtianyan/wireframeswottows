@@ -340,7 +340,12 @@ export interface Workspace {
 // and one set of endpoints, driven by the server-side registry. The UI reads
 // field definitions from /object-kinds rather than hardcoding them.
 
-export type ObjectKindKey = "synthesis" | "factor_relationship" | "insight" | "recommendation";
+export type ObjectKindKey =
+  | "synthesis"
+  | "factor_relationship"
+  | "initiative"
+  | "insight"
+  | "recommendation";
 
 /** What a stage's objects may cite, read from methodology stage config. */
 export type CitableKind = "factor" | "synthesis" | "factor_relationship" | "insight";
@@ -362,6 +367,22 @@ export interface ObjectKind {
   route: string;
   label: string;
   stage_type: string;
+  /**
+   * Stage types that may host this kind although none PRODUCES it. An
+   * initiative has no stage of its own: it is created inside the relate
+   * stage, so `stage_type` is "" and this carries the rule instead.
+   */
+  hosted_by?: string[];
+  /** The config row this kind is scoped to, e.g. a TOWS quadrant. */
+  type_col?: string;
+  /** The kind carries `board_position` — a facilitator's hand-set rank. */
+  ordered: boolean;
+  /**
+   * CONTAINMENT, not citation. An action belongs to exactly one initiative,
+   * which is a column on the child — unlike `evidence`, which is
+   * many-to-many and is what traceability walks.
+   */
+  parent?: { column: string; kind: ObjectKindKey };
   title_required: boolean;
   /** Mirrors the column's NOT NULL — true for insights and recommendations,
    *  false for a theme, whose name carries the claim on its own. */
@@ -408,6 +429,10 @@ export interface WorkObject {
    * one of them with two empty endpoints.
    */
   pairs_kind?: CitableKind;
+  /** The containing object's id, for a kind with a parent. */
+  parent_id?: string;
+  /** The facilitator's hand-set rank; null until somebody drags. */
+  board_position?: number | null;
 }
 
 export interface WriteObjectInput {
@@ -418,6 +443,11 @@ export interface WriteObjectInput {
   source_id?: string;
   target_id?: string;
   relationship_type_key?: string;
+  /**
+   * The containing object. Sending `null` clears it; omitting the key leaves
+   * it alone, so a PATCH that renames an action cannot silently unparent it.
+   */
+  parent_id?: string | null;
 }
 
 export const objectKindsApi = {
@@ -435,6 +465,13 @@ export const objectsApi = {
     apiDelete<{ id: string }>(`/workshops/${workshopId}/${route}/${objectId}`),
   review: (workshopId: string, route: string, objectId: string, input: { action: "approve" | "reject"; note?: string }) =>
     apiPost<{ id: string; state: FactorState }>(`/workshops/${workshopId}/${route}/${objectId}/review`, input),
+  /**
+   * The facilitator's running order. THE WHOLE SCOPE IS SENT, not one move —
+   * positions are rewritten 0..n-1 in a transaction, so it is idempotent and
+   * two facilitators dragging at once resolve to one arrangement.
+   */
+  setOrder: (workshopId: string, route: string, input: { scope_id?: string; ids: string[] }) =>
+    apiPut<{ ordered: number }>(`/workshops/${workshopId}/${route}/order`, input),
 };
 
 // ---- AI Strategy Assistant (Phase 3) ----

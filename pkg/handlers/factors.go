@@ -127,7 +127,11 @@ func ListFactors(w http.ResponseWriter, r *http.Request) {
 			failDB(w, err)
 			return
 		}
-		f.CreatedAt = createdAt.Format(time.RFC3339)
+		// Same tie as the object handler — see the note there. The capture
+		// board's "oldest note at the top" rule was silently violated for any
+		// two notes created in the same second, which is what happens when a
+		// facilitator pastes several or accepts a batch of AI suggestions.
+		f.CreatedAt = createdAt.Format(time.RFC3339Nano)
 		if reviewedAt != nil {
 			s := reviewedAt.Format(time.RFC3339)
 			f.ReviewedAt = &s

@@ -8,6 +8,7 @@ import { PrioritizationGrid } from "@/components/methodology/PrioritizationGrid"
 import { ReviewBoard } from "@/components/methodology/ReviewBoard";
 import { EvidenceBoard } from "@/components/methodology/EvidenceBoard";
 import { RelationshipMatrix } from "@/components/methodology/RelationshipMatrix";
+import { TowsMatrix } from "@/components/methodology/TowsMatrix";
 import { AiActionPanel } from "@/components/methodology/AiActionPanel";
 import { StageAssistant } from "@/components/methodology/StageAssistant";
 import { ReportBuilder } from "@/components/methodology/ReportBuilder";
@@ -221,7 +222,19 @@ function StagePage() {
           {...guidanceFor(stage)}
           assistant={<StageAssistant workshop={workshop} stage={stage} />}
         >
-          <RelationshipMatrix workshop={workshop} stage={stage} />
+          {/* THE LAYOUT IS CONFIG, the same way the capture board's wall is.
+              `"layout": "axis"` draws the grid with the categories on its
+              edges — strengths and weaknesses across the top, opportunities
+              and threats down the side for SWOT-TOWS — and the quadrants in
+              the middle. Business Model Canvas and Transformation Planning
+              have relate stages, declare nothing, and keep the flat grid.
+              TowsMatrix falls back to it itself when a methodology's
+              relationship types do not form a complete cross-product. */}
+          {stage.config["layout"] === "axis" ? (
+            <TowsMatrix workshop={workshop} stage={stage} />
+          ) : (
+            <RelationshipMatrix workshop={workshop} stage={stage} />
+          )}
         </StageShell>
       );
 

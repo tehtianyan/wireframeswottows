@@ -1,5 +1,5 @@
 // Package objects is the registry of reviewable object kinds — synthesis,
-// factor_relationship, insight, recommendation.
+// factor_relationship, initiative, insight, recommendation.
 //
 // Phase 1 showed that a factor's list/create/edit/delete/review handlers are
 // almost entirely shape-independent: what varies is the table, a handful of
@@ -131,6 +131,43 @@ func (p *Pairing) TargetFor(pairs string) PairTarget {
 	return p.Targets[p.DefaultTarget]
 }
 
+// ParentRef is CONTAINMENT, and it is deliberately not an EvidenceLink.
+//
+// The distinction is load-bearing. Evidence is citation: many-to-many, "this
+// insight is supported by those themes", and what the traceability chain and
+// the report's evidence_chain walk. A parent is structure: one-to-many, "this
+// action is part of that initiative", held in a column on the child.
+//
+// Modelling containment as a link table would have been cheaper — the generic
+// machinery already handles those — and wrong in a way that only shows up
+// later: a link table cannot say "exactly one", so an action could be filed
+// under two initiatives and the matrix would draw it twice, which is the bug
+// a factor cited by two themes already has on the capture board.
+type ParentRef struct {
+	// Column on THIS kind's table.
+	Column string `json:"column"`
+	// Registry key of the containing kind.
+	Kind string `json:"kind"`
+	// The parent's table, for the belongs-to-this-workshop check.
+	Table string `json:"-"`
+}
+
+// HostedRule is "a stage of this type, which declares this config key".
+//
+// THE CONFIG KEY IS THE POINT, not decoration. Two other methodologies have
+// relate stages — Business Model Canvas and Transformation Planning — and
+// neither asked for actions inside their cells. A bare "hosted by a relate
+// stage" would have silently given both of them a kind they never declared,
+// which is the genericity leak this engine's test suite exists to find. With
+// `RequiresConfigKey`, hosting is something a methodology OPTS INTO in the
+// same jsonb that drives the rest of the screen.
+type HostedRule struct {
+	StageType string `json:"stage_type"`
+	// A key the hosting stage's config must declare. Empty means any stage of
+	// that type will do.
+	RequiresConfigKey string `json:"requires_config_key,omitempty"`
+}
+
 type Kind struct {
 	Key   string `json:"key"`
 	Table string `json:"-"`
@@ -139,7 +176,26 @@ type Kind struct {
 	Label string `json:"label"`
 	// Which stage_type renders this kind. The route dispatches on stage type,
 	// so this is how a stage finds its object kind without naming it.
+	//
+	// EMPTY IS A REAL VALUE: `initiative` is created inside another kind's
+	// stage and no stage produces it. ByStageType must therefore never match
+	// on "" — see the guard there.
 	StageType string `json:"stage_type"`
+	// HostedBy names stages where this kind may be created even though none
+	// of them PRODUCES it. requireStageForKind accepts any of these in
+	// addition to StageType.
+	HostedBy []HostedRule `json:"hosted_by,omitempty"`
+	// TypeCol scopes the kind to a methodology config row, for a kind that is
+	// not a Pairing. `initiative` lives in one relationship type — one TOWS
+	// quadrant — so it carries the same relationship_type_id a relationship
+	// does, without the pair of endpoints.
+	TypeCol string `json:"type_col,omitempty"`
+	// Ordered means the kind carries `board_position`: a hand-set order a
+	// facilitator drags into place. See SetObjectOrder for why that order is
+	// authoritative here and is NOT on the capture board.
+	Ordered bool `json:"ordered"`
+	// Parent is the kind this one is contained by, if any.
+	Parent *ParentRef `json:"parent,omitempty"`
 	// TitleRequired is false for kinds whose title is optional (a relationship
 	// may be identified by its endpoints alone).
 	TitleRequired bool `json:"title_required"`
@@ -251,6 +307,38 @@ var registry = map[string]*Kind{
 			{CitesKind: "factor_relationship", Table: "insight_factor_relationships", SelfCol: "insight_id", OtherCol: "factor_relationship_id", OtherTable: "factor_relationships"},
 		},
 	},
+	// A heading in one TOWS quadrant, under which that quadrant's actions sit
+	// — "INVEST IN PARTNERS", "BUILD OUT NEW FOCUSSED SALES CAMPAIGNS".
+	//
+	// ONE PER QUADRANT. The same name appearing in SO and in WO is two
+	// initiatives, which is what makes "which quadrant produced this
+	// programme" answerable at all.
+	//
+	// It has no stage of its own: it is created inside the relate stage, so
+	// its StageType is empty and HostedBy carries the rule instead. A second
+	// kind claiming StageType "relate" would have been the obvious shortcut
+	// and is a live bug — ByStageType scans a MAP, whose iteration order Go
+	// randomises, so the relate stage would have resolved to a relationship
+	// on some requests and to an initiative on others.
+	"initiative": {
+		Key:            "initiative",
+		HasDescription: true,
+		Table:          "initiatives",
+		Route:          "initiatives",
+		Label:          "Initiative",
+		StageType:      "",
+		HostedBy:       []HostedRule{{StageType: "relate", RequiresConfigKey: "actions"}},
+		TypeCol:        "relationship_type_id",
+		Ordered:        true,
+		TitleRequired:  true,
+		// `initiatives.description` is nullable, like `syntheses.description`.
+		// The heading IS the claim; the cell collects a name in one keystroke
+		// and must not be refused for want of a paragraph.
+		DescriptionRequired: false,
+		DescriptionLabel:    "What this initiative covers",
+		Fields:              []Field{},
+		Evidence:            []EvidenceLink{},
+	},
 	"recommendation": {
 		Key:              "recommendation",
 		HasDescription:   true,
@@ -258,6 +346,14 @@ var registry = map[string]*Kind{
 		Route:            "recommendations",
 		Label:            "Recommendation",
 		StageType:     "recommend",
+		// Created from the matrix cell as well as from the Recommendations
+		// stage. The relate rule requires the stage to DECLARE `actions`, so
+		// Business Model Canvas and Transformation Planning — both of which
+		// have relate stages and neither of which asked for this — are
+		// untouched.
+		HostedBy:      []HostedRule{{StageType: "relate", RequiresConfigKey: "actions"}},
+		Ordered:       true,
+		Parent:        &ParentRef{Column: "initiative_id", Kind: "initiative", Table: "initiatives"},
 		TitleRequired: true,
 		// `recommendations.description` is `not null`.
 		DescriptionRequired: true,
@@ -295,8 +391,20 @@ func ByRoute(route string) (*Kind, error) {
 	return nil, fmt.Errorf("unknown object route %q", route)
 }
 
-// ByStageType finds the kind a stage of this type produces.
+// ByStageType finds the kind a stage of this type PRODUCES.
+//
+// Produces, not hosts: a relate stage produces relationships and hosts
+// initiatives and actions, and the three callers (AI context, the dashboard
+// and derived stage status) all want the first. HostedBy is deliberately not
+// consulted here.
+//
+// The empty stage type matches nothing. `initiative` declares StageType "",
+// and without this guard a lookup for a stage type no kind produces would
+// return it — from a map, so intermittently.
 func ByStageType(stageType string) (*Kind, error) {
+	if stageType == "" {
+		return nil, fmt.Errorf("no object kind for an empty stage type")
+	}
 	for _, k := range registry {
 		if k.StageType == stageType {
 			return k, nil
@@ -305,12 +413,36 @@ func ByStageType(stageType string) (*Kind, error) {
 	return nil, fmt.Errorf("no object kind for stage type %q", stageType)
 }
 
+// StageRules lists every way this kind may reach a stage: the type that
+// produces it (with no config condition), plus each hosting rule.
+func (k *Kind) StageRules() []HostedRule {
+	out := []HostedRule{}
+	if k.StageType != "" {
+		out = append(out, HostedRule{StageType: k.StageType})
+	}
+	return append(out, k.HostedBy...)
+}
+
+// StageTypeNames is the human list for a refusal message.
+func (k *Kind) StageTypeNames() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, rule := range k.StageRules() {
+		if seen[rule.StageType] {
+			continue
+		}
+		seen[rule.StageType] = true
+		out = append(out, rule.StageType)
+	}
+	return out
+}
+
 // All returns every kind, for the /object-kinds catalogue the UI renders
 // its forms from.
 func All() []*Kind {
 	out := make([]*Kind, 0, len(registry))
 	// Stable order so the catalogue response doesn't churn between calls.
-	for _, key := range []string{"synthesis", "factor_relationship", "insight", "recommendation"} {
+	for _, key := range []string{"synthesis", "factor_relationship", "initiative", "insight", "recommendation"} {
 		if k, ok := registry[key]; ok {
 			out = append(out, k)
 		}

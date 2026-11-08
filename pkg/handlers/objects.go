@@ -55,6 +55,19 @@ type Object struct {
 	SourceID           *string `json:"source_id,omitempty"`
 	TargetID           *string `json:"target_id,omitempty"`
 	RelationshipTypeID *string `json:"relationship_type_id,omitempty"`
+	// Set only for a kind with a TypeCol of its own — an initiative belongs
+	// to one TOWS quadrant. A paired kind reports the same id through
+	// RelationshipTypeID above; both populate that one field, so a client
+	// asking "which quadrant is this in?" gets one answer for both kinds.
+
+	// ParentID is the containing object, for a kind with a ParentRef — the
+	// initiative an action sits under. Null is legal and ordinary: the seven
+	// other methodologies group nothing.
+	ParentID *string `json:"parent_id,omitempty"`
+	// BoardPosition is the facilitator's hand-set rank, null until they drag.
+	// Sent to every client rather than sorted server-side, so the report and
+	// the matrix order identically without a second ORDER BY to keep in step.
+	BoardPosition *int `json:"board_position,omitempty"`
 	// Which kind the endpoints are — "factor" or "synthesis".
 	//
 	// REPORTED PER ROW, NOT PER STAGE, and that is the point. SWOT-TOWS pairs
@@ -81,6 +94,27 @@ func pairingColumns(kind *objects.Kind) []string {
 		cols = append(cols, t.SourceCol, t.TargetCol)
 	}
 	return append(cols, kind.Pairing.TypeCol)
+}
+
+// structuralColumns returns the columns that place an object in the structure
+// — the config row it belongs to, its container, and its hand-set rank.
+//
+// Separate from pairingColumns because a kind may have any combination: an
+// initiative has a type column and a rank but no pair and no parent; an
+// action has a parent and a rank; a relationship has a pair. The order here
+// is the order scanObject reads them in, and the two must not drift.
+func structuralColumns(kind *objects.Kind) []string {
+	cols := []string{}
+	if kind.TypeCol != "" {
+		cols = append(cols, kind.TypeCol)
+	}
+	if kind.Parent != nil {
+		cols = append(cols, kind.Parent.Column)
+	}
+	if kind.Ordered {
+		cols = append(cols, "board_position")
+	}
+	return cols
 }
 
 // ListObjectKinds — GET /object-kinds. The catalogue the UI builds its forms
@@ -139,6 +173,7 @@ func ListObjects(w http.ResponseWriter, r *http.Request) {
 
 	cols := append(sharedColumns(kind), kind.FieldNames()...)
 	cols = append(cols, pairingColumns(kind)...)
+	cols = append(cols, structuralColumns(kind)...)
 	query := fmt.Sprintf(`select %s from public.%s where workshop_id = $1`,
 		strings.Join(cols, ", "), kind.Table)
 	args := []interface{}{workshopID}
@@ -203,6 +238,16 @@ func scanObject(rows pgx.Rows, kind *objects.Kind) (*Object, error) {
 		}
 		dest = append(dest, &o.RelationshipTypeID)
 	}
+	// structuralColumns' order, exactly.
+	if kind.TypeCol != "" {
+		dest = append(dest, &o.RelationshipTypeID)
+	}
+	if kind.Parent != nil {
+		dest = append(dest, &o.ParentID)
+	}
+	if kind.Ordered {
+		dest = append(dest, &o.BoardPosition)
+	}
 	if err := rows.Scan(dest...); err != nil {
 		return nil, err
 	}
@@ -216,7 +261,19 @@ func scanObject(rows pgx.Rows, kind *objects.Kind) (*Object, error) {
 	}
 
 	o.Kind = kind.Key
-	o.CreatedAt = createdAt.Format(time.RFC3339)
+	// SECOND PRECISION TIES, AND A TIE INVERTS THE ORDER.
+	//
+	// `time.RFC3339` prints no fraction, so two rows created in the same
+	// second come back with identical strings. Every client that sorts
+	// oldest-first then falls through to a stable sort, which preserves the
+	// API's own `created_at desc` — and the two appear NEWEST first, which is
+	// exactly backwards. Found by looking at a screenshot: two initiatives
+	// typed seconds apart rendered in reverse.
+	//
+	// RFC3339Nano keeps the same shape and adds the fraction Postgres already
+	// stores. Clients parse it with Date() or compare it lexically; both are
+	// unaffected, because the fraction sorts correctly as text.
+	o.CreatedAt = createdAt.Format(time.RFC3339Nano)
 	if reviewedAt != nil {
 		s := reviewedAt.Format(time.RFC3339)
 		o.ReviewedAt = &s
@@ -274,6 +331,10 @@ type writeObjectBody struct {
 	SourceID            *string `json:"source_id"`
 	TargetID            *string `json:"target_id"`
 	RelationshipTypeKey *string `json:"relationship_type_key"`
+	// The containing object, for a kind with a ParentRef. A pointer so that
+	// "not supplied" stays distinct from "cleared" on a PATCH — the same
+	// reason brandingBody uses pointers and reviewAIBody.Index became one.
+	ParentID *string `json:"parent_id"`
 }
 
 // CreateObject — POST /workshops/{id}/{kind}
@@ -327,23 +388,120 @@ func CreateObject(w http.ResponseWriter, r *http.Request) {
 func requireStageForKind(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
 	workshopID string) (string, error) {
 
-	var exists bool
-	err := pool.QueryRow(ctx, `
-		select exists (
-			select 1
-			from public.methodology_stages s
-			join public.workshops w on w.methodology_id = s.methodology_id
-			where w.id = $1 and s.stage_type = $2
-		)`, workshopID, kind.StageType).Scan(&exists)
-	if err != nil {
-		return "", err
+	// Every way the kind can reach a stage: the type that produces it, plus
+	// each hosting rule. An initiative has no stage of its own and is created
+	// inside a relate stage, so a single-value check would refuse every one.
+	//
+	// A HOSTING RULE MAY REQUIRE A CONFIG KEY, and that is what keeps this
+	// from leaking: "a relate stage" would have handed initiatives and
+	// in-cell actions to Business Model Canvas and Transformation Planning,
+	// neither of which asked for them. "A relate stage that DECLARES actions"
+	// is something a methodology opts into.
+	rules := kind.StageRules()
+	if len(rules) == 0 {
+		return fmt.Sprintf("A %s cannot be created in any stage.",
+			strings.ToLower(kind.Label)), nil
 	}
-	if !exists {
+
+	for _, rule := range rules {
+		var exists bool
+		// The config condition is expressed in SQL rather than by loading the
+		// stage and checking in Go, so a methodology with ten stages costs
+		// one round trip either way and the rule cannot be half-applied.
+		q := `
+			select exists (
+				select 1
+				from public.methodology_stages s
+				join public.workshops w on w.methodology_id = s.methodology_id
+				where w.id = $1 and s.stage_type = $2
+				  and ($3 = '' or s.config ? $3)
+			)`
+		if err := pool.QueryRow(ctx, q, workshopID, rule.StageType,
+			rule.RequiresConfigKey).Scan(&exists); err != nil {
+			return "", err
+		}
+		if exists {
+			return "", nil
+		}
+	}
+
+	// SAY THE TRUE THING, which is not always "there is no such stage".
+	//
+	// Business Model Canvas HAS a relate stage; what it does not have is a
+	// relate stage that declares initiatives. The first version of this
+	// message told it that it had no relate stage at all — false, and the
+	// kind of confident wrong diagnosis that sends somebody to fix the thing
+	// that was never broken. Same failure as blaming missing SMTP for what
+	// was really a rate limit.
+	//
+	// So: name the kind's own stage when it has one (a methodology with no
+	// recommend stage is not doing recommendations, and mentioning the
+	// hosting route would only invite the reader to wonder which they were
+	// supposed to have). For a kind that NO stage produces, the honest
+	// statement is that the methodology does not use it.
+	plural := strings.ToLower(kind.Label) + "s"
+	if kind.StageType == "" {
 		return fmt.Sprintf(
-			"This workshop's methodology has no %s stage, so it cannot hold a %s.",
-			kind.StageType, strings.ToLower(kind.Label)), nil
+			"This workshop's methodology does not use %s — no stage declares them.",
+			plural), nil
 	}
-	return "", nil
+	return fmt.Sprintf(
+		"This workshop's methodology has no %s stage, so it cannot hold %s.",
+		kind.StageType, plural), nil
+}
+
+// resolveParent checks that a declared parent exists IN THIS WORKSHOP.
+//
+// Scoped by workshop_id in the query, not filtered afterwards: a parent id
+// from another workshop must be a validation failure and never a row that
+// quietly links two workshops' content together. Same rule as expandEvidence
+// and the AI's object context.
+func resolveParent(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
+	workshopID string, parentID *string) (*string, string, error) {
+
+	if kind.Parent == nil || parentID == nil || strings.TrimSpace(*parentID) == "" {
+		return nil, "", nil
+	}
+	id := strings.TrimSpace(*parentID)
+	var ok bool
+	err := pool.QueryRow(ctx, fmt.Sprintf(
+		`select exists (select 1 from public.%s where id = $1 and workshop_id = $2)`,
+		kind.Parent.Table), id, workshopID).Scan(&ok)
+	if err != nil {
+		return nil, "", err
+	}
+	if !ok {
+		return nil, fmt.Sprintf("That %s is not part of this workshop.",
+			strings.ToLower(kind.Parent.Kind)), nil
+	}
+	return &id, "", nil
+}
+
+// resolveTypeCol turns a relationship-type KEY into its id for a kind scoped
+// to one config row (an initiative lives in one TOWS quadrant).
+//
+// Scoped through the workshop's own methodology, so a key belonging to a
+// different methodology resolves to nothing rather than to another
+// methodology's quadrant.
+func resolveTypeCol(ctx context.Context, pool *pgxpool.Pool, workshopID string,
+	typeKey *string) (string, string, error) {
+
+	if typeKey == nil || strings.TrimSpace(*typeKey) == "" {
+		return "", "A relationship type is required.", nil
+	}
+	var id string
+	err := pool.QueryRow(ctx, `
+		select t.id
+		from public.methodology_relationship_types t
+		join public.workshops w on w.methodology_id = t.methodology_id
+		where w.id = $1 and t.key = $2`, workshopID, strings.TrimSpace(*typeKey)).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "Unknown relationship type for this workshop's methodology.", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return id, "", nil
 }
 
 // insertObject is the single path by which any analysis object is created.
@@ -436,6 +594,40 @@ func insertObject(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
 		args = append(args, srcID, tgtID, typeID)
 	}
 
+	// A kind scoped to a config row rather than to a pair — an initiative
+	// belongs to one quadrant. NOT NULL in the schema, so a missing key is
+	// refused here with a sentence instead of reaching Postgres.
+	if kind.TypeCol != "" {
+		typeID, msg, err := resolveTypeCol(ctx, pool, workshopID, body.RelationshipTypeKey)
+		if err != nil {
+			return "", "", err
+		}
+		if msg != "" {
+			return "", msg, nil
+		}
+		cols = append(cols, kind.TypeCol)
+		args = append(args, typeID)
+	}
+
+	// The container, when one was named. Deliberately NOT required: the
+	// column is nullable, because seven methodologies group nothing and the
+	// Recommendations stage creates actions with no initiative at all.
+	// Inventing a requirement the schema does not have is what made stacking
+	// two notes impossible for a week — see Kind.DescriptionRequired.
+	if kind.Parent != nil {
+		parentID, msg, err := resolveParent(ctx, pool, kind, workshopID, body.ParentID)
+		if err != nil {
+			return "", "", err
+		}
+		if msg != "" {
+			return "", msg, nil
+		}
+		if parentID != nil {
+			cols = append(cols, kind.Parent.Column)
+			args = append(args, *parentID)
+		}
+	}
+
 	placeholders := make([]string, len(args))
 	for i := range args {
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
@@ -511,6 +703,26 @@ func UpdateObject(w http.ResponseWriter, r *http.Request) {
 	for _, f := range kind.Fields {
 		if v, present := fieldVals[f.Name]; present {
 			add(f.Name, v)
+		}
+	}
+
+	// Moving an action from one initiative to another — dragging a card
+	// between headings in the same quadrant. Only when the key was SENT, so a
+	// PATCH that changes the title does not silently unparent the action.
+	if body.ParentID != nil && kind.Parent != nil {
+		if strings.TrimSpace(*body.ParentID) == "" {
+			add(kind.Parent.Column, nil)
+		} else {
+			parentID, msg, err := resolveParent(ctx, pool, kind, row.workshopID, body.ParentID)
+			if err != nil {
+				failDB(w, err)
+				return
+			}
+			if msg != "" {
+				response.Fail(w, response.CodeValidationError, msg)
+				return
+			}
+			add(kind.Parent.Column, parentID)
 		}
 	}
 
@@ -656,6 +868,138 @@ func ReviewObject(w http.ResponseWriter, r *http.Request) {
 // contribute factors, but shaping them into themes and insights is the
 // facilitator's and analyst's job (App Spec §3.17).
 var contributorRoles = []string{"facilitator", "analyst"}
+
+type setObjectOrderBody struct {
+	// The initiative whose actions these are, or the quadrant whose
+	// initiatives these are. Optional: a kind with neither a parent nor a
+	// type column is ordered across the whole workshop.
+	ScopeID *string  `json:"scope_id"`
+	IDs     []string `json:"ids"`
+}
+
+// SetObjectOrder — PUT /workshops/{id}/{kind}/order
+//
+// The facilitator's running order: dragging actions into priority sequence in
+// front of the room, or dragging the initiative headings within a quadrant.
+//
+// FACILITATOR ONLY, and a real boundary rather than an affordance. The matrix
+// is what the whole room is looking at, and a participant silently resequencing
+// it is an edit to the room, not a contribution.
+//
+// THIS ORDER IS AUTHORITATIVE, WHICH IS THE OPPOSITE OF THE CAPTURE BOARD'S
+// RULE, and the difference is deliberate. `factors.board_position` is read by
+// the capture board ONLY — never by the leaderboard or the report — because
+// tidying a wall of notes is not the group's priority decision and must not
+// outrank their votes. Here the user asked for exactly that and gave the
+// reason: the facilitator ranks "even if it disagrees with the aggregated
+// ranking during a live discussion". Ranking actions in front of the room IS
+// the decision, taken by a named person who can be asked why.
+// So both numbers survive: this order, and the 1-5 average on each card. The
+// disagreement is shown rather than resolved, which is the point.
+//
+// THE WHOLE SCOPE IS SENT, NOT ONE MOVE — positions rewritten 0..n-1 in one
+// transaction, so it is idempotent, needs no fractional-index rebalancing,
+// and two facilitators dragging at once resolve to one arrangement instead of
+// interleaving. Same shape as SetFactorOrder.
+func SetObjectOrder(w http.ResponseWriter, r *http.Request) {
+	r2, ok := httpctx.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+	kind, ok := kindFromRoute(w, r2)
+	if !ok {
+		return
+	}
+	if !kind.Ordered {
+		response.Fail(w, response.CodeValidationError,
+			fmt.Sprintf("A %s has no hand-set order.", strings.ToLower(kind.Label)))
+		return
+	}
+	user := httpctx.UserFromContext(r2.Context())
+	workshopID := chi.URLParam(r2, "id")
+	pool := mustPool(r2, w)
+	if pool == nil {
+		return
+	}
+	if _, err := authz.RequireWorkshopRole(r2.Context(), pool, user.ID, workshopID, "facilitator"); err != nil {
+		writeAuthzErr(w, err)
+		return
+	}
+
+	var body setObjectOrderBody
+	if err := json.NewDecoder(r2.Body).Decode(&body); err != nil {
+		response.Fail(w, response.CodeValidationError, "invalid request body")
+		return
+	}
+	if len(body.IDs) == 0 {
+		response.Fail(w, response.CodeValidationError, "ids is required")
+		return
+	}
+	// A duplicated id would make two slots claim one card and silently drop
+	// another out of the order.
+	seen := map[string]bool{}
+	for _, id := range body.IDs {
+		if seen[id] {
+			response.Fail(w, response.CodeValidationError,
+				"the same item appears twice in this order")
+			return
+		}
+		seen[id] = true
+	}
+
+	// Scope the UPDATE itself rather than filtering afterwards, so an id from
+	// another workshop — or from another quadrant — matches no row and the
+	// count check below refuses the whole request instead of reordering the
+	// part it recognised.
+	where := "id = $1 and workshop_id = $2"
+	scopeArgs := []interface{}{}
+	if body.ScopeID != nil && strings.TrimSpace(*body.ScopeID) != "" {
+		col := kind.TypeCol
+		if col == "" && kind.Parent != nil {
+			col = kind.Parent.Column
+		}
+		if col == "" {
+			response.Fail(w, response.CodeValidationError,
+				fmt.Sprintf("A %s is not scoped, so scope_id does not apply.",
+					strings.ToLower(kind.Label)))
+			return
+		}
+		where += fmt.Sprintf(" and %s = $4", col)
+		scopeArgs = append(scopeArgs, strings.TrimSpace(*body.ScopeID))
+	}
+
+	tx, err := pool.Begin(r2.Context())
+	if err != nil {
+		failDB(w, err)
+		return
+	}
+	defer func() { _ = tx.Rollback(r2.Context()) }()
+
+	stmt := fmt.Sprintf(`update public.%s set board_position = $3 where %s`, kind.Table, where)
+	placed := 0
+	for i, id := range body.IDs {
+		args := append([]interface{}{id, workshopID, i}, scopeArgs...)
+		tag, err := tx.Exec(r2.Context(), stmt, args...)
+		if err != nil {
+			failDB(w, err)
+			return
+		}
+		placed += int(tag.RowsAffected())
+	}
+	if placed != len(body.IDs) {
+		response.Fail(w, response.CodeValidationError,
+			"that order names something that is not in this workshop")
+		return
+	}
+	if err := tx.Commit(r2.Context()); err != nil {
+		failDB(w, err)
+		return
+	}
+
+	audit.Record(r2.Context(), pool, user.ID, kind.Key+".reordered", kind.Key, "", "", "",
+		map[string]interface{}{"workshop_id": workshopID, "count": len(body.IDs)})
+	response.OK(w, map[string]interface{}{"ordered": len(body.IDs)})
+}
 
 type objectRow struct {
 	id         string

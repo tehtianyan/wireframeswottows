@@ -28,6 +28,8 @@ const suites = [
   ["ai-scope", "AI assistant — where each action is offered, and what it refuses"],
   ["prioritization", "Prioritization — the group's ranking, and the report"],
   ["participant-flow", "Flow — capture, theme and prioritise one category at a time"],
+  ["tows-matrix", "Strategy matrix — axes from config, initiatives, actions, ranking"],
+  ["visual-matrix", "Strategy matrix — measured in a real browser (needs the dev UI)"],
   ["objects", "Phase 2 — analysis objects and governance"],
   ["reporting", "Phase 4 — reports, versioning, export"],
   ["knowledge", "Phase 5 — knowledge, notifications, admin"],

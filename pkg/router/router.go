@@ -189,8 +189,16 @@ func New() http.Handler {
 			r.Get("/{id}/reports/{reportId}/export.html", handlers.ExportReportHTML)
 
 			// Every other reviewable object kind — syntheses, relationships,
-			// insights, recommendations — shares one generic handler set
-			// dispatched on {kind}. See pkg/objects for the registry.
+			// initiatives, insights, recommendations — shares one generic
+			// handler set dispatched on {kind}. See pkg/objects for the
+			// registry.
+			//
+			// "order" sits where "{objectId}" sits, exactly as it does under
+			// /factors. There is no PUT on /{id}/{kind}/{objectId}, so the
+			// verb separates them anyway, but chi resolves the literal first
+			// and router_test.go holds it to that — the next route added here
+			// may not differ by verb.
+			r.Put("/{id}/{kind}/order", handlers.SetObjectOrder)
 			r.Get("/{id}/{kind}", handlers.ListObjects)
 			r.Post("/{id}/{kind}", handlers.CreateObject)
 			r.Patch("/{id}/{kind}/{objectId}", handlers.UpdateObject)
