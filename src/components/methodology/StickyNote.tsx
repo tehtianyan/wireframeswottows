@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, GripVertical, Loader2, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, GripVertical, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MAX_FACTOR_TITLE, MIN_NOTE_LINES } from "@/lib/limits";
 import { FactorStatePill } from "./FactorCard";
@@ -128,6 +128,9 @@ export function StickyNote({
   canMove,
   score,
   themed,
+  selected,
+  selectable,
+  onToggleSelect,
   isDragging,
   insertBefore,
   insertAfter,
@@ -146,6 +149,19 @@ export function StickyNote({
   score?: NoteScore | null;
   /** True when this note already belongs to a theme. */
   themed?: boolean;
+  /** Picked out for a bulk action. */
+  selected?: boolean;
+  /**
+   * Selection mode: a plain tap selects rather than opening the editor.
+   *
+   * THE TOUCH PATH. A modifier-click is the mouse gesture for "and this one
+   * too", and a tablet has no modifier key — and a tablet passed round a
+   * table is the device this board's drag was rewritten for in the first
+   * place. Absent the mode, the checkbox still appears once anything is
+   * selected, so the way out is always visible.
+   */
+  selectable?: boolean;
+  onToggleSelect?: (() => void) | undefined;
   /** This note is the one in hand — shown as the gap it left behind. */
   isDragging?: boolean;
   /** A drop would insert above / below this note. */
@@ -191,6 +207,9 @@ export function StickyNote({
   }, [factor.title, editing]);
 
   const clampLines = useSquareClamp(bodyRef, textRef, !editing && !expanded);
+
+  /** Is the selection checkbox drawn on this note? The text moves if so. */
+  const showSelect = Boolean(onToggleSelect) && (Boolean(selectable) || Boolean(selected));
 
   // Is there anything hidden? Asked of the rendered box rather than of the
   // character count: whether 180 characters overflow depends on the column
@@ -272,8 +291,14 @@ export function StickyNote({
           // what will close up if it is dropped elsewhere.
           isDragging && "scale-[0.97] opacity-25",
           isStackTarget && "scale-[1.03]",
+          // A SELECTED NOTE IS RINGED, NOT RECOLOURED. The fill is the
+          // category's hue and carries meaning — recolouring it would say
+          // the note had changed category. A ring sits outside the tile and
+          // leaves the square alone.
+          selected && "ring-2 ring-offset-1 ring-offset-background",
         )}
         style={{
+          ...(selected ? { ["--tw-ring-color" as string]: "var(--primary)" } : {}),
           // The note is the category's colour, heavily lightened so text stays
           // legible in both themes; the border carries the full hue.
           background: `color-mix(in srgb, ${tint} 14%, var(--card))`,
@@ -289,6 +314,30 @@ export function StickyNote({
             : {}),
         }}
       >
+        {/* THE CHECKBOX IS THE VISIBLE WAY IN AND OUT.
+            It shows whenever selection mode is on or this note is already
+            picked — never permanently, which would put a control on every
+            tile of a wall whose whole point is that it reads as paper. It is
+            an ordinary button, so the root's pointerdown ignores it and a tap
+            here never starts a drag. */}
+        {showSelect && (
+          <button
+            type="button"
+            onClick={onToggleSelect}
+            aria-pressed={Boolean(selected)}
+            aria-label={selected ? `Deselect ${factor.title}` : `Select ${factor.title}`}
+            title={selected ? "Deselect this note" : "Select this note"}
+            className={cn(
+              "absolute left-1 top-1 z-10 grid size-4 place-items-center rounded-[3px] border transition-colors",
+              selected
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-background/85 text-transparent hover:border-primary",
+            )}
+          >
+            <Check className="size-3" />
+          </button>
+        )}
+
         {editing ? (
           <>
             <textarea
@@ -327,7 +376,22 @@ export function StickyNote({
               ref={bodyRef}
               type="button"
               data-note-body
-              disabled={!editable}
+              // DISABLED ONLY WHEN THERE IS NOTHING IT CAN DO.
+              //
+              // It was `!editable`, which is most of a real board: on
+              // production almost every note is approved and therefore
+              // frozen for EDITING. A disabled button fires no click at all,
+              // so modifier-clicking one of those to select it did nothing —
+              // silently, with the checkbox never appearing to say otherwise.
+              // Found by a browser probe; the source checks all passed,
+              // because the code said the right thing and the button never
+              // got the event.
+              //
+              // Selecting a frozen note is legitimate: it cannot be edited or
+              // recategorised, and it CAN be grouped into a theme, which
+              // changes the theme's evidence rather than the note. `moveTo`
+              // already skips the frozen ones and says how many it left.
+              disabled={!editable && !onToggleSelect}
               onClick={(e) => {
                 // A press that travelled was a drag, and a drag must not also
                 // open the editor on the way past. Measured against where the
@@ -336,6 +400,17 @@ export function StickyNote({
                 const from = pressRef.current;
                 pressRef.current = null;
                 if (from && Math.abs(e.clientX - from.x) + Math.abs(e.clientY - from.y) > 4) {
+                  return;
+                }
+                // SELECTING BEATS EDITING, by modifier or by mode.
+                //
+                // Ctrl/Cmd and Shift both select, because the two mean the
+                // same thing here: there is no "range" on a wall of tiles
+                // whose order the reader is not tracking, so offering Shift
+                // as a range would promise a selection nobody could predict.
+                // Both simply add, which is what people try first.
+                if (onToggleSelect && (selectable || e.metaKey || e.ctrlKey || e.shiftKey)) {
+                  onToggleSelect();
                   return;
                 }
                 if (editable) setEditing(true);
@@ -357,16 +432,28 @@ export function StickyNote({
               <span
                 ref={textRef}
                 className="break-words"
-                style={
-                  expanded || clampLines === null
-                    ? undefined
+                style={{
+                  // THE CHECKBOX SITS ON THE TEXT, SO THE FIRST LINE MOVES
+                  // OUT FROM UNDER IT. The box is absolutely positioned in
+                  // the tile's top-left corner, which on a 120px note is on
+                  // top of the opening words — legible in a screenshot and
+                  // not in a code review, which is where it was found.
+                  //
+                  // `text-indent` and not padding: only the FIRST line is
+                  // obstructed, so indenting the whole block would waste a
+                  // column of a small tile for the sake of one line. It also
+                  // leaves the clamp's measurement alone, which is taken from
+                  // the container rather than from this span.
+                  ...(showSelect ? { textIndent: "1.15rem" } : {}),
+                  ...(expanded || clampLines === null
+                    ? {}
                     : {
                         display: "-webkit-box",
                         WebkitBoxOrient: "vertical",
                         WebkitLineClamp: clampLines,
                         overflow: "hidden",
-                      }
-                }
+                      }),
+                }}
               >
                 {factor.title}
                 {factor.description && (

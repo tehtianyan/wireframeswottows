@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PanelHeading } from "@/components/workshop-ui";
+import { cn } from "@/lib/utils";
 import { RelationshipMatrix } from "./RelationshipMatrix";
 import { CleanupPanel } from "./CleanupPanel";
 import { ThemeRating } from "./ThemeRating";
@@ -531,6 +532,7 @@ export function TowsMatrix({
                 category={c}
                 themes={themesByCategory.get(c.id) ?? []}
                 dragHandlers={pairDrag.dragHandlers}
+                didMove={pairDrag.didMove}
                 dragging={pairDrag.drag?.id}
               />
             ))}
@@ -541,6 +543,7 @@ export function TowsMatrix({
                   category={rowCat}
                   themes={themesByCategory.get(rowCat.id) ?? []}
                   dragHandlers={pairDrag.dragHandlers}
+                  didMove={pairDrag.didMove}
                   dragging={pairDrag.drag?.id}
                 />
                 {grid.cols.map((colCat) => {
@@ -716,17 +719,39 @@ interface ThemeOnAxis {
  * mockup. The whole card is the drag handle, never a rim: the capture board
  * shipped with a ~10px draggable border and it read as "this cannot move".
  */
+/**
+ * How many of a theme's notes the card shows before it offers the rest.
+ * Stated once: the slice, the count in "+N more" and the check that decides
+ * whether to offer it at all must agree, and three literals is three places
+ * for them to stop agreeing.
+ */
+const SUMMARY_NOTES = 4;
+
 function AxisHeaderCell({
   category,
   themes,
   dragHandlers,
+  didMove,
   dragging,
 }: {
   category: FactorCategory;
   themes: ThemeOnAxis[];
   dragHandlers: (payload: ThemeOnAxis) => { onPointerDown: (e: React.PointerEvent<HTMLElement>) => void };
+  /** True once the press travelled far enough to be a drag — see the toggle. */
+  didMove: () => boolean;
   dragging: string | undefined;
 }) {
+  // Which themes are showing all their notes. Per THEME rather than one flag
+  // for the cell: opening one to read it should not unfold the three below it
+  // and push them off the bottom of a panel that scrolls.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
   return (
     <div className="flex max-h-[26rem] flex-col bg-card">
       <div
@@ -760,14 +785,46 @@ function AxisHeaderCell({
             <p className="text-xs font-medium leading-snug">{t.title}</p>
             {t.notes.length > 0 && (
               <ul className="mt-1 space-y-0.5">
-                {t.notes.slice(0, 4).map((n, i) => (
-                  <li key={i} className="truncate text-[10px] text-muted-foreground">
+                {/* OPEN, EVERY NOTE IS READABLE IN FULL. `truncate` is right
+                    for the four-line summary — it keeps the card the size of
+                    a card — and wrong once somebody has asked to see the
+                    rest: expanding to a column of clipped lines answers
+                    "there are seven" and not "what do they say", which is the
+                    question that made them click. */}
+                {(expanded.has(t.id) ? t.notes : t.notes.slice(0, SUMMARY_NOTES)).map((n, i) => (
+                  <li
+                    key={i}
+                    className={cn(
+                      "text-[10px] text-muted-foreground",
+                      expanded.has(t.id) ? "leading-snug" : "truncate",
+                    )}
+                  >
                     · {n}
                   </li>
                 ))}
-                {t.notes.length > 4 && (
-                  <li className="font-mono text-[10px] text-muted-foreground">
-                    +{t.notes.length - 4} more
+                {t.notes.length > SUMMARY_NOTES && (
+                  <li>
+                    {/* A BUTTON INSIDE A DRAG SOURCE, so it has to know a
+                        drag from a click. The whole card carries
+                        `onPointerDown` to start a drag, and the click fires
+                        on release whether or not the pointer travelled — so
+                        without `didMove()` the list would unfold every time
+                        somebody dropped a theme into a quadrant, which is the
+                        gesture this cell exists for. Same rule as the capture
+                        board's click-to-edit. */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (didMove()) return;
+                        toggle(t.id);
+                      }}
+                      aria-expanded={expanded.has(t.id)}
+                      className="font-mono text-[10px] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+                    >
+                      {expanded.has(t.id)
+                        ? "show fewer"
+                        : `+${t.notes.length - SUMMARY_NOTES} more`}
+                    </button>
                   </li>
                 )}
               </ul>

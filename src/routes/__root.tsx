@@ -19,7 +19,7 @@ import { UiPrefsProvider } from "@/lib/ui-prefs";
 import { BUILD_BRAND } from "@/lib/brand";
 
 // Read once at module load, like the rest of BUILD_BRAND: an env-driven
-// favicon path, or null to keep the tracked public/favicon.ico.
+// favicon path, or null to keep the tracked public/favicon.svg.
 const BUILD_BRAND_FAVICON =
   (import.meta.env as Record<string, string | undefined>)["VITE_BRAND_FAVICON"]?.trim() || null;
 
@@ -137,11 +137,24 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       // VITE_BRAND_FAVICON lets a deployment swap the tab icon without
       // replacing a tracked binary in public/. Note that public/ is NOT
-      // fingerprinted by Vite, so overwriting favicon.ico in place can be
-      // served stale from a CDN — a distinct filename is the reliable swap.
+      // fingerprinted by Vite, so overwriting a file in place can be served
+      // stale from a CDN — a distinct filename is the reliable swap.
+      //
+      // THE DEFAULT IS THE PRODUCT'S OWN MARK, AND IT USED TO BE THE
+      // SCAFFOLD BUILDER'S. `public/favicon.ico` shipped with Lovable's logo
+      // and was never replaced, so every tab, bookmark and history entry for
+      // this product — on the client-facing deployment too — carried somebody
+      // else's brand. Reported in UAT. The .ico is deleted rather than
+      // overwritten, so there is no path left that still serves it.
+      //
+      // SVG, which every browser in this product's support range reads, and
+      // which is the only format that can follow the tab strip's light/dark
+      // ground without shipping two files. A browser old enough to refuse it
+      // shows its generic page icon: no mark is the correct answer, and it is
+      // strictly better than the wrong company's.
       BUILD_BRAND_FAVICON
         ? { rel: "icon", href: BUILD_BRAND_FAVICON }
-        : { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+        : { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
     ],
   }),
   shellComponent: RootShell,

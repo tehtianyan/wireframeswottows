@@ -401,4 +401,50 @@ runSuite("shell-ui", async ({ results: r }) => {
     !/Space\+Grotesk/.test(root) && !/DM\+Sans/.test(root),
     "and the faces nothing uses any more are not still being fetched",
   );
+
+  // ================================================================
+  r.section("The tab icon is this product's (UAT 2026-11-10)");
+  // ================================================================
+  //
+  // `public/favicon.ico` shipped with the scaffold and was still the
+  // BUILDER'S logo, so every tab, bookmark and history entry for this
+  // product — on the client-facing deployment too — carried another
+  // company's mark. Nothing caught it because nothing had ever been asked
+  // to look at the thing in the tab.
+  r.ok(
+    !fs.existsSync(path.join(ROOT, "public", "favicon.ico")),
+    "the scaffold's favicon.ico is gone, not merely unreferenced",
+  );
+  r.ok(
+    fs.existsSync(path.join(ROOT, "public", "favicon.svg")),
+    "...and this product ships one of its own",
+  );
+  r.ok(
+    /href: "\/favicon\.svg"/.test(root) && !/favicon\.ico"/.test(root),
+    "...which is what the document head points at",
+  );
+  const favicon = read("public", "favicon.svg");
+  // THE MARKUP, NOT THE COMMENT. The file explains at length which logo it
+  // replaced and why, so its raw text names the scaffold builder on purpose —
+  // the same reason TowsMatrix.tsx is read with its comments stripped. What
+  // must not carry that name is the thing that renders.
+  const drawn = favicon.replace(/<!--[\s\S]*?-->/g, "");
+  r.ok(
+    !/lovable/i.test(drawn),
+    "nothing the icon DRAWS comes from the scaffold builder",
+  );
+  // A tab strip follows the OS theme, so a single fill works on one ground
+  // and disappears on the other.
+  r.ok(
+    /prefers-color-scheme: dark/.test(favicon),
+    "...and it is drawn for both a light and a dark tab strip",
+  );
+  // The whole repo, not just the head: a stray reference would 404 silently
+  // and the browser would fall back to no icon with nobody the wiser.
+  for (const file of ["src/routes/__root.tsx", "index.html", "vite.config.ts"]) {
+    const full = path.join(ROOT, file);
+    if (!fs.existsSync(full)) continue;
+    const body = codeOnly(fs.readFileSync(full, "utf8"));
+    r.ok(!/favicon\.ico/.test(body), `${file} no longer asks for favicon.ico`);
+  }
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CheckSquare,
   Columns3,
   Grid2x2,
   Layers,
@@ -89,6 +90,21 @@ export function compareForBoard(a: Factor, b: Factor): number {
 }
 
 type ViewMode = "grid" | "columns";
+
+/**
+ * One change to a theme's membership.
+ *
+ * A LIST OF THESE IS APPLIED AS ONE OPERATION — see `editThemes`. Regrouping
+ * is always at least two changes (join the new theme, leave the old), and
+ * describing them as data rather than as two calls is what lets the cache be
+ * written once instead of rendering the gap between them.
+ *
+ * `delete` exists because emptying a theme now removes it rather than being
+ * refused; see `detachPlan`.
+ */
+type ThemeEdit =
+  | { kind: "set"; themeId: string; ids: string[] }
+  | { kind: "delete"; themeId: string };
 const VIEW_KEY = "swot.captureBoard.view";
 
 /**
@@ -116,6 +132,10 @@ const VIEW_KEY = "swot.captureBoard.view";
  * overflowing sideways.
  */
 const NOTE_TRACK = "repeat(auto-fill, minmax(min(7.5rem, 100%), 7.5rem))";
+
+/** A stable empty set, so "no notes are being carried" is not a new object
+ *  on every render — which would re-render every theme stack on every tick. */
+const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
 
 export function CaptureBoard({
   workshopId,
@@ -149,15 +169,31 @@ export function CaptureBoard({
     ids: string[];
     categoryKey: string;
     /**
-     * The note that is LEAVING a theme to form this one, when the drag started
-     * inside a stack. Carried through the naming prompt because the detach
-     * must not happen until the new theme really exists — cancelling the
-     * prompt has to leave the wall exactly as it was. Named explicitly rather
-     * than taken from `ids[1]`: which end of that pair was dragged is not
-     * something the prompt should have to know.
+     * The themes the notes are LEAVING to form this one, when the drag started
+     * inside one or more stacks. Carried through the naming prompt because the
+     * detach must not happen until the new theme really exists — cancelling
+     * the prompt has to leave the wall exactly as it was. A LIST, since a
+     * selection can be drawn from several themes at once.
      */
-    detach?: { themeId: string; factorId: string };
+    detach?: ThemeEdit[];
   } | null>(null);
+
+  /**
+   * The notes picked out for a bulk action.
+   *
+   * IT SURVIVES A VIEW CHANGE AND A REFETCH but not a category change: a
+   * selection is about what is in front of you, and ids are filtered against
+   * the live factor list wherever it is read, so a note somebody else deleted
+   * cannot linger in it as a ghost that a later drag would try to move.
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /**
+   * Selection mode, for touch. A modifier-click is the mouse gesture and a
+   * tablet has no modifier key — and a tablet passed round a table is the
+   * device this board was rewritten for. In this mode a tap selects instead
+   * of opening the editor.
+   */
+  const [selecting, setSelecting] = useState(false);
 
   // Remembered per browser only — a layout preference is one viewer's reading
   // comfort, not shared workshop state, and must survive a storage failure
@@ -409,14 +445,85 @@ export function CaptureBoard({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const retheme = useMutation({
-    mutationFn: (v: { themeId: string; ids: string[] }) =>
-      objectsApi.update(workshopId, themeRoute!, v.themeId, { evidence: { factor: v.ids } }),
-    onSuccess: () => {
+  /**
+   * THEME MEMBERSHIP CHANGES AS ONE OPERATION, APPLIED TO THE CACHE FIRST.
+   *
+   * Two UAT reports met here and have one cause between them.
+   *
+   * "The latency should be instantaneous": moving a note between panels and
+   * reordering within one were already optimistic, and dropping a note onto a
+   * THEME was not — it waited for a PATCH and then for a refetch before the
+   * note appeared in the stack. On a live board that is a visible beat
+   * between letting go and anything happening, which reads as the drag being
+   * slow when it is the network being honest.
+   *
+   * "Sometimes the theme shows only the new note, with the existing ones
+   * outside it, then organizes itself back": regrouping is TWO server calls —
+   * add to the new theme, remove from the old — each of which invalidated and
+   * refetched. The board therefore rendered whatever the server happened to
+   * know between them. Making each call optimistic SEPARATELY would not fix
+   * it; it would just move the intermediate frame earlier. So the edits are
+   * applied to the cache in ONE write, and there is no frame between them to
+   * render.
+   *
+   * The ids are computed in `onMutate` FROM THE CACHE, never from a value the
+   * caller closed over, so a second drag that starts before the first has
+   * settled builds on what is actually there.
+   *
+   * This is not what the authorization model forbids. That rule is about the
+   * Realtime socket: a row arriving over it must never be rendered without
+   * passing back through Go. This is the client's own mutation, and the
+   * refetch in `onSettled` is still the arbiter.
+   */
+  const editThemes = useMutation({
+    mutationFn: async (edits: ThemeEdit[]) => {
+      // IN ORDER, AND THE ORDER IS THE RULE: a note joins its new theme
+      // BEFORE it leaves the old one. Reversed, a failed second call would
+      // leave it in no theme at all, which reads as the drag having destroyed
+      // the grouping. Callers build the list in that order; this just honours
+      // it rather than firing them off together.
+      for (const e of edits) {
+        if (e.kind === "delete") {
+          await objectsApi.remove(workshopId, themeRoute!, e.themeId);
+        } else {
+          await objectsApi.update(workshopId, themeRoute!, e.themeId, {
+            evidence: { factor: e.ids },
+          });
+        }
+      }
+    },
+    onMutate: async (edits) => {
+      const key = ["objects", workshopId, themeRoute];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<WorkObject[]>(key);
+      const removed = new Set(
+        edits.filter((e) => e.kind === "delete").map((e) => e.themeId),
+      );
+      const set = new Map(
+        edits.filter((e): e is Extract<ThemeEdit, { kind: "set" }> => e.kind === "set")
+          .map((e) => [e.themeId, e.ids]),
+      );
+      queryClient.setQueryData<WorkObject[]>(key, (old) =>
+        (old ?? [])
+          .filter((t) => !removed.has(t.id))
+          .map((t) =>
+            set.has(t.id)
+              ? { ...t, evidence: { ...(t.evidence ?? {}), factor: set.get(t.id)! } }
+              : t,
+          ),
+      );
+      return { previous };
+    },
+    onError: (e: Error, _v, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(["objects", workshopId, themeRoute], ctx.previous);
+      }
+      toast.error(e.message);
+    },
+    onSettled: () => {
       invalidateThemes();
       queryClient.invalidateQueries({ queryKey: ["citable", workshopId] });
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   const factors = factorsQuery.data ?? [];
@@ -576,123 +683,249 @@ export function CaptureBoard({
     [blocksFor],
   );
 
-  function moveTo(factorId: string, categoryKey: string) {
-    const f = factors.find((x) => x.id === factorId);
-    if (!f || f.category_key === categoryKey) return;
-    if (f.state === "approved" || f.state === "rejected") {
-      toast.error(
-        "A reviewed note cannot be moved. Reject it instead, so the decision stays on the record.",
-      );
-      return;
+  /**
+   * Moves notes into a category.
+   *
+   * A REVIEWED NOTE IS SKIPPED, NOT REFUSED FOR THE WHOLE GROUP. One frozen
+   * note in a selection of eight must not cancel the other seven — the same
+   * choice planCleanup makes, and for the same reason: one bad item binning
+   * nine good ones is the worse failure. It says how many it left behind, so
+   * nothing is silently not done.
+   */
+  function moveTo(factorIds: string[], categoryKey: string) {
+    let frozen = 0;
+    let moved = 0;
+    for (const id of factorIds) {
+      const f = factors.find((x) => x.id === id);
+      if (!f || f.category_key === categoryKey) continue;
+      if (f.state === "approved" || f.state === "rejected") {
+        frozen++;
+        continue;
+      }
+      updateFactor.mutate({ id, category_key: categoryKey });
+      moved++;
     }
-    updateFactor.mutate({ id: factorId, category_key: categoryKey });
+    if (frozen > 0) {
+      toast.error(
+        moved > 0
+          ? `${frozen} reviewed ${frozen === 1 ? "note was" : "notes were"} left where they are. Reject a note instead, so the decision stays on the record.`
+          : "A reviewed note cannot be moved. Reject it instead, so the decision stays on the record.",
+      );
+    }
   }
 
-  function reorder(categoryKey: string, factorId: string, relativeTo: string, after: boolean) {
-    const ids = flatOrder(categoryKey).filter((id) => id !== factorId);
+  /** Inserts notes, in board order, before or after another note. */
+  function reorder(categoryKey: string, factorIds: string[], relativeTo: string, after: boolean) {
+    const moving = new Set(factorIds);
+    const ids = flatOrder(categoryKey).filter((id) => !moving.has(id));
     const at = ids.indexOf(relativeTo);
     if (at === -1) return;
-    ids.splice(after ? at + 1 : at, 0, factorId);
+    // The selection keeps its own relative order rather than the order the
+    // notes happened to be clicked in: the wall is what the room is reading.
+    const ordered = flatOrder(categoryKey).filter((id) => moving.has(id));
+    ids.splice(after ? at + 1 : at, 0, ...ordered);
     setOrder.mutate({ categoryKey, ids });
   }
 
-  function sendToEnd(categoryKey: string, factorId: string) {
-    const ids = flatOrder(categoryKey).filter((id) => id !== factorId);
-    ids.push(factorId);
+  function sendToEnd(categoryKey: string, factorIds: string[]) {
+    const moving = new Set(factorIds);
+    const ids = flatOrder(categoryKey).filter((id) => !moving.has(id));
+    ids.push(...flatOrder(categoryKey).filter((id) => moving.has(id)));
     setOrder.mutate({ categoryKey, ids });
   }
 
   /**
-   * The rule that governs taking a note OUT of a theme, wherever the gesture
-   * started: a theme must keep at least one note. An empty theme is a titled
-   * claim with no evidence under it — it would still appear on the Synthesis
-   * stage and in the report, citing nothing. Deleting the theme is the honest
-   * action and it belongs where themes are managed.
+   * May these notes leave this theme?
+   *
+   * EMPTYING A THEME NOW DELETES IT, AND IT USED TO BE REFUSED. The old rule
+   * said a theme must keep at least one note, because an empty theme is a
+   * titled claim citing nothing — true, and the conclusion was wrong. It sent
+   * the facilitator to the Synthesis stage to delete a theme they had just
+   * emptied on this one, which is a different screen, a different mental
+   * model, and a step nobody wants mid-workshop. UAT reported it. The honest
+   * answer to "this group now has nothing in it" is to remove the group, here,
+   * and say so.
+   *
+   * A REVIEWED THEME IS STILL REFUSED, and that is a different rule rather
+   * than a remnant of the old one: approving a theme is a decision about a
+   * named set of notes, so dissolving it as a side effect of dragging one
+   * note would retract somebody's approval without telling them. The message
+   * names that reason instead of the one above.
    */
-  function canDetach(themeId: string, factorId: string): boolean {
-    const rest = (themes.members.get(themeId) ?? []).filter((x) => x !== factorId);
-    if (rest.length === 0) {
+  function detachPlan(themeId: string, factorIds: string[]): ThemeEdit | null {
+    const leaving = new Set(factorIds);
+    const rest = (themes.members.get(themeId) ?? []).filter((x) => !leaving.has(x));
+    if (rest.length > 0) return { kind: "set", themeId, ids: rest };
+
+    const theme = themesQuery.data?.find((t) => t.id === themeId);
+    if (theme && (theme.state === "approved" || theme.state === "rejected")) {
       toast.error(
-        "That is the only note in its theme. Delete the theme on the Synthesis stage instead.",
+        `"${theme.title ?? "That theme"}" has been reviewed, so it cannot be emptied. ` +
+          "Reopen it on the Synthesis stage first.",
       );
-      return false;
+      return null;
     }
-    return true;
+    return { kind: "delete", themeId };
   }
 
-  /** Removes one note from a theme, leaving the rest cited as before. */
-  async function detach(themeId: string, factorId: string): Promise<void> {
-    const rest = (themes.members.get(themeId) ?? []).filter((x) => x !== factorId);
-    if (rest.length === 0) return;
-    await retheme.mutateAsync({ themeId, ids: rest });
+  /** Says what happened when a plan dissolves the theme, which is not obvious. */
+  function announceDetach(plan: ThemeEdit) {
+    if (plan.kind !== "delete") return;
+    const theme = themesQuery.data?.find((t) => t.id === plan.themeId);
+    toast.success(
+      `"${theme?.title ?? "The theme"}" had no notes left, so it was removed. ` +
+        "The notes are back on the wall.",
+    );
   }
+
+  /**
+   * The selection in BOARD order, and only notes that still exist.
+   *
+   * Read through this everywhere rather than iterating the Set: a Set has
+   * insertion order, which is the order things were clicked, and the wall's
+   * order is what the room is looking at. Filtering against the live factors
+   * is what stops a note deleted by somebody else from lingering in the
+   * selection as an id that a later drag would try to move.
+   */
+  const orderedSelection = useMemo(
+    () => factors.filter((f) => selected.has(f.id)).sort(compareForBoard).map((f) => f.id),
+    [factors, selected],
+  );
+
+  /** The categories the selection is drawn from — one is the common case. */
+  const selectionCategories = useMemo(() => {
+    const keys = new Set<string>();
+    for (const f of factors) if (selected.has(f.id)) keys.add(f.category_key);
+    return keys;
+  }, [factors, selected]);
+
+  const toggleSelected = useCallback((factorId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(factorId)) next.add(factorId);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setSelecting(false);
+  }, []);
+
+  /**
+   * The notes a drag is carrying.
+   *
+   * ONE GESTURE MOVES THE WHOLE SELECTION, which is UAT's "drag and drop
+   * multiple notes in bulk". Picking up a note that is NOT in the selection
+   * carries only that note and leaves the selection alone — the alternative,
+   * clearing it, loses work on a mis-click, and acting on it would move notes
+   * the person did not touch.
+   */
+  const carried = useCallback(
+    (factorId: string): string[] =>
+      selected.has(factorId) && selected.size > 1
+        ? orderedSelection.filter((id) => selected.has(id))
+        : [factorId],
+    [selected, orderedSelection],
+  );
+
+  /** The theme each carried note is leaving, as one edit per theme. */
+  const detachPlans = useCallback(
+    (ids: string[], except?: string): ThemeEdit[] | null => {
+      const byTheme = new Map<string, string[]>();
+      for (const id of ids) {
+        const t = themes.byFactor.get(id);
+        if (!t || t.id === except) continue;
+        byTheme.set(t.id, [...(byTheme.get(t.id) ?? []), id]);
+      }
+      const plans: ThemeEdit[] = [];
+      for (const [themeId, leaving] of byTheme) {
+        const plan = detachPlan(themeId, leaving);
+        // REFUSED MEANS REFUSED FOR THE WHOLE DROP, unlike a frozen note in a
+        // category move. A selection half out of its themes is a state the
+        // person cannot see or reason about, and the refusal has already
+        // named which theme and why.
+        if (!plan) return null;
+        plans.push(plan);
+      }
+      return plans;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [themes, themesQuery.data],
+  );
 
   const handleDrop = useCallback(
     (source: { factorId: string; categoryKey: string; themeId?: string }, target: DropTarget | null) => {
       if (!target) return;
+      const ids = carried(source.factorId);
       switch (target.kind) {
-        case "panel":
+        case "panel": {
           if (target.categoryKey === source.categoryKey) {
-            if (facilitator) sendToEnd(source.categoryKey, source.factorId);
-          } else {
-            // A note dragged out of a theme into another category LEAVES the
-            // theme. The alternative is a theme whose notes sit in two
-            // different panels, which renders as the same theme drawn twice,
-            // and which nobody asked for by dropping a note on a panel.
-            if (source.themeId) {
-              if (!canDetach(source.themeId, source.factorId)) return;
-              void detach(source.themeId, source.factorId).then(() =>
-                moveTo(source.factorId, target.categoryKey),
-              );
-              return;
-            }
-            moveTo(source.factorId, target.categoryKey);
+            if (facilitator) sendToEnd(source.categoryKey, ids);
+            return;
           }
+          // Notes dragged out of a theme into another category LEAVE the
+          // theme. The alternative is a theme whose notes sit in two
+          // different panels, which renders as the same theme drawn twice,
+          // and which nobody asked for by dropping on a panel.
+          const plans = detachPlans(ids);
+          if (!plans) return;
+          if (plans.length === 0) {
+            moveTo(ids, target.categoryKey);
+            return;
+          }
+          plans.forEach(announceDetach);
+          void editThemes
+            .mutateAsync(plans)
+            .then(() => moveTo(ids, target.categoryKey))
+            .catch(() => {});
           return;
+        }
         case "before":
         case "after":
-          reorder(
-            target.categoryKey,
-            source.factorId,
-            target.factorId,
-            target.kind === "after",
-          );
+          reorder(target.categoryKey, ids, target.factorId, target.kind === "after");
           return;
-        case "stack":
-          // Regrouping: the note is coming out of one theme into a new one.
-          // Checked BEFORE the prompt opens, so an impossible move is refused
-          // while the gesture is still in mind rather than after naming.
-          if (source.themeId && !canDetach(source.themeId, source.factorId)) return;
+        case "stack": {
+          // Regrouping: the notes are coming out of their themes into a new
+          // one. Checked BEFORE the prompt opens, so an impossible move is
+          // refused while the gesture is still in mind rather than after
+          // somebody has typed a name.
+          const plans = detachPlans(ids);
+          if (!plans) return;
           // The prompt is the point: a theme with no name is a pile, and the
           // naming is where the analytical work happens. App Spec treats a
           // theme as a reviewable object, so it has to arrive with a title.
           setPendingTheme({
-            ids: [target.factorId, source.factorId],
+            ids: [target.factorId, ...ids.filter((id) => id !== target.factorId)],
             categoryKey: target.categoryKey,
-            ...(source.themeId
-              ? { detach: { themeId: source.themeId, factorId: source.factorId } }
-              : {}),
+            ...(plans.length > 0 ? { detach: plans } : {}),
           });
           return;
+        }
         case "theme": {
           const existing = themes.members.get(target.themeId) ?? [];
-          if (existing.includes(source.factorId)) return;
-          const from = source.themeId;
-          if (from && !canDetach(from, source.factorId)) return;
-          // ADD FIRST, THEN REMOVE. If the order were reversed and the second
-          // call failed, the note would belong to no theme at all — it would
-          // look as though the drag had deleted the grouping. This way a
-          // failure leaves it in the theme it started in, which is the state
-          // the person can see and retry from.
-          void retheme
-            .mutateAsync({ themeId: target.themeId, ids: [...existing, source.factorId] })
-            .then(() => (from ? detach(from, source.factorId) : undefined));
+          const joining = ids.filter((id) => !existing.includes(id));
+          if (joining.length === 0) return;
+          const plans = detachPlans(ids, target.themeId);
+          if (!plans) return;
+          plans.forEach(announceDetach);
+          // ADD FIRST, THEN REMOVE, in ONE optimistic write. The order of the
+          // SERVER calls still matters — if a removal ran first and the add
+          // then failed, a note would belong to no theme at all, which reads
+          // as the drag having destroyed the grouping. What is new is that
+          // the SCREEN no longer shows the half-done state between them: that
+          // intermediate frame is exactly the "theme briefly shows only the
+          // new note" UAT reported.
+          void editThemes.mutateAsync([
+            { kind: "set", themeId: target.themeId, ids: [...existing, ...joining] },
+            ...plans,
+          ]);
           return;
         }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [facilitator, factors, themes, flatOrder],
+    [facilitator, factors, themes, flatOrder, carried, detachPlans],
   );
 
   const dragging = useBoardDrag({
@@ -744,8 +977,52 @@ export function CaptureBoard({
         status={status}
         present={present}
         facilitator={facilitator}
+        {...(contributor
+          ? {
+              selecting,
+              onSelecting: (on: boolean) => {
+                setSelecting(on);
+                if (!on) setSelected(new Set());
+              },
+            }
+          : {})}
         {...(flowSteps ? { steps: flowSteps } : {})}
       />
+
+      {/* THE SELECTION BAR, which is also the answer to "let me make a theme
+          of ONE note". Grouping used to be reachable only by dropping one
+          note onto another, so a theme of a single note — a point that
+          stands on its own and should still carry a name, a rating and a
+          place in the report — could not be made at all without inventing a
+          second note to stack it on. Here the same control makes a theme of
+          one or of twenty, so there is nothing extra to learn. */}
+      {selected.size > 0 && (
+        <SelectionBar
+          count={orderedSelection.length}
+          themeLabel={themeKind?.label ?? "Theme"}
+          canGroup={
+            // SAME CATEGORY ONLY, the client affordance the drop already
+            // follows. Whether a theme may span categories is a methodology
+            // question the engine deliberately does not answer, so the board
+            // declines to decide it here either — and says why, rather than
+            // offering a disabled button with no explanation.
+            Boolean(themeRoute) && selectionCategories.size === 1
+          }
+          spansCategories={selectionCategories.size > 1}
+          onGroup={() => {
+            const first = factors.find((f) => f.id === orderedSelection[0]);
+            if (!first) return;
+            const plans = detachPlans(orderedSelection);
+            if (!plans) return;
+            setPendingTheme({
+              ids: orderedSelection,
+              categoryKey: first.category_key,
+              ...(plans.length > 0 ? { detach: plans } : {}),
+            });
+          }}
+          onClear={clearSelection}
+        />
+      )}
 
       {/* Tidying the whole wall is the facilitator's job, and the panel hides
           itself entirely when the methodology has no cleanup prompt. */}
@@ -787,6 +1064,9 @@ export function CaptureBoard({
             blocks={blocksFor(category.key)}
             count={(byCategory.get(category.key) ?? []).length}
             categories={methodology.factor_categories}
+            selected={selected}
+            selecting={selecting}
+            onToggleSelect={toggleSelected}
             movable={(byCategory.get(category.key) ?? []).filter(
               (f) => f.state !== "approved" && f.state !== "rejected",
             )}
@@ -816,16 +1096,15 @@ export function CaptureBoard({
             onAdd={(title) => createFactor.mutate({ categoryKey: category.key, title })}
             onSave={(id, input) => updateFactor.mutate({ id, ...input })}
             onDelete={(id) => deleteFactor.mutate(id)}
-            onMoveTo={moveTo}
+            onMoveTo={(factorId, categoryKey) => moveTo([factorId], categoryKey)}
             onRemoveFromTheme={(themeId, factorId) => {
-              const rest = (themes.members.get(themeId) ?? []).filter((x) => x !== factorId);
-              if (rest.length === 0) {
-                toast.error(
-                  "A theme needs at least one note. Delete the theme on the Synthesis stage instead.",
-                );
-                return;
-              }
-              retheme.mutate({ themeId, ids: rest });
+              // THE × TAKES THE LAST NOTE OUT TOO, and the theme goes with it.
+              // It used to refuse and point at the Synthesis stage, which is
+              // a different screen for a decision already made here.
+              const plan = detachPlan(themeId, [factorId]);
+              if (!plan) return;
+              announceDetach(plan);
+              editThemes.mutate([plan]);
             }}
             savingId={updateFactor.isPending ? updateFactor.variables?.id ?? null : null}
             deletingId={deleteFactor.isPending ? deleteFactor.variables ?? null : null}
@@ -842,6 +1121,11 @@ export function CaptureBoard({
           <div
             ref={dragging.ghostRef}
             aria-hidden
+            // A stable hook for a browser check. The ghost is portalled to
+            // the body and styled by class, so there is nothing else to find
+            // it by — and a probe that cannot find it reports a drag that
+            // showed nothing, which is indistinguishable from a broken drag.
+            data-drag-ghost
             className="pointer-events-none fixed left-0 top-0 z-[60] will-change-transform"
             style={{ width: dragging.drag.width, height: dragging.drag.height }}
           >
@@ -851,6 +1135,7 @@ export function CaptureBoard({
               target={dragging.target}
               themeLabel={themeKind?.label ?? "Theme"}
               fromTheme={Boolean(dragging.drag.themeId)}
+              carrying={carried(dragging.drag.factorId).length}
             />
           </div>,
           document.body,
@@ -871,9 +1156,13 @@ export function CaptureBoard({
               {
                 onSuccess: () => {
                   setPendingTheme(null);
-                  // Only now that the new theme exists does the note leave the
-                  // old one. If the create had failed, nothing moved.
-                  if (leaving) void detach(leaving.themeId, leaving.factorId);
+                  clearSelection();
+                  // Only now that the new theme exists do the notes leave
+                  // their old ones. If the create had failed, nothing moved.
+                  if (leaving && leaving.length > 0) {
+                    leaving.forEach(announceDetach);
+                    editThemes.mutate(leaving);
+                  }
                 },
               },
             );
@@ -888,6 +1177,60 @@ type Block =
   | { kind: "note"; factor: Factor }
   | { kind: "theme"; theme: WorkObject; factors: Factor[] };
 
+/**
+ * What is picked out, and what can be done with it.
+ *
+ * IT APPEARS ONLY WHEN SOMETHING IS SELECTED, and it says the count in words
+ * rather than showing a permanent empty tray. A bar that is always there is a
+ * row of chrome between the header and the wall, which is the thing the
+ * board's composition was reorganised to remove.
+ */
+function SelectionBar({
+  count,
+  themeLabel,
+  canGroup,
+  spansCategories,
+  onGroup,
+  onClear,
+}: {
+  count: number;
+  themeLabel: string;
+  canGroup: boolean;
+  spansCategories: boolean;
+  onGroup: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <section
+      className="console-panel flex flex-wrap items-center justify-between gap-2 px-3.5 py-2"
+      data-selection-bar
+      aria-live="polite"
+    >
+      <span className="text-xs">
+        <strong className="font-medium">
+          {count} {count === 1 ? "note" : "notes"} selected
+        </strong>
+        <span className="text-muted-foreground">
+          {" "}
+          — drag any one of them to move them all
+          {spansCategories ? ", or clear and pick from one panel to group them" : ""}
+        </span>
+      </span>
+      <div className="flex items-center gap-1.5">
+        {canGroup && (
+          <Button size="sm" onClick={onGroup}>
+            <Layers className="size-3.5" />
+            Group into a {themeLabel.toLowerCase()}
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={onClear}>
+          Clear
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function BoardToolbar({
   view,
   onView,
@@ -898,6 +1241,8 @@ function BoardToolbar({
   status,
   present,
   facilitator,
+  selecting,
+  onSelecting,
   steps,
 }: {
   view: ViewMode;
@@ -909,6 +1254,13 @@ function BoardToolbar({
   status: ChannelStatus;
   present: PresentMember[];
   facilitator: boolean;
+  /**
+   * Selection mode, when the caller may move notes at all. Absent for an
+   * observer: a control that selects notes nothing can then be done with is
+   * the same silent no-op as a disabled button with no reason beside it.
+   */
+  selecting?: boolean;
+  onSelecting?: (on: boolean) => void;
   /** The three-step readout, or undefined when this board has no theming. */
   steps?: FlowStep[];
 }) {
@@ -949,6 +1301,32 @@ function BoardToolbar({
         <LiveState status={status} />
         <Presence present={present} />
       </div>
+
+      {/* SELECT MODE IS THE TOUCH PATH. On a mouse, Ctrl/Cmd-click a note and
+          the checkboxes appear by themselves, so this is the way in for a
+          tablet — the device a board passed round a table is most likely to
+          be on, and the reason the drag was rewritten for pointer events. */}
+      {onSelecting && (
+        <button
+          type="button"
+          onClick={() => onSelecting(!selecting)}
+          aria-pressed={Boolean(selecting)}
+          title={
+            selecting
+              ? "Stop selecting — tapping a note edits it again"
+              : "Select several notes to move or group them together"
+          }
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-sm border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-wider",
+            selecting
+              ? "bg-elevated text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <CheckSquare className="size-3" />
+          Select
+        </button>
+      )}
 
       {/* A toggle, not a breakpoint: which reads better depends on how much is
           on the wall, and that changes during a session. */}
@@ -1171,6 +1549,9 @@ function Quadrant({
   assist,
   drag,
   target,
+  selected,
+  selecting,
+  onToggleSelect,
   onDragHandle,
   onAdd,
   onSave,
@@ -1191,6 +1572,11 @@ function Quadrant({
   scores: Map<string, NoteScore>;
   canAdd: boolean;
   canMove: boolean;
+  /** Which notes are picked out for a bulk action. */
+  selected: Set<string>;
+  /** Selection mode: a tap selects rather than opening the editor. */
+  selecting: boolean;
+  onToggleSelect: (factorId: string) => void;
   /** The stage's assistant, offered from this panel's composer. */
   assist?: ReactNode;
   /**
@@ -1321,7 +1707,19 @@ function Quadrant({
                 canEdit={canMove}
                 canMove={canMove}
                 score={scores.get(block.factor.id) ?? null}
-                isDragging={drag?.factorId === block.factor.id}
+                selected={selected.has(block.factor.id)}
+                selectable={selecting}
+                onToggleSelect={canMove ? () => onToggleSelect(block.factor.id) : undefined}
+                // EVERY NOTE THE DRAG CARRIES SHOWS AS LIFTED, not just the
+                // one under the pointer. Dragging eight and watching one fade
+                // reads as the other seven having been left behind.
+                isDragging={
+                  drag?.factorId === block.factor.id ||
+                  (drag !== null &&
+                    selected.has(block.factor.id) &&
+                    selected.has(drag.factorId) &&
+                    selected.size > 1)
+                }
                 insertBefore={
                   target?.kind === "before" && target.factorId === block.factor.id
                 }
@@ -1350,6 +1748,14 @@ function Quadrant({
                   canMove={canMove}
                   isTarget={target?.kind === "theme" && target.themeId === block.theme.id}
                   draggingId={drag?.factorId ?? null}
+                  carriedIds={
+                    drag !== null && selected.has(drag.factorId) && selected.size > 1
+                      ? selected
+                      : EMPTY_IDS
+                  }
+                  selected={selected}
+                  selecting={selecting}
+                  onToggleSelect={onToggleSelect}
                   onDragHandle={onDragHandle}
                   onSave={onSave}
                   onRemove={(factorId) => onRemoveFromTheme(block.theme.id, factorId)}
@@ -1479,6 +1885,10 @@ function ThemeStack({
   canMove,
   isTarget,
   draggingId,
+  carriedIds,
+  selected,
+  selecting,
+  onToggleSelect,
   onDragHandle,
   onSave,
   onRemove,
@@ -1496,6 +1906,11 @@ function ThemeStack({
   canMove: boolean;
   isTarget: boolean;
   draggingId: string | null;
+  /** Every note the current drag is carrying, so all of them read as lifted. */
+  carriedIds: ReadonlySet<string>;
+  selected: Set<string>;
+  selecting: boolean;
+  onToggleSelect: (factorId: string) => void;
   onDragHandle: (f: Factor, e: React.PointerEvent, el: HTMLElement) => void;
   onSave: (id: string, input: { title: string; description: string }) => void;
   onRemove: (factorId: string) => void;
@@ -1563,8 +1978,11 @@ function ThemeStack({
               // that was invisible).
               canMove={canMove}
               themed
-              isDragging={draggingId === f.id}
+              isDragging={draggingId === f.id || carriedIds.has(f.id)}
               score={scores.get(f.id) ?? null}
+              selected={selected.has(f.id)}
+              selectable={selecting}
+              onToggleSelect={canMove ? () => onToggleSelect(f.id) : undefined}
               // THE REAL SAVE. This was a no-op with a comment pointing at a
               // card that does not exist here, so clicking a note inside a
               // theme opened an editor and threw away whatever was typed. A
@@ -1615,6 +2033,7 @@ function GhostNote({
   target,
   themeLabel,
   fromTheme,
+  carrying,
 }: {
   factor: Factor;
   category: FactorCategory | undefined;
@@ -1622,6 +2041,8 @@ function GhostNote({
   themeLabel: string;
   /** True when the note was lifted out of a stack: every intent changes. */
   fromTheme: boolean;
+  /** How many notes this drag is carrying, including the one drawn. */
+  carrying: number;
 }) {
   const label = themeLabel.toLowerCase();
   const tint = category ? `var(--${category.color_token})` : "var(--border)";
@@ -1655,6 +2076,19 @@ function GhostNote({
       >
         <span className="line-clamp-6">{factor.title}</span>
       </div>
+      {/* WHAT IS IN HAND, WHEN IT IS MORE THAN ONE NOTE. The ghost is a single
+          tile, so dragging eight and seeing one is the gesture failing to
+          report itself — and the eight fade out behind it, which without this
+          reads as seven notes having vanished. The count sits on the corner
+          like the edge of a stack of paper. */}
+      {carrying > 1 && (
+        <span
+          className="absolute -right-2 -top-2 grid min-w-5 place-items-center rounded-full px-1 py-0.5 font-mono text-[10px] font-semibold text-background shadow"
+          style={{ background: tint }}
+        >
+          {carrying}
+        </span>
+      )}
       <span
         className="absolute -bottom-6 left-0 whitespace-nowrap rounded-sm px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-background"
         style={{ background: tint }}

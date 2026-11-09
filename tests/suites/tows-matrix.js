@@ -429,6 +429,31 @@ runSuite("tows-matrix", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) =>
     // indistinguishable from "this cannot be moved".
     r.ok(/\{\.\.\.dragHandlers\(\{ \.\.\.t, label: t\.title \}\)\}/.test(matrix),
       "an axis theme spreads the drag handlers onto the whole card");
+
+    // ---- the hidden notes are reachable (UAT 2026-11-10) ----
+    //
+    // The card summarised a theme as four notes and "+3 more", and the three
+    // were unreachable from this screen: the only way to read them was to
+    // leave the matrix for the capture stage. It is now a control.
+    r.ok(/aria-expanded=\{expanded\.has\(t\.id\)\}/.test(matrix),
+      "the hidden notes are behind a real control, not a label");
+    r.ok(/show fewer/.test(matrix),
+      "...which closes again, so one long theme cannot strand the cell open");
+    // PER THEME, not per cell: opening one to read it must not unfold the
+    // three below it and push them out of a panel that scrolls.
+    r.ok(/useState<Set<string>>\(new Set\(\)\)/.test(matrix),
+      "...and it opens one theme at a time");
+    // A BUTTON INSIDE A DRAG SOURCE has to tell a drag from a click, or
+    // dropping a theme into a quadrant would also unfold its note list —
+    // the gesture this cell exists for.
+    r.ok(/if \(didMove\(\)\) return;/.test(matrix),
+      "...and a drag that ends on it does not also expand it");
+    // One statement of how many notes the summary shows: the slice, the
+    // count in "+N more" and the test that offers it must agree.
+    const summaryLiterals = (matrix.match(/\.slice\(0, SUMMARY_NOTES\)/g) ?? []).length;
+    r.ok(summaryLiterals === 1 && /const SUMMARY_NOTES = \d+;/.test(matrix),
+      "the summary length is stated once, not repeated in three places",
+      `${summaryLiterals} use of the constant`);
   } finally {
     // Restore what was found. This suite writes to the DEMO workshop, so
     // anything it leaves behind becomes part of what the next UAT session

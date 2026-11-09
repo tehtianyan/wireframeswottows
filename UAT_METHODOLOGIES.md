@@ -1055,6 +1055,80 @@ Run Part M on **SWOT-TOWS**. M.5 is the genericity check and runs elsewhere.
 | GEN-42 | F | Open PESTLE's Reporting stage | The same: no board |
 | GEN-43 | F | Open Transformation Planning's relate stage | Its dependency matrix is unchanged, pairing factors rather than themes |
 
+# Part N — Working on the wall in handfuls
+
+The 2026-11-10 round: selecting several notes at once, themes of one note,
+emptying a theme, and the tab icon. Run on **SWOT-TOWS**, stage 1.
+
+## N.1 The tab icon
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| ICON-01 | — | Look at the browser tab | The mark is **this product's** — a rounded square with its initials. No other company's logo anywhere |
+| ICON-02 | — | Bookmark the page and look at the bookmark | The same mark |
+| ICON-03 | — | Switch the operating system between light and dark | The icon stays legible in both; it is not a dark mark on a dark strip |
+
+## N.2 Selecting several notes
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| SEL-01 | F | Ctrl-click (Cmd-click on a Mac) a note | It gains a ring and a tick, and a bar appears saying **1 note selected** |
+| SEL-02 | F | Ctrl-click two more | **3 notes selected.** Each is ringed and ticked |
+| SEL-03 | F | Plain-click an unselected note | It opens for editing as before. Selecting must not take over the ordinary click |
+| SEL-04 | F | Ctrl-click a selected note again | It leaves the selection |
+| SEL-05 | F | Press **Clear** | Everything is deselected and the bar goes |
+| SEL-06 | F | Ctrl-click an **approved** note | It selects. A reviewed note cannot be edited or moved, but it can be grouped — report a note that refuses to select as **Major** |
+| SEL-07 | F | Press **Select** in the toolbar | A checkbox appears on every note, and tapping one selects instead of editing. **This is the path to test on a tablet** |
+| SEL-08 | F | In Select mode, tap three notes, then press Select again | The mode ends and the selection clears |
+
+## N.3 Moving a handful at once
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| SEL-10 | F | Select three notes and drag any one of them | **All three** fade where they were, and the note in hand carries a **3** |
+| SEL-11 | F | Drop them on another panel | All three arrive. **Instantly** — no pause between letting go and them appearing |
+| SEL-12 | F | Select three including an approved one, and move them to another panel | The two movable ones go, and a message says how many reviewed notes were left behind. It must not refuse the whole move |
+| SEL-13 | F | Select two and drop them on an existing theme | Both join it, at once |
+| SEL-14 | F | Select two from a panel and drag one onto a loose note | The naming prompt opens for a theme of all three |
+| SEL-15 | F | Drag an **unselected** note while others are selected | Only the dragged note moves, and the selection is untouched |
+
+## N.4 A theme of one note
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| THM-01 | F | Select exactly one note and press **Group into a theme** | The naming prompt opens. **No second note has to be invented** — this is the UAT item |
+| THM-02 | F | Name it and confirm | A theme of one note appears on the wall, and on the Synthesis stage like any other |
+| THM-03 | F | Select notes from two different panels | The grouping button is **not offered**, and the bar says to pick from one panel |
+
+## N.5 Emptying a theme
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| THM-10 | F | Make a theme of two notes, then drag one out onto the wall | One note left; the theme stays |
+| THM-11 | F | Drag the last note out as well | **The theme is deleted** and a message says so. It must NOT refuse and point at the Synthesis stage — that was the defect |
+| THM-12 | F | Check the Synthesis stage | The theme is gone from there too |
+| THM-13 | F | Do the same with the × on a note inside a theme | Same result: the last one out removes the theme |
+| THM-14 | F | Approve a theme on the Synthesis stage, then try to empty it on the board | **Refused**, and the message says it is because the theme has been reviewed — a different reason from the old one |
+
+## N.6 Latency and the flicker
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| LAG-01 | F | Drag a note onto a theme | It lands **as you release**, not after a visible pause |
+| LAG-02 | F | Drag a note from one theme straight onto another | It arrives in the new theme and leaves the old one **in one step**. At no point does the new theme show only that note with the others loose on the wall — that was the reported flicker |
+| LAG-03 | F | Do LAG-02 several times quickly | Same every time. Watch for a frame where notes scatter and re-gather |
+| LAG-04 | F | Pull the network offline and drag a note onto a theme | It moves, then **comes back** with an error. Optimism must be undone when the server refuses |
+
+## N.7 The matrix's hidden notes
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| MTX-01 | F | Put five or more notes in one theme, then open stage 5 | Its card on the edge lists four and offers **+N more** |
+| MTX-02 | F | Click **+N more** | Every note is listed **in full** — not a column of cut-off lines |
+| MTX-03 | F | Look at the control | It now reads **show fewer**, and closes again |
+| MTX-04 | F | Expand one theme in a cell with several | Only that one opens |
+| MTX-05 | F | Drag a theme card into a quadrant, releasing over the cell | It pairs as before, and does **not** also expand its note list |
+
 ## Defect template
 
 Use the template and severity guide at the end of `UAT_TEST_SCRIPT.md`, and add

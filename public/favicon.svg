@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SWOT-TOWS Strategy Console">
+  <!--
+    The product's own tab icon.
+
+    IT REPLACES LOVABLE'S. The tracked public/favicon.ico shipped with the
+    scaffold and was still the builder's logo, so every browser tab, bookmark
+    and history entry for this product carried somebody else's mark — on the
+    client-facing deployment included. That is the same class of defect as the
+    sign-in page printing the demo password: a default nobody chose, left
+    where everybody sees it.
+
+    IT IS THE HEADER MARK, NOT A NEW DESIGN. BrandMark draws a rounded square
+    filled with --primary carrying the brand initials, so the tab shows the
+    same object the header does. The colours are the literal values of
+    --primary and --primary-foreground from styles.css for each mode; CSS
+    custom properties cannot reach inside an SVG loaded as a favicon, which is
+    the same reason skins.ts carries literal swatches.
+
+    BOTH MODES, because a tab strip follows the OS theme and a single fill
+    that works on one ground disappears on the other. The light value is the
+    .light palette's --primary, the dark value the :root one.
+
+    A per-organization logo is NOT resolved here: a favicon is requested
+    before anybody is signed in, so there is no organization to resolve. A
+    deployment that wants its own tab icon sets VITE_BRAND_FAVICON, which
+    __root.tsx prefers over this file.
+  -->
+  <style>
+    .ground { fill: oklch(0.55 0.12 214); }
+    .mark   { fill: oklch(0.99 0.004 210); }
+    @media (prefers-color-scheme: dark) {
+      .ground { fill: oklch(0.76 0.13 196); }
+      .mark   { fill: oklch(0.21 0.02 230); }
+    }
+  </style>
+  <rect class="ground" width="64" height="64" rx="14" />
+  <text
+    class="mark"
+    x="32"
+    y="33"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-family="'Source Serif 4', 'Iowan Old Style', Georgia, serif"
+    font-size="30"
+    font-weight="700"
+    letter-spacing="-0.5"
+  >ST</text>
+</svg>

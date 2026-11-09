@@ -430,21 +430,131 @@ runSuite("board-ui", async ({ results: r }) => {
     /if \(source\.themeId\) \{[\s\S]{0,400}?kind: "stack"/.test(drag),
     "...the whole of a target note means 'group with this', since a reorder is meaningless for a themed note",
   );
+  // EMPTYING A THEME DELETES IT, AND THIS CHECK USED TO ASSERT THE OPPOSITE.
+  //
+  // The old rule refused the last note out and pointed at the Synthesis
+  // stage; UAT reported that as a defect and it was reversed on 2026-11-10.
+  // The check is rewritten rather than deleted, because the thing worth
+  // pinning never changed: emptying a theme must not leave a titled claim
+  // citing nothing. It used to be prevented and is now resolved.
   r.ok(
-    /canDetach/.test(board) && /only note in its theme/.test(board),
-    "a theme cannot be emptied by dragging its last note away — an empty theme cites nothing",
+    /detachPlan/.test(board) && /kind: "delete", themeId/.test(board),
+    "emptying a theme removes it rather than leaving a titled claim citing nothing",
   );
-  // ORDER MATTERS AND IS NOT ARBITRARY: the note joins its new home before it
+  r.ok(
+    !/only note in its theme|Delete the theme on the Synthesis stage/.test(board),
+    "...and the old refusal, which sent the facilitator to another screen, is gone",
+  );
+  // The one case that IS still refused, and for a different reason: a
+  // reviewed theme is a decision about a named set of notes, so dissolving it
+  // as a side effect of a drag would retract somebody's approval silently.
+  r.ok(
+    /has been reviewed, so it cannot be emptied/.test(board),
+    "...but a REVIEWED theme is still refused, and the message says that is why",
+  );
+
+  // ORDER MATTERS AND IS NOT ARBITRARY: a note joins its new home before it
   // leaves the old one, so a failure leaves it grouped as it was rather than
-  // in no theme at all.
+  // in no theme at all. The mechanism changed on 2026-11-10 — both edits now
+  // go to one mutation as an ordered list — so the check asks about the ORDER
+  // rather than about the two chained calls it used to be written against.
   r.ok(
-    /mutateAsync\([\s\S]{0,200}?\.then\(\(\) => \(from \? detach/.test(board),
-    "...and it joins the new theme BEFORE leaving the old one, so a failure cannot orphan it",
+    /kind: "set", themeId: target\.themeId, ids: \[\.\.\.existing, \.\.\.joining\] \},\s*\.\.\.plans/.test(
+      board,
+    ),
+    "a note joins the new theme BEFORE leaving the old one, so a failure cannot orphan it",
   );
   r.ok(
-    /detach: \{ themeId: source\.themeId, factorId: source\.factorId \}/.test(board) &&
-      /if \(leaving\) void detach/.test(board),
-    "...a new theme is created first and only then does the note leave its old one",
+    /for \(const e of edits\)/.test(board),
+    "...and the edits are sent in that order rather than fired off together",
+  );
+  r.ok(
+    /if \(leaving && leaving\.length > 0\)/.test(board) &&
+      /onSuccess: \(\) => \{[\s\S]{0,400}?editThemes\.mutate\(leaving\)/.test(board),
+    "...a new theme is created first and only then do the notes leave their old ones",
+  );
+
+  // ================================================================
+  r.section("one gesture, several notes (UAT 2026-11-10)");
+  // ================================================================
+  r.ok(
+    /selected\.has\(factorId\) && selected\.size > 1/.test(board),
+    "dragging a selected note carries the whole selection",
+  );
+  r.ok(
+    /: \[factorId\]/.test(board),
+    "...and dragging an UNSELECTED one carries only itself, leaving the selection alone",
+  );
+  // The order a selection lands in is the wall's, not the order it was
+  // clicked in: a Set keeps insertion order and the room is reading the wall.
+  r.ok(
+    /orderedSelection = useMemo\([\s\S]{0,200}?sort\(compareForBoard\)/.test(board),
+    "a bulk move keeps the board's order, not the order the notes were clicked",
+  );
+  r.ok(
+    /metaKey \|\| e\.ctrlKey \|\| e\.shiftKey/.test(note),
+    "a modifier-click selects a note instead of opening its editor",
+  );
+  // THE PROPERTY, NOT THE SPELLING. The first version of this matched the
+  // literal `selectable || selected`, and went red the moment that condition
+  // was lifted into a named `showSelect` — a correct refactor failing a check
+  // that was really asserting how the condition was written. What matters is
+  // that the checkbox is gated on selection being live at all, and that it is
+  // a real button rather than a decoration.
+  r.ok(
+    /showSelect =[^;]*selectable[^;]*selected/.test(note) &&
+      /\{showSelect && \(/.test(note),
+    "...and a checkbox appears once selection is live, so touch has a way in and out",
+  );
+  r.ok(
+    /aria-pressed=\{Boolean\(selected\)\}/.test(note),
+    "...as a real control, which says whether it is on",
+  );
+  // A frozen note in a big selection must not cancel the whole move — the
+  // same choice planCleanup makes, and for the same reason.
+  r.ok(
+    /frozen\+\+/.test(board) && /left where they are/.test(board),
+    "a reviewed note in a selection is skipped and reported, not a refusal for all of them",
+  );
+  r.ok(
+    /carrying > 1/.test(board),
+    "the ghost says how many notes are in hand, since the rest fade out behind it",
+  );
+
+  // ================================================================
+  r.section("a theme of one note, without inventing a second (UAT 2026-11-10)");
+  // ================================================================
+  r.ok(
+    /Group into a \{themeLabel\.toLowerCase\(\)\}/.test(board),
+    "the selection bar offers to group what is selected",
+  );
+  r.ok(
+    /SelectionBar/.test(board) && /count: number/.test(board),
+    "...and it is the same control for one note as for twenty",
+  );
+  r.ok(
+    /selectionCategories\.size === 1/.test(board),
+    "...offered only within one category, the affordance the drop already follows",
+  );
+
+  // ================================================================
+  r.section("theme membership changes in one cache write (UAT 2026-11-10)");
+  // ================================================================
+  // "The theme shows only the new note, then organizes itself back" was two
+  // server calls each invalidating, so the board rendered what the server
+  // happened to know between them. Writing both edits to the cache at once
+  // leaves no frame in which to render the half-done state.
+  r.ok(
+    /onMutate: async \(edits\)/.test(board) && /setQueryData<WorkObject\[\]>/.test(board),
+    "theme edits are applied to the cache before the network, so a drop lands instantly",
+  );
+  r.ok(
+    /const removed = new Set\([\s\S]{0,200}?const set = new Map\(/.test(board),
+    "...and all of an operation's edits are applied in ONE write, leaving no half-done frame",
+  );
+  r.ok(
+    /ctx\?\.previous/.test(board),
+    "...rolled back if the server refuses, so the optimism is not a lie",
   );
   // The × inside a stack was revealed by `group-hover` with no `group`
   // ancestor, so it appeared on keyboard focus and NEVER on hover: with a
