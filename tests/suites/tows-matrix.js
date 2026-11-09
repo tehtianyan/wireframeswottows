@@ -133,6 +133,39 @@ runSuite("tows-matrix", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) =>
     });
     if (act2.success) created.actions.push(act2.data.id);
 
+    // AN ACTION IS ONE LINE, and this posts EXACTLY what the quick-add posts.
+    //
+    // Both probes above send a description, so they were testing a request the
+    // form does not make — the same trap the capture board's stacking check
+    // fell into, where the suite passed throughout because it sent a field the
+    // board had no way to supply. The form's second box says "More detail
+    // (optional)" and submits with just a title, and until 2026-11-09 the
+    // column was NOT NULL, so that submission failed with "What to do is
+    // required." Found by a browser probe, not by any check.
+    const oneLine = await F("POST", `/workshops/${WS}/recommendations`, {
+      title: `${PROBE} build out AI messaging that differentiates us`,
+      fields: { priority: "high" },
+      parent_id: mk.data.id,
+    });
+    r.ok(oneLine.success,
+      "an action is created from a title alone, which is all the quick-add sends",
+      oneLine.error?.message);
+    if (oneLine.success) created.actions.push(oneLine.data.id);
+    r.ok(oneLine.success && !oneLine.data.description,
+      "and stores no description rather than inventing one from the title",
+      oneLine.data?.description);
+
+    // The paired negative, so the fix above cannot become "nothing is ever
+    // required": an insight's description IS its claim and its column is
+    // still NOT NULL. Matched on the message, so a refusal for some other
+    // reason would not pass as this one.
+    const bareInsight = await F("POST", `/workshops/${WS}/insights`, {
+      title: `${PROBE} an insight with no body`,
+    });
+    r.ok(!bareInsight.success && /required/i.test(bareInsight.error?.message ?? ""),
+      "an insight with no description is still refused — the asymmetry is deliberate",
+      bareInsight.error?.message);
+
     const actions = (await F("GET", `/workshops/${WS}/recommendations`)).data ?? [];
     const got = actions.find((a) => a.id === act1.data?.id);
     r.ok(got?.parent_id === mk.data?.id,

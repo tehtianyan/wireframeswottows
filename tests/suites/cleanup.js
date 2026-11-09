@@ -20,7 +20,7 @@ const withAI = process.argv.includes("--with-ai");
 
 runSuite("cleanup", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
   const { facilitator: F, participant: P } = await clients(baseUrl, ["facilitator", "participant"]);
-  const made = { factors: [] };
+  const made = { factors: [], initiatives: [], recommendations: [] };
   const seededRuns = [];
   let runId = null;
 
@@ -242,6 +242,246 @@ runSuite("cleanup", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     r.ok(!stillStanding.undone_at,
       "and the run is NOT marked undone, because it was not — the history does not claim a reversal that did not happen");
 
+    // ====================================================================
+    r.section("the SAME tidy-up runs over the TOWS matrix's actions");
+    // ====================================================================
+    //
+    // ONE PLANNER, TWO SUBJECTS. The feature was generalised rather than
+    // copied, because the three properties that make an AI editing human
+    // content legitimate — nothing approved, nothing destroyed, nothing
+    // untraceable — are enforced in one place, and a second copy would be a
+    // second place for one of them to lapse unnoticed.
+    //
+    // The REFUSAL rules for actions live in pkg/handlers/cleanup_plan_test.go
+    // alongside the notes' ones, for the same reason: a safety rule that costs
+    // a paid model call to exercise is a rule nobody exercises. What is left
+    // for this suite is the part only a real database can show — that an undo
+    // over actions really puts the rows back.
+
+    const detail = (await F("GET", `/workshops/${WS}`)).data;
+    const relate = (detail.methodology.stages ?? []).find((s) => s.stage_type === "relate");
+    const actionsCfg = relate?.config?.actions;
+
+    if (!relate || !actionsCfg) {
+      r.skip("this methodology's relate stage declares no actions");
+    } else {
+      const relayStatus = (await F("GET", `/workshops/${WS}/ai?stage_key=${relate.key}`)).data;
+      r.ok(relayStatus.board_cleanup === true,
+        "the matrix offers a tidy-up, because the methodology has a changeset prompt for relate stages",
+        relayStatus.board_cleanup);
+      r.ok(!relayStatus.functions.some((f) => f.output_kind === "changeset"),
+        "and it is still kept out of the ordinary function list");
+
+      const typeKey = detail.methodology.relationship_types[0].key;
+      const mkInit = async (title) => {
+        const res = await F("POST", `/workshops/${WS}/initiatives`, {
+          title: `${PREFIX} ${title}`,
+          relationship_type_key: typeKey,
+        });
+        if (!res.success) throw new Error(`initiative fixture failed: ${res.error?.message}`);
+        made.initiatives.push(res.data.id);
+        return res.data.id;
+      };
+      const mkAction = async (parentId, title) => {
+        const res = await F("POST", `/workshops/${WS}/recommendations`, {
+          title: `${PREFIX} ${title}`,
+          description: "As agreed.",
+          fields: { priority: "medium" },
+          parent_id: parentId,
+        });
+        if (!res.success) throw new Error(`action fixture failed: ${res.error?.message}`);
+        made.recommendations.push(res.data.id);
+        return res.data.id;
+      };
+
+      const home = await mkInit("Sales campaigns");
+      const away = await mkInit("Branding");
+      const aTypo = await mkAction(home, "Build out AI messaging that differentiaties us");
+      const aDupe = await mkAction(home, "Build AI messaging to differentiate");
+      const aMoved = await mkAction(home, "Refresh the brand guidelines");
+
+      const actionById = async (id) =>
+        (
+          await c.query(
+            `select title, description, state, initiative_id::text from public.recommendations where id = $1`,
+            [id],
+          )
+        ).rows[0];
+      const beforeA = {
+        typo: await actionById(aTypo),
+        dupe: await actionById(aDupe),
+        moved: await actionById(aMoved),
+      };
+
+      // Seeded exactly as applyCleanup applies it, with the before-state
+      // shapes undoOne reads back — including `group_key`, which is what the
+      // generic move records now.
+      const actionRun = (
+        await c.query(
+          `insert into public.board_cleanup_runs (workshop_id, stage_key, created_by)
+           values ($1, $2, (select created_by from public.recommendations where id = $3))
+           returning id`,
+          [WS, relate.key, aTypo],
+        )
+      ).rows[0].id;
+      seededRuns.push(actionRun);
+
+      const seedAction = async (ch) => {
+        await c.query(
+          `insert into public.board_cleanup_changes
+             (run_id, change_type, recommendation_id, before_state, after_state, reason)
+           values ($1, $2, $3, $4, $5, $6)`,
+          [actionRun, ch.type, ch.id, ch.before, ch.after, ch.reason],
+        );
+      };
+      await seedAction({
+        type: "reword", id: aTypo,
+        before: { title: beforeA.typo.title, description: beforeA.typo.description ?? "" },
+        after: { title: `${PREFIX} Build out AI messaging that differentiates us`, description: "As agreed." },
+        reason: "spelling",
+      });
+      await c.query("update public.recommendations set title = $2 where id = $1", [
+        aTypo, `${PREFIX} Build out AI messaging that differentiates us`,
+      ]);
+      await seedAction({
+        type: "move", id: aMoved,
+        before: { group_key: home, group_name: `${PREFIX} Sales campaigns` },
+        after: { group_key: away, group_name: `${PREFIX} Branding` },
+        reason: "it is a branding action",
+      });
+      await c.query("update public.recommendations set initiative_id = $2 where id = $1", [aMoved, away]);
+      await seedAction({
+        type: "merge", id: aDupe,
+        before: { state: beforeA.dupe.state },
+        after: { state: "archived", merged_into: aTypo },
+        reason: "asks for the same work",
+      });
+      await c.query("update public.recommendations set state = 'archived' where id = $1", [aDupe]);
+
+      const aRuns = (await F("GET", `/workshops/${WS}/cleanup/runs`)).data;
+      const aRun = aRuns.find((x) => x.id === actionRun);
+      r.ok(Boolean(aRun), "an action run appears in the same history as a note run", aRun?.id);
+      r.ok(aRun.changes.length === 3, "with all three of its changes", aRun.changes.length);
+
+      // THE KIND IS DERIVED FROM WHICH COLUMN IS SET, not stored beside it —
+      // so there is nothing for a third field to disagree with.
+      r.ok(aRun.changes.every((ch) => ch.object_kind === "recommendation"),
+        "every change says it was made to an action",
+        [...new Set(aRun.changes.map((ch) => ch.object_kind))].join(","));
+      const noteRun = aRuns.find((x) => x.id === runId);
+      r.ok(noteRun.changes.every((ch) => ch.object_kind === "factor"),
+        "and the note run still says factor, from the same query");
+      r.ok(aRun.changes.every((ch) => ch.object_title),
+        "each change names what it touched, so an undo can be labelled");
+
+      // ---- the undo really restores the rows ----------------------------
+      const undoAction = await F("POST", `/workshops/${WS}/cleanup/runs/${actionRun}/undo`, {});
+      r.ok(undoAction.success && undoAction.data.undone === 3,
+        "the whole action run is undone", JSON.stringify(undoAction.data));
+
+      const afterA = {
+        typo: await actionById(aTypo),
+        dupe: await actionById(aDupe),
+        moved: await actionById(aMoved),
+      };
+      r.ok(afterA.typo.title === beforeA.typo.title,
+        "the reworded action's title is character-for-character what it was", afterA.typo.title);
+      r.ok(afterA.moved.initiative_id === home,
+        "the moved action is back under its original initiative",
+        afterA.moved.initiative_id === home ? "home" : afterA.moved.initiative_id);
+      r.ok(afterA.dupe.state === beforeA.dupe.state,
+        "and the merged duplicate is back — it was archived, never deleted", afterA.dupe.state);
+
+      // ---- a deleted initiative cannot be moved back into ---------------
+      //
+      // A CATEGORY CANNOT VANISH BUT AN INITIATIVE CAN, which is the one way
+      // an action's undo differs from a note's. Putting the action back under
+      // a heading that no longer exists would break the foreign key and
+      // surface as a 500; the refusal has to say so instead.
+      const gone = await mkInit("Temporary");
+      const orphan = await mkAction(gone, "An action whose initiative gets deleted");
+      const orphanRun = (
+        await c.query(
+          `insert into public.board_cleanup_runs (workshop_id, stage_key, created_by)
+           values ($1, $2, (select created_by from public.recommendations where id = $3))
+           returning id`,
+          [WS, relate.key, orphan],
+        )
+      ).rows[0].id;
+      seededRuns.push(orphanRun);
+      await c.query(
+        `insert into public.board_cleanup_changes
+           (run_id, change_type, recommendation_id, before_state, after_state, reason)
+         values ($1, 'move', $2, $3, $4, 'probe')`,
+        [orphanRun, orphan, { group_key: gone, group_name: `${PREFIX} Temporary` }, { group_key: home }],
+      );
+      await c.query("update public.recommendations set initiative_id = $2 where id = $1", [orphan, home]);
+      await F("DELETE", `/workshops/${WS}/initiatives/${gone}`);
+      made.initiatives = made.initiatives.filter((x) => x !== gone);
+
+      const orphanUndo = await F("POST", `/workshops/${WS}/cleanup/runs/${orphanRun}/undo`, {});
+      r.ok(orphanUndo.success && orphanUndo.data.undone === 0,
+        "the undo is refused rather than crashing on the foreign key",
+        JSON.stringify(orphanUndo.data));
+      r.ok(/deleted/.test(orphanUndo.data.refused[0] ?? ""),
+        "and says the initiative is gone, rather than a database error",
+        orphanUndo.data.refused[0]);
+
+      // ---- a participant still cannot run it ----------------------------
+      const pOnMatrix = await P("POST", `/workshops/${WS}/cleanup`, { stage_key: relate.key });
+      r.ok(!pOnMatrix.success && pOnMatrix.status === 403,
+        "tidying the matrix is the facilitator's too", pOnMatrix.status);
+
+      // ---- exactly one subject, enforced by the database ---------------
+      //
+      // The alternative was one polymorphic `object_id` with no foreign key,
+      // like `weights`. Two typed columns let the CHECK say "exactly one",
+      // which a polymorphic id cannot, AND let the cascade come from the
+      // database rather than from every handler remembering.
+      let both = null;
+      try {
+        await c.query(
+          `insert into public.board_cleanup_changes (run_id, change_type, factor_id, recommendation_id)
+           values ($1, 'reword', $2, $3)`,
+          [actionRun, typo, aTypo],
+        );
+        both = "accepted";
+      } catch (e) {
+        both = e.message;
+      }
+      r.ok(both !== "accepted",
+        "a change naming BOTH a note and an action is refused by the database", both);
+
+      let neither = null;
+      try {
+        await c.query(
+          `insert into public.board_cleanup_changes (run_id, change_type) values ($1, 'reword')`,
+          [actionRun],
+        );
+        neither = "accepted";
+      } catch (e) {
+        neither = e.message;
+      }
+      r.ok(neither !== "accepted",
+        "and so is one naming neither", neither);
+
+      // Deleting an action takes its cleanup history with it, by cascade.
+      const doomed = await mkAction(home, "An action that gets deleted");
+      await c.query(
+        `insert into public.board_cleanup_changes (run_id, change_type, recommendation_id, before_state, after_state)
+         values ($1, 'reword', $2, '{}'::jsonb, '{}'::jsonb)`,
+        [actionRun, doomed],
+      );
+      await F("DELETE", `/workshops/${WS}/recommendations/${doomed}`);
+      made.recommendations = made.recommendations.filter((x) => x !== doomed);
+      const orphaned = await c.query(
+        "select count(*)::int as n from public.board_cleanup_changes where recommendation_id = $1",
+        [doomed],
+      );
+      r.ok(orphaned.rows[0].n === 0,
+        "deleting an action takes its cleanup history with it, without a handler remembering to");
+    }
+
     // ---- the button is configuration, not code ---------------------------
     r.section("the action comes from methodology config");
 
@@ -312,6 +552,13 @@ runSuite("cleanup", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     if (seededRuns.length > 0) {
       await c.query("delete from public.board_cleanup_runs where id = any($1)", [seededRuns]);
     }
-    await cleanup(c, { titlePrefixes: [PREFIX], ids: { factors: made.factors } });
+    await cleanup(c, {
+      titlePrefixes: [PREFIX],
+      ids: {
+        recommendations: made.recommendations,
+        initiatives: made.initiatives,
+        factors: made.factors,
+      },
+    });
   }
 });

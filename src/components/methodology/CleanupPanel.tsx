@@ -41,10 +41,40 @@ export function CleanupPanel({
   workshopId,
   stage,
   isFacilitator,
+  subject = "factor",
+  noun = "note",
+  heading = "Tidy the board",
+  blurb,
+  invalidate = [],
 }: {
   workshopId: string;
   stage: MethodologyStage;
   isFacilitator: boolean;
+  /**
+   * Which kind this panel's stage tidies. The runs endpoint returns every run
+   * in the workshop, so without this the matrix would show the capture
+   * board's last tidy-up as its own — offering to undo edits to notes that
+   * are not on this screen.
+   *
+   * An OPAQUE STRING, not a union of the kinds that exist today. Which kinds
+   * can be tidied is the server's list, and the TOWS matrix reads this value
+   * out of its stage config rather than stating it — so a closed union here
+   * would make a legitimate config value a type error.
+   */
+  subject?: string;
+  /** The word for one of them, in the running copy. */
+  noun?: string;
+  heading?: string;
+  /**
+   * What this tidy-up does, in the caller's own words. A prop rather than a
+   * branch in here: the safety line that matters differs per subject — a note
+   * a theme cites is never folded away, an action the room has rated is never
+   * folded away — and that sentence is the one a facilitator needs. Keeping it
+   * at the call site is also what lets this component name no object kind.
+   */
+  blurb?: React.ReactNode;
+  /** Query keys to refetch after a run or an undo. */
+  invalidate?: string[];
 }) {
   const queryClient = useQueryClient();
   // CLOSED UNTIL THERE IS A REASON. It opened the previous run's full change
@@ -65,8 +95,10 @@ export function CleanupPanel({
   });
 
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["factors", workshopId] });
     queryClient.invalidateQueries({ queryKey: ["cleanup-runs", workshopId] });
+    for (const key of invalidate.length > 0 ? invalidate : ["factors"]) {
+      queryClient.invalidateQueries({ queryKey: [key, workshopId] });
+    }
   };
 
   const run = useMutation({
@@ -76,8 +108,8 @@ export function CleanupPanel({
       setOpen(true);
       toast.success(
         r.changes.length === 0
-          ? "Nothing needed changing — the board already reads cleanly."
-          : `${r.changes.length} ${r.changes.length === 1 ? "note" : "notes"} tidied. Every change can be undone.`,
+          ? "Nothing needed changing — it already reads cleanly."
+          : `${r.changes.length} ${r.changes.length === 1 ? noun : noun + "s"} tidied. Every change can be undone.`,
       );
     },
     onError: (e: Error) => toast.error(e.message),
@@ -87,7 +119,7 @@ export function CleanupPanel({
     mutationFn: (changeId: string) => aiApi.undoCleanupChange(workshopId, changeId),
     onSuccess: () => {
       refresh();
-      toast.success("Change undone — the note is back as it was.");
+      toast.success(`Change undone — the ${noun} is back as it was.`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -109,9 +141,19 @@ export function CleanupPanel({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // The latest run is the one worth showing; older ones stay in the API for
-  // the audit trail rather than crowding the panel.
-  const latest: CleanupRun | undefined = runsQuery.data?.[0];
+  // The latest run FOR THIS SUBJECT is the one worth showing; older ones stay
+  // in the API for the audit trail rather than crowding the panel. A run with
+  // no changes at all (everything refused) still belongs to whichever stage
+  // asked for it, so `stage_key` decides those.
+  const latest: CleanupRun | undefined = useMemo(
+    () =>
+      (runsQuery.data ?? []).find((r) =>
+        r.changes.length > 0
+          ? r.changes.some((c) => c.object_kind === subject)
+          : r.stage_key === stage.key,
+      ),
+    [runsQuery.data, subject, stage.key],
+  );
 
   if (!isFacilitator || !statusQuery.data?.board_cleanup) return null;
 
@@ -123,7 +165,7 @@ export function CleanupPanel({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3.5 py-2.5">
         <div className="flex items-center gap-2">
           <Sparkles className="size-3.5 text-muted-foreground" />
-          <span className="label-caps">Tidy the board</span>
+          <span className="label-caps">{heading}</span>
         </div>
         <Button size="sm" onClick={() => run.mutate()} disabled={busy || !configured}>
           {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
@@ -148,14 +190,7 @@ export function CleanupPanel({
             What does this change?
           </summary>
           <p className="px-3.5 pb-2.5 text-xs leading-relaxed text-muted-foreground">
-            Fixes typos, clarifies vague notes, moves misplaced ones and folds near-duplicates
-            away — across every panel at once. Changes are applied straight away, listed below,
-            and any of them can be undone. Nothing is approved and nothing is deleted.{" "}
-            <strong className="font-medium text-foreground">
-              This is not the same as grouping notes into a theme:
-            </strong>{" "}
-            a duplicate is archived, and a note that a theme already cites is never folded away
-            at all.
+            {blurb}
           </p>
         </details>
       )}
@@ -183,6 +218,7 @@ export function CleanupPanel({
                       <ChangeRow
                         key={c.id}
                         change={c}
+                        noun={noun}
                         onUndo={() => undoChange.mutate(c.id)}
                         undoing={undoChange.isPending && undoChange.variables === c.id}
                       />
@@ -239,10 +275,12 @@ function Summary({ run }: { run: CleanupRun }) {
 
 function ChangeRow({
   change,
+  noun,
   onUndo,
   undoing,
 }: {
   change: CleanupChange;
+  noun: string;
   onUndo: () => void;
   undoing: boolean;
 }) {
@@ -267,7 +305,7 @@ function ChangeRow({
             className="h-6 px-1.5 text-[10px]"
             onClick={onUndo}
             disabled={undoing}
-            aria-label={`Undo the change to ${change.factor_title}`}
+            aria-label={`Undo the change to ${change.object_title}`}
           >
             {undoing ? <Loader2 className="size-3 animate-spin" /> : <Undo2 className="size-3" />}
             Undo
@@ -275,7 +313,7 @@ function ChangeRow({
         )}
       </div>
 
-      <ChangeDetail change={change} />
+      <ChangeDetail change={change} noun={noun} />
 
       {change.reason && (
         <p className="mt-1.5 leading-snug text-muted-foreground">{change.reason}</p>
@@ -285,7 +323,7 @@ function ChangeRow({
 }
 
 /** before → after, showing only the fields the change actually touched. */
-function ChangeDetail({ change }: { change: CleanupChange }) {
+function ChangeDetail({ change, noun }: { change: CleanupChange; noun: string }) {
   if (change.change_type === "reword") {
     return (
       <div className="mt-1 space-y-0.5 leading-snug">
@@ -295,20 +333,27 @@ function ChangeDetail({ change }: { change: CleanupChange }) {
     );
   }
   if (change.change_type === "move") {
+    // THE NAME, FALLING BACK TO THE KEY. A category key reads perfectly well
+    // ("strength → weakness"); an initiative is identified by its uuid, so
+    // without the name this row would print two of them. Runs recorded before
+    // the second subject existed carry only `category_key`, which is why both
+    // are read.
+    const from = change.before["group_name"] ?? change.before["category_key"];
+    const to = change.after["group_name"] ?? change.after["category_key"];
     return (
       <p className="mt-1 leading-snug">
-        <span className="text-foreground">{change.factor_title}</span>
+        <span className="text-foreground">{change.object_title}</span>
         <span className="text-muted-foreground">
           {" "}
-          — {change.before["category_key"]} → {change.after["category_key"]}
+          — {from} → {to}
         </span>
       </p>
     );
   }
   return (
     <p className="mt-1 leading-snug">
-      <span className="text-foreground">{change.factor_title}</span>
-      <span className="text-muted-foreground"> — folded into a note that says the same thing</span>
+      <span className="text-foreground">{change.object_title}</span>
+      <span className="text-muted-foreground"> — folded into another {noun} that says the same thing</span>
     </p>
   );
 }
@@ -329,7 +374,7 @@ function SkippedList({ skipped }: { skipped: CleanupRun["skipped"] }) {
       </div>
       <ul className="mt-1.5 space-y-1 text-xs leading-snug text-muted-foreground">
         {skipped.map((s, i) => (
-          <li key={`${s.factor_id}-${i}`}>
+          <li key={`${s.object_id}-${i}`}>
             {s.title ? <span className="text-foreground">{s.title}</span> : "A proposed change"} —{" "}
             {s.refused}.
           </li>

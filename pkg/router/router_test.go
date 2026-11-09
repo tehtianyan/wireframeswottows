@@ -83,6 +83,15 @@ func TestRoutePrecedence(t *testing.T) {
 		{"POST", "/api/v1/workshops/abc/cleanup/changes/c1/undo",
 			"/api/v1/workshops/{id}/cleanup/changes/{changeId}/undo"},
 
+		// The delivery board. "delivery" is a literal beside {kind}, and the
+		// export sits one level deeper than the per-object PUT — so this also
+		// asserts that a GET of ".../delivery/export/jira.csv" is not read as
+		// a PUT target called "export".
+		{"GET", "/api/v1/workshops/abc/delivery", "/api/v1/workshops/{id}/delivery"},
+		{"GET", "/api/v1/workshops/abc/delivery/export/jira.csv",
+			"/api/v1/workshops/{id}/delivery/export/jira.csv"},
+		{"PUT", "/api/v1/workshops/abc/delivery/r1", "/api/v1/workshops/{id}/delivery/{objectId}"},
+
 		// Participants and archiving: more literals beside the {kind}
 		// wildcard, and these carry membership writes, so a routing mistake
 		// here would surface as "unknown object kind" on a security-relevant

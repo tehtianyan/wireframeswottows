@@ -980,6 +980,81 @@ Password" — which is the commonest phishing pattern there is.
 | MAIL-46 | admin | Disable an account, then ask for a reset as that person | The same reassuring message, and **no link is sent**. A reset must not hand back access that was withdrawn |
 | MAIL-47 | admin | Check Recent deliveries after MAIL-43 and MAIL-46 | Both are logged as **skipped**, so the silence is explained to you even though it was not explained to them |
 
+# Part M — The TOWS matrix and the delivery board
+
+The sequence the room follows: pair the themes in a quadrant, write the actions
+that pairing suggests, tidy them, rank them, then the next quadrant. When the
+matrix is full the work moves to the Reporting stage, where it is tracked to
+completion and handed to Jira.
+
+Run Part M on **SWOT-TOWS**. M.5 is the genericity check and runs elsewhere.
+
+## M.1 The 3×3
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| TOWS-01 | F | Open stage 5, TOWS Matrix | A **3×3 grid**: the top-left cell is **empty**, Strengths and Weaknesses run across the top, Opportunities and Threats down the side |
+| TOWS-02 | F | Read the edge cells | They hold the **themes** from stages 1-4, with their notes — not individual stickies |
+| TOWS-03 | F | Find the four middle cells | SO, WO, ST, WT. Nothing on screen has been typed by a developer: the axes come from the relationship types' own categories |
+| TOWS-04 | F | Drag a strength theme into the SO cell, and release | The cell shows the half-made pair and **says what it still needs** |
+| TOWS-05 | F | Drag an opportunity theme into the same cell | The pairing is made |
+| TOWS-06 | F | Try to drag a **weakness** theme into SO | Refused, naming the categories that cell accepts |
+| TOWS-07 | F | Look at a theme that mixes categories | It is **listed below the grid** with the reason, not silently dropped |
+
+## M.2 Actions, which are where the room spends its time
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| TOWS-10 | F | In the SO cell, add an **initiative** — a heading such as "Invest in partners" | It appears as a heading in that cell only |
+| TOWS-11 | F | Add an action under it, typing **only the title** and leaving "More detail (optional)" empty | **It is created.** Being refused here with "What to do is required" is the defect fixed on 2026-11-09 — report any recurrence as **Critical**, it blocks the whole stage |
+| TOWS-12 | F | Add two more actions | They number 1, 2, 3 in the order you added them |
+| TOWS-13 | F | Add an initiative with the SAME NAME in the WO cell | Allowed, and it is a **separate** initiative. "Which quadrant produced this" has to stay answerable |
+| TOWS-14 | P | As a participant, rate an action 1-5 | The control appears and the average updates |
+| TOWS-15 | F | Look at the same action as the facilitator | You see the figure and the words **"participant only"** — not a missing control |
+| TOWS-16 | F | Check any rated action | **Two numbers**: the average AND how many people rated. A total alone reads as agreement |
+| TOWS-17 | F | Drag the LOWEST-rated action to the top | Allowed. **Both numbers stay on screen** — your rank is the decision, the average is the room's view, and they are allowed to disagree |
+| TOWS-18 | P | Try to reorder as a participant | Refused. Reordering is a boundary here, unlike who may write where on the capture board |
+
+## M.3 Tidying the actions
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| TOWS-20 | F | Write the same action twice, in two different quadrants, in different words | — |
+| TOWS-21 | F | Find **Deduplicate and Fix** below the matrix | It is there. It says "action", not "note" |
+| TOWS-22 | F | Run it | Typos fixed, vague actions sharpened, a duplicate folded away. Every change listed with its reason and an **Undo** |
+| TOWS-23 | F | Undo one change | The action comes back exactly as it was |
+| TOWS-24 | P | Rate an action, then ask the facilitator to run the tidy-up again | That action is **never folded away**. It is reported under "Left alone" with the reason — merging it would throw the room's prioritisation out with the duplicate |
+| TOWS-25 | F | Check the capture board's tidy-up still works | It does, and says "note". The two do not show each other's history |
+
+## M.4 The delivery board and Export to Jira
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| DEL-01 | F | Open stage 6, Reporting | A **Delivery board** sits above the report, with **To Do / In Progress / Done** |
+| DEL-02 | F | Count the cards | Every action from every quadrant, each under its initiative's name |
+| DEL-03 | F | Look at an action nobody has placed | It is in **To Do**, not missing |
+| DEL-04 | F | Drag a card to In Progress | It moves and stays there on reload |
+| DEL-05 | F | Look at the order inside a column | It is the rank you set on the matrix. **Dragging up and down inside a column is deliberately not offered** — that decision was taken in front of the room and this screen does not overrule it |
+| DEL-06 | F | Check an initiative's actions | They sit **together** in the numbering, not interleaved with another initiative's |
+| DEL-07 | P | As a participant, try to move a card | You cannot, and the board **says so** rather than offering a control that will be refused |
+| DEL-08 | F | Look at a card for an action nobody has approved | It carries its governance state. Unagreed work must not look agreed |
+| DEL-09 | F | Narrow the browser to about a phone's width | The columns stack, all the same width, and **the page never scrolls sideways** |
+| DEL-10 | F | Click **Export to Jira** | A `.csv` downloads |
+| DEL-11 | F | Open it in a spreadsheet | One **Epic** row per initiative, one **Story** per action, Epic Link naming the epic |
+| DEL-12 | F | Check the Status column | It says **In Progress**, not `in_progress`. Jira matches a status by its display name |
+| DEL-13 | F | Find the two initiatives you gave the same name in TOWS-13 | Their Epic Names are **different**. Identical names make Jira silently attach the wrong stories — report any duplicate as **Critical** |
+| DEL-14 | F | Read a Story's Description | It names the workshop, the quadrant, the initiative, and the rating **with how many people gave it** |
+| DEL-15 | F | Import it into a Jira project | It imports without a mapping step. *(Skip if no Jira is available, and say so.)* |
+
+## M.5 GENERICITY — nothing here leaked
+
+| ID | Role | Steps | Expected result |
+| --- | --- | --- | --- |
+| GEN-40 | F | Open Business Model Canvas, which HAS a relate stage | **No initiatives, no actions, no tidy-up** in its cells. It never asked for them |
+| GEN-41 | F | Open its Reporting stage | **No delivery board and no Export to Jira** |
+| GEN-42 | F | Open PESTLE's Reporting stage | The same: no board |
+| GEN-43 | F | Open Transformation Planning's relate stage | Its dependency matrix is unchanged, pairing factors rather than themes |
+
 ## Defect template
 
 Use the template and severity guide at the end of `UAT_TEST_SCRIPT.md`, and add

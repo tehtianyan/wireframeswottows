@@ -195,7 +195,12 @@ async function cleanup(c, { titlePrefixes = [], allReports = false, ids = {} } =
     }
   }
   for (const prefix of titlePrefixes) {
-    for (const table of ["recommendations", "insights", "factor_relationships", "syntheses", "factors"]) {
+    // `initiatives` arrived with the TOWS matrix and was missing here, so a
+    // suite that swept by prefix left every initiative it made behind — in
+    // the DEMO workshop, which is what the next UAT session opens. Actions go
+    // first: deleting an initiative cascades to them anyway, but a probe
+    // action can also exist with no initiative when a create half-failed.
+    for (const table of ["recommendations", "insights", "factor_relationships", "syntheses", "initiatives", "factors"]) {
       await c.query(`delete from public.${table} where title like $1`, [`${prefix}%`]);
     }
   }

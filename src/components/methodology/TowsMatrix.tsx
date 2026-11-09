@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PanelHeading } from "@/components/workshop-ui";
 import { RelationshipMatrix } from "./RelationshipMatrix";
+import { CleanupPanel } from "./CleanupPanel";
 import { ThemeRating } from "./ThemeRating";
 import { usePointerDrag } from "@/lib/usePointerDrag";
 import {
@@ -602,6 +603,42 @@ export function TowsMatrix({
           </div>
         </div>
       </section>
+
+      {/* STEP (c) OF THE ROOM'S SEQUENCE — pair the themes, write the
+          actions, TIDY THEM, then rank them. So it sits below the matrix:
+          the matrix is what the room is looking at, and the tidy-up is what
+          you reach for once a quadrant is full.
+
+          The same component the capture board uses, told which subject this
+          stage tidies. Whether there is a tidy-up at all is the server's
+          answer — it offers one wherever the methodology has a `changeset`
+          prompt for this stage type — so a methodology that configures none
+          gets no button here and none of this is SWOT knowledge. */}
+      {actionsConfig && (
+        <CleanupPanel
+          workshopId={workshop.id}
+          stage={stage}
+          isFacilitator={canRank}
+          subject={actionsConfig.kind}
+          noun={actionsConfig.label.toLowerCase()}
+          heading={`Tidy the ${actionsConfig.label.toLowerCase()}s`}
+          blurb={
+            <>
+              Fixes typos, sharpens vague {actionsConfig.label.toLowerCase()}s, files misplaced
+              ones under the right {actionsConfig.groupLabel.toLowerCase()} and folds
+              near-duplicates away — across every cell at once, so the same work written down
+              twice is caught. Changes are applied straight away, listed below, and any of them
+              can be undone. Nothing is approved and nothing is deleted.{" "}
+              <strong className="font-medium text-foreground">
+                One the room has already rated is never folded away:
+              </strong>{" "}
+              that rating is the prioritisation decision, and merging it would throw the decision
+              out with the duplicate.
+            </>
+          }
+          invalidate={["objects", "weights"]}
+        />
+      )}
 
       {/* LISTED, NOT DROPPED. A theme that cannot sit on an axis is work
           somebody did, and omitting it silently reads as the theme having

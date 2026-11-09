@@ -30,6 +30,7 @@ const suites = [
   ["participant-flow", "Flow — capture, theme and prioritise one category at a time"],
   ["tows-matrix", "Strategy matrix — axes from config, initiatives, actions, ranking"],
   ["visual-matrix", "Strategy matrix — measured in a real browser (needs the dev UI)"],
+  ["delivery", "Delivery board — the kanban on Reporting, and Export to Jira"],
   ["objects", "Phase 2 — analysis objects and governance"],
   ["reporting", "Phase 4 — reports, versioning, export"],
   ["knowledge", "Phase 5 — knowledge, notifications, admin"],

@@ -28,24 +28,242 @@ func testMethodology() *methodology.Methodology {
 	}
 }
 
-func notes() []cleanupNote {
-	return []cleanupNote{
-		{ID: "f1", Category: "strength", Title: "Strong brand recognitoin", Desc: "", state: "submitted"},
-		{ID: "f2", Category: "strength", Title: "Our brand is well known", Desc: "", state: "submitted"},
-		{ID: "f3", Category: "strength", Title: "Legacy billing system", Desc: "", state: "submitted"},
+func notes() []cleanupItem {
+	return []cleanupItem{
+		{ID: "f1", GroupKey: "strength", Title: "Strong brand recognitoin", Desc: "", state: "submitted"},
+		{ID: "f2", GroupKey: "strength", Title: "Our brand is well known", Desc: "", state: "submitted"},
+		{ID: "f3", GroupKey: "strength", Title: "Legacy billing system", Desc: "", state: "submitted"},
 		// Referenced three different ways — each must block a merge on its own.
-		{ID: "cited", Category: "strength", Title: "Cited by a theme", state: "submitted",
+		{ID: "cited", GroupKey: "strength", Title: "Cited by a theme", state: "submitted",
 			referenced: "is already cited by a theme"},
-		{ID: "voted", Category: "strength", Title: "Carries votes", state: "submitted",
+		{ID: "voted", GroupKey: "strength", Title: "Carries votes", state: "submitted",
 			referenced: "already carries votes or scores"},
-		{ID: "paired", Category: "strength", Title: "In a relationship", state: "submitted",
+		{ID: "paired", GroupKey: "strength", Title: "In a relationship", state: "submitted",
 			referenced: "is already used in a relationship"},
 	}
 }
 
+func factorSubject() *cleanupSubject { return cleanupSubjects["factor"] }
+
+// The categories a note may be moved between, as cleanupGroups builds them
+// from methodology config.
+func factorGroups() []cleanupGroup {
+	out := []cleanupGroup{}
+	for _, c := range testMethodology().FactorCategories {
+		out = append(out, cleanupGroup{Key: c.Key, Name: c.Name, id: c.ID})
+	}
+	return out
+}
+
 func onlyPlan(t *testing.T, proposed ...proposedChange) ([]plannedChange, []CleanupSkip) {
 	t.Helper()
-	return planCleanup(testMethodology(), notes(), proposed)
+	return planCleanup(factorSubject(), factorGroups(), notes(), proposed)
+}
+
+// ---- the second subject ----
+//
+// THE PLANNER IS SHARED, SO IT HAS TO BE EXERCISED TWICE. Every rule above is
+// about notes, and the whole argument for generalising rather than copying the
+// feature is that one planner enforces the safety rules for both subjects. A
+// suite that only drives factors would leave that claim untested, and a change
+// that quietly made a rule factor-specific would stay green.
+
+func actionSubject() *cleanupSubject { return cleanupSubjects["recommendation"] }
+
+// Two initiatives, identified by id because an initiative has no key column
+// and its title is not unique.
+func actionGroups() []cleanupGroup {
+	return []cleanupGroup{
+		{Key: "init-sales", Name: "Build out new focussed sales campaigns", id: "init-sales"},
+		{Key: "init-brand", Name: "Invest in branding", id: "init-brand"},
+	}
+}
+
+func actions() []cleanupItem {
+	return []cleanupItem{
+		{ID: "a1", GroupKey: "init-sales", Title: "Build AI messaging that differentiaties us", state: "submitted"},
+		{ID: "a2", GroupKey: "init-sales", Title: "Build out AI messaging to differentiate", state: "submitted"},
+		{ID: "a3", GroupKey: "init-brand", Title: "Refresh the FSI pitch", state: "submitted"},
+		// The three ways an action is spoken for. Each must block a merge on
+		// its own, and each reason has to read after "it ".
+		{ID: "rated", GroupKey: "init-sales", Title: "Rated by the room", state: "submitted",
+			referenced: "has already been rated by the room"},
+		{ID: "reported", GroupKey: "init-sales", Title: "Listed in a report", state: "submitted",
+			referenced: "is already listed in a report"},
+		{ID: "tasked", GroupKey: "init-brand", Title: "Has delivery tasks", state: "submitted",
+			referenced: "already has delivery tasks against it"},
+	}
+}
+
+func planActions(t *testing.T, proposed ...proposedChange) ([]plannedChange, []CleanupSkip) {
+	t.Helper()
+	return planCleanup(actionSubject(), actionGroups(), actions(), proposed)
+}
+
+// If this were dropped, folding away a duplicate action would discard the
+// room's rating of it — and the rating IS the prioritisation decision the
+// matrix exists to take.
+func TestPlanNeverMergesASpokenForAction(t *testing.T) {
+	for _, id := range []string{"rated", "reported", "tasked"} {
+		plan, skipped := planActions(t, proposedChange{
+			Type: "merge", ObjectID: id, IntoObject: "a1", Reason: "duplicate",
+		})
+		if len(plan) != 0 {
+			t.Fatalf("%s: merged an action something already rests on; plan = %+v", id, plan)
+		}
+		if len(skipped) != 1 {
+			t.Fatalf("%s: expected one reported skip, got %d", id, len(skipped))
+		}
+		if !strings.HasPrefix(skipped[0].Refused, "it ") {
+			t.Fatalf("%s: unreadable refusal %q", id, skipped[0].Refused)
+		}
+	}
+}
+
+// The refusals must name ACTIONS, not notes. A facilitator told "that note is
+// not here" while looking at the TOWS matrix cannot act on the message, and a
+// shared planner is exactly where that kind of wrong noun survives.
+func TestPlanRefusalsUseTheSubjectsOwnNoun(t *testing.T) {
+	_, skipped := planActions(t,
+		proposedChange{Type: "merge", ObjectID: "a1", IntoObject: "a1"},
+		proposedChange{Type: "reword", ObjectID: "not-here", Title: "x"},
+		proposedChange{Type: "move", ObjectID: "a1", GroupKey: "no-such-initiative"},
+	)
+	if len(skipped) != 3 {
+		t.Fatalf("expected all three refused, got %d: %+v", len(skipped), skipped)
+	}
+	for _, s := range skipped {
+		if strings.Contains(s.Refused, "note") || strings.Contains(s.Refused, "category") {
+			t.Fatalf("an action was refused in the capture board's words: %q", s.Refused)
+		}
+	}
+	if !strings.Contains(skipped[2].Refused, "initiative") {
+		t.Fatalf("the move refusal does not name the group kind: %q", skipped[2].Refused)
+	}
+}
+
+// A move writes the GROUP's id, which for an initiative is its own uuid, and
+// records the before-state with a readable NAME beside the key. Printing two
+// uuids in the undo list would be technically complete and unusable.
+func TestPlanMoveBetweenInitiativesRecordsNames(t *testing.T) {
+	plan, skipped := planActions(t,
+		proposedChange{Type: "move", ObjectID: "a3", GroupKey: "init-sales"},
+	)
+	if len(skipped) != 0 {
+		t.Fatalf("a legitimate move was refused: %+v", skipped)
+	}
+	if len(plan) != 1 || plan[0].GroupID != "init-sales" {
+		t.Fatalf("the move did not resolve its initiative: %+v", plan)
+	}
+	if plan[0].Before["group_name"] != "Invest in branding" {
+		t.Fatalf("before.group_name missing or wrong: %+v", plan[0].Before)
+	}
+	if plan[0].After["group_name"] != "Build out new focussed sales campaigns" {
+		t.Fatalf("after.group_name missing or wrong: %+v", plan[0].After)
+	}
+	// An action has no category, so nothing should write one.
+	if _, ok := plan[0].Before["category_key"]; ok {
+		t.Fatalf("an action's move recorded a category: %+v", plan[0].Before)
+	}
+}
+
+// A note's move must keep writing `category_key` as well as the generic key:
+// rows written before the second subject existed carry only that, and undo
+// reads it. Dropping it would make every historic move un-undoable.
+func TestPlanMoveStillRecordsCategoryKeyForANote(t *testing.T) {
+	plan, _ := onlyPlan(t, proposedChange{Type: "move", FactorID: "f3", CategoryKey: "weakness"})
+	if len(plan) != 1 {
+		t.Fatalf("expected the move, got %d", len(plan))
+	}
+	if plan[0].Before["category_key"] != "strength" || plan[0].After["category_key"] != "weakness" {
+		t.Fatalf("a note's move stopped recording category_key: %+v / %+v", plan[0].Before, plan[0].After)
+	}
+	if plan[0].Before["group_key"] != "strength" {
+		t.Fatalf("a note's move did not record the generic key: %+v", plan[0].Before)
+	}
+}
+
+// Both field names reach the same place. The capture board's deployed prompt
+// says `factor_id` / `into_factor_id` / `category_key` and the action prompt
+// says `object_id` / `into_object_id` / `group_key`; accepting only one set
+// would silently refuse every change from the other prompt, which is a feature
+// failing with no error anywhere.
+func TestProposedChangeAcceptsBothFieldNames(t *testing.T) {
+	legacy := proposedChange{FactorID: "f1", IntoFactor: "f2", CategoryKey: "weakness"}
+	generic := proposedChange{ObjectID: "f1", IntoObject: "f2", GroupKey: "weakness"}
+	if legacy.subjectID() != generic.subjectID() ||
+		legacy.into() != generic.into() ||
+		legacy.group() != generic.group() {
+		t.Fatalf("the two spellings disagree: %+v vs %+v", legacy, generic)
+	}
+}
+
+// The chain rule, the one-change-per-item rule and the reword-then-merge
+// exception are the three that were hardest to get right for notes. They are
+// re-run here because they live in shared code and nothing else would notice
+// if one of them started reading a factor-only field.
+func TestPlanSharedRulesHoldForActionsToo(t *testing.T) {
+	plan, skipped := planActions(t,
+		proposedChange{Type: "merge", ObjectID: "a2", IntoObject: "a1"},
+		proposedChange{Type: "merge", ObjectID: "a3", IntoObject: "a2"},
+	)
+	if len(plan) != 1 || len(skipped) != 1 {
+		t.Fatalf("a chained merge of actions was allowed: plan=%+v skipped=%+v", plan, skipped)
+	}
+
+	plan, skipped = planActions(t,
+		proposedChange{Type: "reword", ObjectID: "a1", Title: "Build AI messaging that differentiates us"},
+		proposedChange{Type: "merge", ObjectID: "a2", IntoObject: "a1"},
+	)
+	if len(skipped) != 0 || len(plan) != 2 {
+		t.Fatalf("refused a legitimate reword-then-merge pair on actions: plan=%+v skipped=%+v", plan, skipped)
+	}
+
+	plan, skipped = planActions(t,
+		proposedChange{Type: "reword", ObjectID: "a1", Title: "Something else entirely"},
+		proposedChange{Type: "move", ObjectID: "a1", GroupKey: "init-brand"},
+	)
+	if len(plan) != 1 || len(skipped) != 1 {
+		t.Fatalf("two changes to one action were both planned: plan=%+v skipped=%+v", plan, skipped)
+	}
+}
+
+// subjectFor is the opt-in: a changeset prompt that does not say what it edits
+// cannot be run. "Nothing declared means factors" was the tempting default and
+// is how the second subject becomes silently wrong.
+func TestSubjectForRefusesAPromptThatDeclaresNothing(t *testing.T) {
+	if _, msg := subjectFor(&methodology.AIPrompt{AppliesTo: []string{}}); msg == "" {
+		t.Fatal("a changeset prompt with no applies_to was accepted")
+	}
+	if _, msg := subjectFor(&methodology.AIPrompt{AppliesTo: []string{"insight"}}); msg == "" {
+		t.Fatal("a changeset prompt naming an untidyable kind was accepted")
+	}
+	s, msg := subjectFor(&methodology.AIPrompt{AppliesTo: []string{"recommendation"}})
+	if msg != "" || s == nil || s.Kind != "recommendation" {
+		t.Fatalf("a correctly declared prompt was refused: %q", msg)
+	}
+}
+
+// The tidy-up is found by OUTPUT KIND and stage type, never by function key.
+// A constant here would mean the second tidy-up needed a code change, which is
+// the whole thing this engine is built not to need.
+func TestResolveChangesetPromptNamesNoFunctionKey(t *testing.T) {
+	m := &methodology.Methodology{AIPrompts: []methodology.AIPrompt{
+		{FunctionKey: "artifact_suggestion", StageType: "capture", OutputKind: "suggestions"},
+		{FunctionKey: "board_cleanup", StageType: "capture", OutputKind: "changeset"},
+		{FunctionKey: "action_cleanup", StageType: "relate", OutputKind: "changeset"},
+	}}
+	got := resolveChangesetPrompt(m, &methodology.Stage{StageType: "relate"})
+	if got == nil || got.FunctionKey != "action_cleanup" {
+		t.Fatalf("the relate stage resolved to %+v", got)
+	}
+	got = resolveChangesetPrompt(m, &methodology.Stage{StageType: "capture"})
+	if got == nil || got.FunctionKey != "board_cleanup" {
+		t.Fatalf("the capture stage resolved to %+v", got)
+	}
+	if got := resolveChangesetPrompt(m, &methodology.Stage{StageType: "report"}); got != nil {
+		t.Fatalf("a stage with no changeset prompt offered one: %+v", got)
+	}
 }
 
 func ptr(s string) *string { return &s }
@@ -137,7 +355,7 @@ func TestPlanMoveResolvesTheCategoryAndRefusesAnUnknownOne(t *testing.T) {
 		proposedChange{Type: "move", FactorID: "f3", CategoryKey: "weakness"},
 		proposedChange{Type: "move", FactorID: "f1", CategoryKey: "political"},
 	)
-	if len(plan) != 1 || plan[0].CategoryID != "cat-w" {
+	if len(plan) != 1 || plan[0].GroupID != "cat-w" {
 		t.Fatalf("the valid move did not resolve its category: %+v", plan)
 	}
 	if plan[0].Before["category_key"] != "strength" {
@@ -265,11 +483,11 @@ func TestPlanRefusesMergingAwayASurvivor(t *testing.T) {
 // erased. Treating the zero value as "clear it" wiped a note's body whenever
 // the rewrite touched only its title — found by a real run against the model.
 func TestPlanKeepsADescriptionThePropositionDidNotMention(t *testing.T) {
-	withDesc := []cleanupNote{
-		{ID: "f1", Category: "strength", Title: "Strong brand recognitoin",
+	withDesc := []cleanupItem{
+		{ID: "f1", GroupKey: "strength", Title: "Strong brand recognitoin",
 			Desc: "Unprompted awareness leads the category.", state: "submitted"},
 	}
-	plan, _ := planCleanup(testMethodology(), withDesc, []proposedChange{
+	plan, _ := planCleanup(factorSubject(), factorGroups(), withDesc, []proposedChange{
 		{Type: "reword", FactorID: "f1", Title: "Strong brand recognition"},
 	})
 	if len(plan) != 1 {
@@ -280,7 +498,7 @@ func TestPlanKeepsADescriptionThePropositionDidNotMention(t *testing.T) {
 	}
 
 	// An explicit empty string still clears it — absent and empty differ.
-	plan, _ = planCleanup(testMethodology(), withDesc, []proposedChange{
+	plan, _ = planCleanup(factorSubject(), factorGroups(), withDesc, []proposedChange{
 		{Type: "reword", FactorID: "f1", Title: "Strong brand recognition", Description: ptr("")},
 	})
 	if plan[0].After["description"] != "" {

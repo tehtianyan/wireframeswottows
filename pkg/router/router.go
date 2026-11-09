@@ -188,6 +188,15 @@ func New() http.Handler {
 			r.Post("/{id}/reports/{reportId}/versions", handlers.CreateReportVersion)
 			r.Get("/{id}/reports/{reportId}/export.html", handlers.ExportReportHTML)
 
+			// The delivery board and its export. "delivery" is another
+			// literal beside the {kind} wildcard, and the kind it tracks comes
+			// from the stage's own config rather than the URL — which is why
+			// there is no {kind} segment here and so no repeat of the chi
+			// collision that forced factors onto their own weights route.
+			r.Get("/{id}/delivery", handlers.GetDeliveryBoard)
+			r.Get("/{id}/delivery/export/jira.csv", handlers.ExportDeliveryJira)
+			r.Put("/{id}/delivery/{objectId}", handlers.SetDeliveryState)
+
 			// Every other reviewable object kind — syntheses, relationships,
 			// initiatives, insights, recommendations — shares one generic
 			// handler set dispatched on {kind}. See pkg/objects for the

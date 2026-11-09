@@ -526,19 +526,25 @@ export type CleanupChangeType = "reword" | "move" | "merge";
 export interface CleanupChange {
   id: string;
   change_type: CleanupChangeType;
-  factor_id: string;
+  /**
+   * What was tidied: a note on the capture board, or an action on the TOWS
+   * matrix. The server derives it from which column the row carries, so the
+   * two can never disagree.
+   */
+  object_kind: "factor" | "recommendation";
+  object_id: string;
   /** Only what the change touched, so an undo restores exactly that. */
   before: Record<string, string>;
   after: Record<string, string>;
   reason: string | null;
   undone_at: string | null;
-  factor_title: string;
+  object_title: string;
 }
 
 /** A change the model proposed and the server refused, with why. */
 export interface CleanupSkip {
   change_type: CleanupChangeType;
-  factor_id: string;
+  object_id: string;
   title: string;
   reason: string;
   refused: string;
@@ -819,6 +825,101 @@ export const reportsApi = {
     a.remove();
     // Revoked on the next tick so the click has taken the URL first.
     setTimeout(() => URL.revokeObjectURL(url), 0);
+  },
+};
+
+// ---- Delivery board ----
+//
+// The kanban on the Reporting stage. Everything about it comes from the
+// server's reading of stage config — the columns, their names, what the cards
+// are called — so nothing here names a state or counts them.
+
+export interface DeliveryState {
+  key: string;
+  name: string;
+  description?: string;
+}
+
+export interface DeliveryGroup {
+  id: string;
+  title: string;
+  type_key: string;
+  type_name: string;
+  position: number;
+}
+
+export interface DeliveryItem {
+  id: string;
+  title: string;
+  description: string;
+  /** Always a key the board has a column for; never empty. */
+  state: string;
+  /** The governance lifecycle, shown so unagreed work is visibly unagreed. */
+  object_state: string;
+  group_id: string | null;
+  group_title: string;
+  type_key: string;
+  type_name: string;
+  /** Position across the whole board, not within a heading. */
+  rank: number;
+  priority: string;
+}
+
+export interface DeliveryBoard {
+  kind: string;
+  label: string;
+  item_label: string;
+  group_kind: string;
+  states: DeliveryState[];
+  exports: string[];
+  groups: DeliveryGroup[];
+  items: DeliveryItem[];
+  can_move: boolean;
+  weight_key?: string;
+}
+
+export const deliveryApi = {
+  get: (workshopId: string, stageKey: string) =>
+    apiGet<DeliveryBoard>(`/workshops/${workshopId}/delivery?stage_key=${encodeURIComponent(stageKey)}`),
+
+  setState: (workshopId: string, objectId: string, stageKey: string, state: string) =>
+    apiPut<{ id: string; state: string; state_name: string }>(
+      `/workshops/${workshopId}/delivery/${objectId}?stage_key=${encodeURIComponent(stageKey)}`,
+      { state },
+    ),
+
+  /**
+   * Downloads the Jira import file. Same reasoning as the report's HTML
+   * export: the endpoint needs an Authorization header and a plain
+   * `<a href download>` navigation sends none, so it is fetched with the token
+   * and saved as a blob.
+   */
+  downloadJira: async (workshopId: string, stageKey: string, filename: string) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    const url =
+      `${API_BASE}/api/v1/workshops/${workshopId}/delivery/export/jira.csv` +
+      `?stage_key=${encodeURIComponent(stageKey)}`;
+    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) {
+      let message = `Export failed (${res.status})`;
+      try {
+        const body = (await res.json()) as Envelope<unknown>;
+        if (body.error?.message) message = body.error.message;
+      } catch {
+        /* a non-JSON body leaves the status-code message in place */
+      }
+      throw new ApiError("EXPORT_FAILED", message);
+    }
+    const blob = await res.blob();
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 0);
   },
 };
 

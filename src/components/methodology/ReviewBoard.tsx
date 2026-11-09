@@ -65,7 +65,12 @@ export function ReviewBoard({
     const m = new Map<string, CleanupChange>();
     for (const run of cleanupQuery.data ?? []) {
       for (const c of run.changes) {
-        if (!c.undone_at) m.set(c.factor_id, c);
+        // FACTORS ONLY. The tidy-up now also runs over the TOWS matrix's
+        // actions, and those changes come back in the same runs — keyed by
+        // object id, so without this filter an action's change could land on a
+        // note whose id it happened to match, and more realistically the map
+        // would carry rows this board has no card for.
+        if (!c.undone_at && c.object_kind === "factor") m.set(c.object_id, c);
       }
     }
     return m;

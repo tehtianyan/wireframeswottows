@@ -12,6 +12,7 @@ import { TowsMatrix } from "@/components/methodology/TowsMatrix";
 import { AiActionPanel } from "@/components/methodology/AiActionPanel";
 import { StageAssistant } from "@/components/methodology/StageAssistant";
 import { ReportBuilder } from "@/components/methodology/ReportBuilder";
+import { DeliveryBoard } from "@/components/methodology/DeliveryBoard";
 import { workshopsApi, type MethodologyStage } from "@/lib/api";
 import { useCurrentPerson } from "@/lib/useCurrentPerson";
 
@@ -210,7 +211,16 @@ function StagePage() {
           {...guidanceFor(stage)}
           assistant={<StageAssistant workshop={workshop} stage={stage} />}
         >
-          <ReportBuilder workshop={workshop} stage={stage} />
+          {/* THE BOARD COMES FIRST, because once a workshop reaches Reporting
+              the live question is "where is the work?", not "what did we
+              decide?" — the report answers the second and is right below.
+              It renders nothing at all unless the stage's config declares a
+              `delivery` block, which is how the other seven methodologies are
+              untouched: the absence of a key, not a flag set to false. */}
+          <div className="space-y-4">
+            <DeliveryBoard workshop={workshop} stage={stage} />
+            <ReportBuilder workshop={workshop} stage={stage} />
+          </div>
         </StageShell>
       );
 

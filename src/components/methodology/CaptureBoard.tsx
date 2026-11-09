@@ -749,7 +749,23 @@ export function CaptureBoard({
 
       {/* Tidying the whole wall is the facilitator's job, and the panel hides
           itself entirely when the methodology has no cleanup prompt. */}
-      <CleanupPanel workshopId={workshopId} stage={stage} isFacilitator={facilitator} />
+      <CleanupPanel
+        workshopId={workshopId}
+        stage={stage}
+        isFacilitator={facilitator}
+        blurb={
+          <>
+            Fixes typos, clarifies vague notes, moves misplaced ones and folds near-duplicates
+            away — across every panel at once. Changes are applied straight away, listed below,
+            and any of them can be undone. Nothing is approved and nothing is deleted.{" "}
+            <strong className="font-medium text-foreground">
+              This is not the same as grouping notes into a theme:
+            </strong>{" "}
+            a duplicate is archived, and a note that a theme already cites is never folded away at
+            all.
+          </>
+        }
+      />
 
       <div
         className={cn(

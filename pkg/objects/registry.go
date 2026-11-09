@@ -194,6 +194,18 @@ type Kind struct {
 	// facilitator drags into place. See SetObjectOrder for why that order is
 	// authoritative here and is NOT on the capture board.
 	Ordered bool `json:"ordered"`
+	// DeliveryCol is the column holding where this kind sits on a delivery
+	// board — the kanban that tracks agreed work to completion after the
+	// workshop. Empty means the kind has no such state, and a stage
+	// configuring a board over it is refused.
+	//
+	// The COLUMN is platform; the COLUMN'S VALUES are not. What states exist
+	// is declared by the stage that draws the board, which is why there is no
+	// CHECK on the column and no list of state keys anywhere in this package.
+	//
+	// It is deliberately not exposed in the catalogue JSON: the client learns
+	// the kind and the states from stage config and never needs the column.
+	DeliveryCol string `json:"-"`
 	// Parent is the kind this one is contained by, if any.
 	Parent *ParentRef `json:"parent,omitempty"`
 	// TitleRequired is false for kinds whose title is optional (a relationship
@@ -353,10 +365,28 @@ var registry = map[string]*Kind{
 		// untouched.
 		HostedBy:      []HostedRule{{StageType: "relate", RequiresConfigKey: "actions"}},
 		Ordered:       true,
-		Parent:        &ParentRef{Column: "initiative_id", Kind: "initiative", Table: "initiatives"},
+		// A recommendation is the only kind that outlives the workshop as a
+		// piece of work somebody has to do, so it is the only one with a
+		// delivery state. A theme or an insight is a finding; it is never
+		// "in progress".
+		DeliveryCol: "delivery_state",
+		Parent:      &ParentRef{Column: "initiative_id", Kind: "initiative", Table: "initiatives"},
 		TitleRequired: true,
-		// `recommendations.description` is `not null`.
-		DescriptionRequired: true,
+		// NULLABLE SINCE 2026-11-09, and the column was what changed.
+		//
+		// The TOWS matrix collects an action as one line — "Build out AI
+		// messaging that differentiates us" — typed in front of the room, and
+		// its quick-add offers the body as "More detail (optional)". The
+		// column was NOT NULL, so Go correctly required it and the form could
+		// never satisfy its own promise: adding an action failed with "What to
+		// do is required." The same shape as the theme-naming prompt, which is
+		// why this field exists at all — except that time Go had invented a
+		// rule the schema did not have, and this time the schema was wrong
+		// about the product. See 20261109120000_an_action_is_one_line.sql.
+		//
+		// `insights.description` stays required: an insight is a CLAIM and the
+		// description is what it claims. The asymmetry is the point.
+		DescriptionRequired: false,
 		DescriptionLabel:    "What to do",
 		Fields: []Field{
 			{Name: "priority", Label: "Priority", Type: "enum", Required: true,
