@@ -99,7 +99,24 @@ runSuite("visual-matrix", async ({ results: r }) => {
     // the stage type. The capture-board suite's first version matched any
     // capture stage, picked a Transformation workshop and timed out waiting
     // for tiles that were never going to render.
-    const workshops = (await call("/workshops"))?.data ?? [];
+    // "COULD NOT READ THE LIST" IS NOT "THERE IS NOTHING THERE".
+    //
+    // `api` defaults to localhost, so pointing this suite at production
+    // without SWOT_API_BASE sends a production token to the dev server, gets
+    // UNAUTHORIZED, and then reports "no workshop with an axis-layout relate
+    // stage" — a confident statement about the deployment, from a request
+    // that never reached it. The same failure the capture board's drag check
+    // was written to avoid. So the envelope is read before the data.
+    const listed = await call("/workshops");
+    if (!listed?.success) {
+      r.skip(
+        `could not read the workshop list from ${api} — ${listed?.error?.code ?? "no response"}. ` +
+          `Set SWOT_API_BASE when the UI is not the local dev server.`,
+      );
+      await browser.close();
+      return;
+    }
+    const workshops = listed.data ?? [];
     let found = null;
     const considered = [];
     for (const w of workshops) {
