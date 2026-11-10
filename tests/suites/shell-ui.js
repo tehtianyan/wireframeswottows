@@ -424,6 +424,32 @@ runSuite("shell-ui", async ({ results: r }) => {
     "...which is what the document head points at",
   );
   const favicon = read("public", "favicon.svg");
+  // IT HAS TO PARSE, AND THE FIRST VERSION DID NOT — IT SHIPPED THAT WAY.
+  //
+  // An SVG is XML, and XML forbids a double hyphen inside a comment. The
+  // explanation above the markup named the CSS tokens the CSS way
+  // (`--primary`), so the whole file was unparseable: every browser refused
+  // it and the tab drew NOTHING. The scaffold builder's logo was gone and
+  // nothing replaced it.
+  //
+  // Every check written for this feature passed. The suite asked whether the
+  // file existed, whether the head pointed at it, and whether what it draws
+  // still names the builder; the browser probe asked for it over HTTP and got
+  // 200 with `image/svg+xml`. **A 200 says the file was served, never that it
+  // renders** — the same gap as asserting a class is present and calling the
+  // box square. It was found by OPENING the file in a browser.
+  //
+  // Phrased as the rule rather than as today's text, so rewording the comment
+  // cannot quietly reintroduce it.
+  const badComments = [...favicon.matchAll(/<!--([\s\S]*?)-->/g)].filter((m) => m[1].includes("--"));
+  r.ok(
+    badComments.length === 0,
+    "no comment in the icon contains a double hyphen, which XML forbids and which made it unparseable",
+  );
+  r.ok(
+    !/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/i.test(favicon),
+    "...and it carries no bare ampersand either, the other way an SVG stops parsing",
+  );
   // THE MARKUP, NOT THE COMMENT. The file explains at length which logo it
   // replaced and why, so its raw text names the scaffold builder on purpose —
   // the same reason TowsMatrix.tsx is read with its comments stripped. What

@@ -10,15 +10,22 @@
     where everybody sees it.
 
     IT IS THE HEADER MARK, NOT A NEW DESIGN. BrandMark draws a rounded square
-    filled with --primary carrying the brand initials, so the tab shows the
-    same object the header does. The colours are the literal values of
-    --primary and --primary-foreground from styles.css for each mode; CSS
+    filled with the primary token carrying the brand initials, so the tab shows
+    the same object the header does. The colours are the literal values of the
+    primary and primary-foreground tokens from styles.css for each mode; CSS
     custom properties cannot reach inside an SVG loaded as a favicon, which is
     the same reason skins.ts carries literal swatches.
 
+    NO DOUBLE HYPHEN MAY APPEAR IN THIS COMMENT. An SVG is XML, and XML forbids
+    it inside a comment — so writing the token names the CSS way made the whole
+    file unparseable and the tab drew NOTHING. It shipped that way, because the
+    check asked whether the file was served and whether it still mentioned the
+    scaffold builder, and a 200 with the right content-type answers neither
+    question a reader has. Opening the file in a browser is what found it.
+
     BOTH MODES, because a tab strip follows the OS theme and a single fill
     that works on one ground disappears on the other. The light value is the
-    .light palette's --primary, the dark value the :root one.
+    .light palette's primary token, the dark value the :root one.
 
     A per-organization logo is NOT resolved here: a favicon is requested
     before anybody is signed in, so there is no organization to resolve. A
