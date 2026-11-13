@@ -568,9 +568,27 @@ runSuite("board-ui", async ({ results: r }) => {
     /onSave=\{\(input\) => onSave\(f\.id, input\)\}/.test(board),
     "editing a note inside a theme really saves it, instead of discarding what was typed",
   );
+  // THE GUARD AROUND THE BIN, not how it is spelled.
+  //
+  // This check used to match the literal `editable && onDelete` and went red
+  // the day a third condition was added to a correct change — the same way
+  // `selectable || selected` did on 2026-11-10. It now reads the conditional
+  // that actually wraps the control and asks what that conditional knows.
+  const binAt = note.indexOf("<Trash2");
+  const binGuard = binAt > 0 ? note.slice(Math.max(0, binAt - 600), binAt) : "";
   r.ok(
-    /editable && onDelete/.test(note),
+    /onDelete/.test(binGuard),
     "...and no bin is drawn where deleting is not the action",
+    binAt > 0 ? "guard found" : "no Trash2 in the note at all",
+  );
+  // NOR ON A NOTE THE ROOM HAS DECIDED ON (2026-11-14). A facilitator may now
+  // reword an approved note, which made `editable` true for one — and the API
+  // refuses to DELETE an approved factor ("reject it instead so the decision
+  // stays on the record"). Without this the correction fix would have put a
+  // bin on every approved note that could only ever return an error.
+  r.ok(
+    /!decided/.test(binGuard),
+    "...and none on a reviewed note, which the API refuses to delete",
   );
   r.ok(
     /fromTheme/.test(board) && /Out of this \$\{label\}/.test(board),

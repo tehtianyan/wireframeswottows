@@ -1,7 +1,17 @@
 import { Fragment, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, Loader2, Plus, Trash2, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Focus,
+  Grid2X2,
+  GripVertical,
+  Loader2,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,6 +110,95 @@ function byRank(a: WorkObject, b: WorkObject): number {
 
 const LIVE_STATES = new Set(["draft", "submitted", "approved"]);
 
+/**
+ * The switch between the whole grid and one pairing at a time, and the stepper
+ * through them.
+ *
+ * BOTH DIRECTIONS ARE ONE CONTROL. A separate "focus" button and a separate
+ * "back to the full matrix" button somewhere else is how a facilitator ends up
+ * stuck in a view they cannot find the way out of — the thing UAT asked to be
+ * made intuitive. Here the way out sits beside the way through.
+ *
+ * It names no methodology: the step labels are the relationship types' own
+ * names from config, and the count is however many the grid has.
+ */
+function FocusControl({
+  cells,
+  index,
+  onChange,
+}: {
+  cells: { type: RelationshipType }[];
+  index: number | null;
+  onChange: (i: number | null) => void;
+}) {
+  if (index === null) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        className="shrink-0 gap-1.5"
+        onClick={() => onChange(0)}
+        title={`Work through the ${cells.length} pairings one at a time`}
+      >
+        <Focus className="size-3.5" />
+        One at a time
+      </Button>
+    );
+  }
+  const current = cells[index]?.type;
+  const last = index === cells.length - 1;
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <Button
+        size="icon"
+        variant="ghost"
+        className="size-7"
+        disabled={index === 0}
+        onClick={() => onChange(index - 1)}
+        aria-label="Previous pairing"
+      >
+        <ChevronLeft className="size-4" />
+      </Button>
+      <span className="min-w-0 px-1 text-center">
+        <span className="block truncate text-xs font-medium">{current?.name}</span>
+        <span className="block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          {index + 1} of {cells.length}
+        </span>
+      </span>
+      {/* "DONE, NEXT" RATHER THAN A BARE ARROW. The room finishes one pairing
+          and moves to the next, so the control says what it does; on the last
+          one there is nowhere forward, and the honest offer is the full grid. */}
+      {last ? (
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => onChange(null)}>
+          <Grid2X2 className="size-3.5" />
+          Show all
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          onClick={() => onChange(index + 1)}
+          title={`Next: ${cells[index + 1]?.type.name ?? ""}`}
+        >
+          Next
+          <ChevronRight className="size-3.5" />
+        </Button>
+      )}
+      <Button
+        size="icon"
+        variant="ghost"
+        className="size-7"
+        onClick={() => onChange(null)}
+        aria-label="Show the full matrix"
+        title="Show the full matrix"
+      >
+        <Grid2X2 className="size-4" />
+      </Button>
+    </div>
+  );
+}
+
 export function TowsMatrix({
   workshop,
   stage,
@@ -194,6 +293,55 @@ export function TowsMatrix({
     }
     return { cols, rows, at };
   }, [types, categories]);
+
+  /**
+   * FOCUS MODE: one cell at a time (DECIDED 2026-11-14).
+   *
+   * UAT: "The TOWS Matrix is too overwhelming." A full grid asks the room to
+   * hold four pairings, four sets of actions and both axes at once, when the
+   * work is done one pairing at a time — pair, write the actions, tidy them,
+   * rank them, move on.
+   *
+   * IT IS A FILTER OVER `grid`, NOT A SECOND LAYOUT. Focusing picks one
+   * relationship type and rebuilds cols/rows from that type's own source and
+   * target, so the SAME renderer draws it: a 3x3 (corner + 2 columns, corner +
+   * 2 rows) becomes a 2x2, and the axis headers show only the two categories
+   * that pairing uses — which is the whole of the request. A second layout
+   * would have been a second place for the drop rules, the ranking and the
+   * "+N more" control to drift.
+   *
+   * THE ORDER IS THE GRID'S OWN READING ORDER, row-major, so it names no
+   * methodology. For SWOT-TOWS that is SO, WO, ST, WT — the order asked for —
+   * because opportunities and threats are the rows. A methodology with six
+   * relationship types gets six steps from the same code.
+   */
+  const cells = useMemo(() => {
+    if (!grid) return [];
+    const out: { type: RelationshipType; col: FactorCategory; row: FactorCategory }[] = [];
+    for (const row of grid.rows) {
+      for (const col of grid.cols) {
+        const type = grid.at.get(`${col.id}|${row.id}`);
+        if (type) out.push({ type, col, row });
+      }
+    }
+    return out;
+  }, [grid]);
+
+  // null is the full matrix. Deliberately NOT persisted: which pairing the
+  // room is on is a fact about this minute of the session, and a facilitator
+  // returning tomorrow should see the whole board rather than wherever they
+  // happened to stop.
+  const [focusIdx, setFocusIdx] = useState<number | null>(null);
+  const focused = focusIdx !== null && focusIdx >= 0 && focusIdx < cells.length
+    ? cells[focusIdx]!
+    : null;
+
+  /** What the grid renderer is given: everything, or the one focused pairing. */
+  const viewGrid = useMemo(() => {
+    if (!grid) return null;
+    if (!focused) return grid;
+    return { cols: [focused.col], rows: [focused.row], at: grid.at };
+  }, [grid, focused]);
 
   /** Themes, with the category derived from the notes they cite. */
   const themesByCategory = useMemo(() => {
@@ -459,7 +607,7 @@ export function TowsMatrix({
 
   // NOT A BROKEN SCREEN. A methodology whose relationship types do not form a
   // complete grid gets the flat matrix, which is correct for any shape.
-  if (!grid || !relKind) {
+  if (!grid || !viewGrid || !relKind) {
     return <RelationshipMatrix workshop={workshop} stage={stage} />;
   }
 
@@ -497,15 +645,41 @@ export function TowsMatrix({
           hint={`${(relsQuery.data ?? []).length} paired · ${actionCount} ${
             actionsConfig ? actionsConfig.label.toLowerCase() : "action"
           }${actionCount === 1 ? "" : "s"}`}
+          action={
+            cells.length > 1 ? (
+              <FocusControl
+                cells={cells}
+                index={focusIdx}
+                onChange={setFocusIdx}
+              />
+            ) : undefined
+          }
         />
         <p className="border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
-          Drag a theme from the top edge and one from the left edge into a cell to pair them.
-          {actionsConfig && (
+          {focused ? (
             <>
-              {" "}
-              Then write the {actionsConfig.label.toLowerCase()}s that pairing suggests under
-              an {actionsConfig.groupLabel.toLowerCase()} heading. Each cell only accepts the
-              categories its own rule allows.
+              Working on <strong className="font-medium text-foreground">{focused.type.name}</strong>{" "}
+              only — just {focused.col.name.toLowerCase()} and {focused.row.name.toLowerCase()} are
+              on the axes. Drag one theme from each edge into the cell to pair them.
+              {actionsConfig && (
+                <>
+                  {" "}
+                  Then write the {actionsConfig.label.toLowerCase()}s that pairing suggests. When
+                  this one is done, step to the next.
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              Drag a theme from the top edge and one from the left edge into a cell to pair them.
+              {actionsConfig && (
+                <>
+                  {" "}
+                  Then write the {actionsConfig.label.toLowerCase()}s that pairing suggests under
+                  an {actionsConfig.groupLabel.toLowerCase()} heading. Each cell only accepts the
+                  categories its own rule allows.
+                </>
+              )}
             </>
           )}
         </p>
@@ -518,15 +692,23 @@ export function TowsMatrix({
         <div className="overflow-x-auto">
           <div
             data-matrix-grid
-            className="grid min-w-[58rem] gap-px bg-border"
+            data-focused={focused ? focused.type.key : undefined}
+            className="grid gap-px bg-border"
             style={{
-              gridTemplateColumns: `minmax(13rem, 0.8fr) repeat(${grid.cols.length}, minmax(17rem, 1fr))`,
+              gridTemplateColumns: `minmax(13rem, 0.8fr) repeat(${viewGrid.cols.length}, minmax(17rem, 1fr))`,
+              // THE FLOOR FOLLOWS THE COLUMN COUNT. A fixed 58rem was right
+              // for two columns and wrong for one: focus mode exists to give
+              // the single pairing more room, and a floor wider than the
+              // content would have scrolled the page sideways to show empty
+              // space. 2 columns still computes 58rem, so the full matrix is
+              // unchanged.
+              minWidth: `${13 + viewGrid.cols.length * 22.5}rem`,
             }}
           >
             {/* The empty corner — row 1, column 1. */}
             <div className="bg-card" />
 
-            {grid.cols.map((c) => (
+            {viewGrid.cols.map((c) => (
               <AxisHeaderCell
                 key={`col-${c.id}`}
                 category={c}
@@ -537,7 +719,7 @@ export function TowsMatrix({
               />
             ))}
 
-            {grid.rows.map((rowCat) => (
+            {viewGrid.rows.map((rowCat) => (
               <Fragment key={`row-${rowCat.id}`}>
                 <AxisHeaderCell
                   category={rowCat}
@@ -546,8 +728,8 @@ export function TowsMatrix({
                   didMove={pairDrag.didMove}
                   dragging={pairDrag.drag?.id}
                 />
-                {grid.cols.map((colCat) => {
-                  const type = grid.at.get(`${colCat.id}|${rowCat.id}`)!;
+                {viewGrid.cols.map((colCat) => {
+                  const type = viewGrid.at.get(`${colCat.id}|${rowCat.id}`)!;
                   return (
                     <QuadrantCell
                       key={type.id}

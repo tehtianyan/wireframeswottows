@@ -23,7 +23,25 @@ const SKIN_KEY = "swot-console-skin";
 const BUILD_KEY = "swot-console-build-status";
 
 export function UiPrefsProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<ThemeMode>("dark");
+  /**
+   * DAY MODE IS THE DEFAULT (DECIDED 2026-11-14).
+   *
+   * It was dark, which suits a console and does not suit this product: a
+   * strategy workshop runs in a lit room, usually on a projector or a shared
+   * screen, and the output is printed. A dark ground is the wrong default for
+   * all three.
+   *
+   * This is the DEFAULT, not a removal — the toggle is unchanged, and a stored
+   * preference still wins below. It must stay in step with `__root.tsx`, which
+   * stamps the same mode on `<html>` for the server render; if the two
+   * disagree the first paint is one palette and the second is the other.
+   *
+   * The CSS is untouched: `:root` is still the night palette and `.light` the
+   * day one, and every skin still declares both. Inverting the cascade would
+   * have meant rewriting five skins' worth of blocks that `skins.js` compares
+   * token-for-token, to change which one is reached by default.
+   */
+  const [theme, setTheme] = useState<ThemeMode>("light");
   const [skin, setSkin] = useState<SkinKey>(DEFAULT_SKIN);
   const [showBuildStatus, setShowBuildStatus] = useState(true);
 

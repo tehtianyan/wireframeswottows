@@ -244,9 +244,38 @@ func UpdateFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if f.state == "approved" || f.state == "rejected" {
+	// A REVIEWED NOTE IS STILL CORRECTABLE, BY A REVIEWER (DECIDED 2026-11-14).
+	//
+	// UAT: "Facilitators should be allowed to modify a note and make
+	// corrections." It was refused for everybody, which is right for the
+	// author — their note has been decided on and rewriting it afterwards
+	// would change what somebody approved — and wrong for the facilitator,
+	// who IS the person that decision belongs to. A typo on an approved note
+	// that reaches the exported report had no fix short of rejecting the note
+	// and asking for it again.
+	//
+	// THE APPROVAL IS NOT RE-OPENED. Sending the note back to `submitted`
+	// would make every typo cost the room a second review, and the facilitator
+	// correcting it is the same person who would re-approve it. What must not
+	// happen is the record quietly disagreeing with itself, so the previous
+	// wording goes into the audit row below and the Review Board shows it —
+	// the same treatment an AI-tidied note gets.
+	decided := f.state == "approved" || f.state == "rejected"
+	if decided && !f.callerIsReviewer {
 		response.Fail(w, response.CodeInvalidStateTransition,
-			"This factor has already been reviewed and can no longer be edited.")
+			"This factor has already been reviewed. Ask a facilitator to correct it.")
+		return
+	}
+	// A CORRECTION IS TO THE WORDING, NOT TO WHERE THE NOTE LIVES. Recategorising
+	// an approved note changes which panel it was approved in, which is a
+	// different decision from fixing how it reads — and the capture board
+	// freezes a decided note against dragging, so allowing it here would open a
+	// path nothing offers and nothing exercises. Deliberately narrower than the
+	// edit, and it keeps the two surfaces stating one rule.
+	if decided && body.CategoryKey != nil {
+		response.Fail(w, response.CodeInvalidStateTransition,
+			"A reviewed factor can be reworded but not moved to another category. "+
+				"Reopen it for review first.")
 		return
 	}
 
@@ -268,8 +297,8 @@ func UpdateFactor(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Moving between categories. The frozen check above already refused a
-	// reviewed factor, so an approved note cannot be dragged elsewhere.
+	// Moving between categories. Refused above for a decided factor, so this
+	// path only ever sees one still open for review.
 	categoryID := ""
 	if body.CategoryKey != nil {
 		key := strings.TrimSpace(*body.CategoryKey)
@@ -319,6 +348,19 @@ func UpdateFactor(w http.ResponseWriter, r *http.Request) {
 	meta := map[string]interface{}{"workshop_id": f.workshopID}
 	if body.CategoryKey != nil {
 		meta["moved_to_category"] = strings.TrimSpace(*body.CategoryKey)
+	}
+	// CORRECTING A DECIDED NOTE RECORDS WHAT IT USED TO SAY. Everywhere else
+	// an edit can be read against the note's own history, but here somebody
+	// has already approved a specific wording — so the trail has to carry the
+	// wording they approved, or the approval refers to text that no longer
+	// exists anywhere. Only on the decided path: on a draft it would be noise
+	// on every keystroke-sized save.
+	if decided {
+		meta["corrected_after_review"] = true
+		meta["previous_title"] = f.title
+		if f.description != nil {
+			meta["previous_description"] = *f.description
+		}
 	}
 	audit.Record(ctx, pool, user.ID, "factor.updated", "factor", f.id, f.state, f.state, meta)
 	response.OK(w, map[string]string{"id": f.id})
@@ -619,6 +661,10 @@ type factorRow struct {
 	description *string
 	state       string
 	createdBy   *string
+	// callerIsReviewer is carried out of the authorization check rather than
+	// recomputed, so "who may correct a reviewed note" cannot drift from "who
+	// may touch this note at all". loadFactorForWrite already has to answer it.
+	callerIsReviewer bool
 }
 
 // loadFactorForWrite resolves the factor named in the URL and authorizes the
@@ -676,6 +722,7 @@ func loadFactorForWrite(w http.ResponseWriter, r *http.Request) (
 		response.Fail(w, response.CodeForbidden, "you can only modify factors you created")
 		return nil, nil, nil, empty, false
 	}
+	f.callerIsReviewer = isReviewer
 
 	return ctx, pool, user, f, true
 }

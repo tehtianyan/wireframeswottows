@@ -473,4 +473,34 @@ runSuite("shell-ui", async ({ results: r }) => {
     const body = codeOnly(fs.readFileSync(full, "utf8"));
     r.ok(!/favicon\.ico/.test(body), `${file} no longer asks for favicon.ico`);
   }
+
+  // ================================================================
+  r.section("Day mode is the default, in both places that decide it");
+  // ================================================================
+  //
+  // The mode is set TWICE: `ui-prefs.tsx` seeds React state, and `__root.tsx`
+  // stamps a class on <html> for the server render. They are in different
+  // files, read by different runtimes, and nothing connects them — so a change
+  // to one is a hydration flash rather than an error. The first paint is one
+  // palette and the second is the other, which on a projector in front of a
+  // room is the whole screen changing colour a beat after it appears.
+  //
+  // Asserted as the RELATIONSHIP (they agree, and on day) rather than by
+  // matching a literal in one file, so renaming a variable cannot satisfy it.
+  const uiPrefs = codeOnly(read("src", "lib", "ui-prefs.tsx"));
+  const rootShell = codeOnly(read("src", "routes", "__root.tsx"));
+  const seeded = /useState<ThemeMode>\(\s*"(light|dark)"\s*\)/.exec(uiPrefs)?.[1] ?? null;
+  const stamped = /<html[^>]*className=\s*"(light|dark)"/.exec(rootShell)?.[1] ?? null;
+  r.ok(seeded === "light", `ui-prefs seeds day mode (found ${seeded ?? "nothing"})`);
+  r.ok(stamped === "light", `__root stamps day mode on <html> (found ${stamped ?? "nothing"})`);
+  r.ok(
+    seeded !== null && seeded === stamped,
+    "...and the two agree, so the server paint and the hydrated paint match",
+  );
+  // The toggle is a DEFAULT change, not a removal: somebody who prefers dark
+  // must still be able to choose it, and their choice must still be read back.
+  r.ok(
+    /toggleTheme/.test(uiPrefs) && /localStorage\.setItem\(THEME_KEY/.test(uiPrefs),
+    "...and dark is still reachable and still remembered",
+  );
 });

@@ -202,6 +202,46 @@ runSuite("defects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
       { category_key: "threat" });
     r.ok(!mv.success, "an APPROVED note cannot be dragged elsewhere", mv.error?.message);
 
+    // ---- a reviewed note is still CORRECTABLE, by a reviewer ----------
+    //
+    // UAT 2026-11-14: "Facilitators should be allowed to modify a note and
+    // make corrections." It was refused for everybody, so a typo on an
+    // approved note — one that reaches the exported report — had no fix short
+    // of rejecting the note and asking the room for it again.
+    //
+    // THE PAIR IS THE POINT. Rewording is allowed and recategorising is not,
+    // and the check above is what keeps the second from quietly following the
+    // first: "a reviewed note is editable" implemented carelessly unfreezes
+    // the drag too, and which panel a note was approved in is a decision
+    // rather than a correction.
+    const fixed = await F("PATCH", `/workshops/${WS}/factors/${mover.data.id}`,
+      { title: "DEFECT probe corrected after approval" });
+    r.ok(fixed.success, "a facilitator CAN reword an approved note", fixed.error?.message);
+
+    const stillApproved = (await F("GET", `/workshops/${WS}/factors`)).data
+      ?.find((f) => f.id === mover.data.id);
+    r.ok(
+      stillApproved?.state === "approved" &&
+        stillApproved?.title === "DEFECT probe corrected after approval",
+      "...and the correction does NOT re-open the review",
+      `${stillApproved?.state} / ${stillApproved?.title}`,
+    );
+
+    // The record must not quietly disagree with itself: somebody approved a
+    // specific wording, so the trail has to carry the wording they approved.
+    const trail = await c.query(
+      `select metadata from public.audit_events
+       where object_id = $1 and action = 'factor.updated'
+       order by created_at desc limit 1`,
+      [mover.data.id],
+    );
+    const meta = trail.rows[0]?.metadata ?? {};
+    r.ok(
+      meta.corrected_after_review === true && typeof meta.previous_title === "string",
+      "...and the audit row keeps what it used to say",
+      JSON.stringify(meta).slice(0, 120),
+    );
+
     // ---- 5: one bad id discarded every suggestion --------------------
     // The AI path itself needs a real API key, so what is checked here is the
     // deterministic selection the accept path depends on. The drop-invalid

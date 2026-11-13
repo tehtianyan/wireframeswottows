@@ -223,6 +223,10 @@ export function CaptureBoard({
   // another category through the API is allowed today and stays allowed.
   const facilitator = myRole === "facilitator";
   const contributor = facilitator || myRole === "participant" || myRole === "analyst";
+  // Who may correct a note the room has already decided on. The same two roles
+  // the API calls reviewers, named here once so the board and the server agree
+  // on which of them is being asked about.
+  const reviewer = facilitator || myRole === "analyst";
   const canAddTo = (key: string) => contributor && (facilitator || key === focusedKey);
 
   // The factors channel keeps the board live; presence comes from the workshop
@@ -1073,6 +1077,7 @@ export function CaptureBoard({
             scores={scores}
             canAdd={canAddTo(category.key)}
             canMove={contributor}
+            canCorrect={reviewer}
             {...(category.key === focusedKey && aiSlot ? { assist: aiSlot } : {})}
             {...(renderThemeRating ? { renderThemeRating } : {})}
             drag={dragging.drag}
@@ -1546,6 +1551,7 @@ function Quadrant({
   scores,
   canAdd,
   canMove,
+  canCorrect,
   assist,
   drag,
   target,
@@ -1572,6 +1578,8 @@ function Quadrant({
   scores: Map<string, NoteScore>;
   canAdd: boolean;
   canMove: boolean;
+  /** May correct a note that has already been reviewed. */
+  canCorrect: boolean;
   /** Which notes are picked out for a bulk action. */
   selected: Set<string>;
   /** Selection mode: a tap selects rather than opening the editor. */
@@ -1705,6 +1713,7 @@ function Quadrant({
                 factor={block.factor}
                 category={category}
                 canEdit={canMove}
+                canCorrect={canCorrect}
                 canMove={canMove}
                 score={scores.get(block.factor.id) ?? null}
                 selected={selected.has(block.factor.id)}
@@ -1745,6 +1754,7 @@ function Quadrant({
                   category={category}
                   scores={scores}
                   canEdit={canMove}
+                  canCorrect={canCorrect}
                   canMove={canMove}
                   isTarget={target?.kind === "theme" && target.themeId === block.theme.id}
                   draggingId={drag?.factorId ?? null}
@@ -1882,6 +1892,7 @@ function ThemeStack({
   category,
   scores,
   canEdit,
+  canCorrect,
   canMove,
   isTarget,
   draggingId,
@@ -1900,6 +1911,8 @@ function ThemeStack({
   category: FactorCategory;
   scores: Map<string, NoteScore>;
   canEdit: boolean;
+  /** May correct a note already reviewed. */
+  canCorrect: boolean;
   /** The group's rating of this theme, when the methodology declares one. */
   rating?: ReactNode;
   /** Whether a note can be lifted back OUT of this stack. */

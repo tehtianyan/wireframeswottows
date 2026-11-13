@@ -231,6 +231,65 @@ runSuite("objects", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
 
     const delAfter = await F("DELETE", `/workshops/${WS}/insights/${ins.data.id}`);
     r.ok(!delAfter.success, "an approved insight cannot be deleted", delAfter.error?.message);
+
+    // ================================================================
+    r.section("who may write an object is PER KIND (UAT 2026-11-14)");
+    // ================================================================
+    //
+    // One list governed every kind and it refused participants, while the
+    // capture board offered them the stacking gesture — so dragging one note
+    // onto another, naming the theme and getting a 403 was the shipped
+    // behaviour. The participant flow had made grouping their job on
+    // 2026-11-06 and the server was never told.
+    //
+    // BOTH HALVES ARE ASSERTED. A check that only proved a participant can now
+    // make a theme would pass just as happily if the rule had been deleted
+    // outright, which is the thing that must not happen: an insight is a claim
+    // about the evidence and a recommendation commits the organisation to
+    // work, so App Spec §3.17 still holds for those.
+    const pTheme = await P("POST", `/workshops/${WS}/syntheses`, {
+      title: "VERIFY participant theme",
+      evidence: {},
+    });
+    r.ok(
+      pTheme.success,
+      "a participant can create a theme — the gesture the capture board offers",
+      pTheme.error?.message,
+    );
+    if (pTheme.success) created.syntheses.push(pTheme.data.id);
+
+    // ...and can go on editing the one they made, or the drop that adds a
+    // second note to an existing stack fails where the first one worked.
+    if (pTheme.success) {
+      const pEdit = await P("PATCH", `/workshops/${WS}/syntheses/${pTheme.data.id}`, {
+        title: "VERIFY participant theme renamed",
+      });
+      r.ok(pEdit.success, "...and can rename it", pEdit.error?.message);
+    }
+
+    const pInsight = await P("POST", `/workshops/${WS}/insights`, {
+      title: "VERIFY participant insight",
+      description: "should be refused",
+      evidence: {},
+    });
+    r.ok(
+      !pInsight.success && pInsight.error.code === "FORBIDDEN",
+      "a participant still cannot author an insight",
+      pInsight.error?.message ?? `created ${pInsight.data?.id}`,
+    );
+    if (pInsight.success) created.insights.push(pInsight.data.id);
+
+    const pRec = await P("POST", `/workshops/${WS}/recommendations`, {
+      title: "VERIFY participant recommendation",
+      fields: { priority: "low" },
+      evidence: {},
+    });
+    r.ok(
+      !pRec.success && pRec.error.code === "FORBIDDEN",
+      "...nor a recommendation",
+      pRec.error?.message ?? `created ${pRec.data?.id}`,
+    );
+    if (pRec.success) created.recommendations.push(pRec.data.id);
   } finally {
     // The relationships created here have no title by design, so they must
     // be removed by id — a title prefix never matches them.

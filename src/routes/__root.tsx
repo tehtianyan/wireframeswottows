@@ -165,7 +165,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    // THE SERVER RENDER'S MODE, which must match `ui-prefs.tsx`'s initial
+    // state or the first paint is one palette and the hydrated second paint
+    // the other. Day since 2026-11-14; see the reasoning there.
+    <html lang="en" className="light">
       <head>
         <HeadContent />
       </head>

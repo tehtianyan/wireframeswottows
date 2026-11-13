@@ -147,7 +147,17 @@ runSuite("visual-board", async ({ results: r }) => {
     // ---- find a capture stage with notes on it ----
     // Navigated by URL rather than by clicking through, so the suite does not
     // also depend on the dashboard's markup.
-    const api = process.env.SWOT_API_BASE ?? "http://localhost:3001/api/v1";
+    // ONE VARIABLE, TWO MEANINGS, WHICH COST TEN MINUTES TWICE.
+    // `tests/lib/harness.js`'s client() APPENDS /api/v1 to SWOT_API_BASE, so
+    // everywhere else the variable is an ORIGIN. These two suites call fetch
+    // directly and wanted it WITH the path — so passing the value that works
+    // for every other suite requested /workshops, got Go's 404 text, and the
+    // failure surfaced as "Unexpected non-whitespace character after JSON at
+    // position 4", which says nothing about what was wrong. Accept either.
+    const apiBase = process.env.SWOT_API_BASE ?? "http://localhost:3001";
+    const api = /\/api\/v\d+\/?$/.test(apiBase)
+      ? apiBase.replace(/\/$/, "")
+      : `${apiBase.replace(/\/$/, "")}/api/v1`;
     const token = await page.evaluate(() => {
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);

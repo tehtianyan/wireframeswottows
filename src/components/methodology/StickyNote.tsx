@@ -125,6 +125,7 @@ export function StickyNote({
   factor,
   category,
   canEdit,
+  canCorrect,
   canMove,
   score,
   themed,
@@ -144,6 +145,12 @@ export function StickyNote({
   factor: Factor;
   category: FactorCategory | undefined;
   canEdit: boolean;
+  /**
+   * The caller may correct a note that has already been reviewed — a
+   * facilitator or an analyst. Separate from `canEdit`, which is "may write
+   * on this board at all": a participant has the second and not the first.
+   */
+  canCorrect?: boolean;
   canMove: boolean;
   /** The group's prioritization figure, when there is one to show. */
   score?: NoteScore | null;
@@ -192,10 +199,21 @@ export function StickyNote({
   /** Where the press started, so a drag is not also read as a click. */
   const pressRef = useRef<{ x: number; y: number } | null>(null);
 
-  // A decided note is frozen — an approval has to refer to text somebody
-  // actually approved. The API enforces this too.
+  // A decided note is frozen for its AUTHOR — an approval has to refer to
+  // text somebody actually approved.
+  //
+  // A REVIEWER MAY STILL CORRECT IT (2026-11-14). UAT asked for this, and the
+  // reasoning is that the facilitator is the person the decision belongs to:
+  // a typo on an approved note that reaches the exported report previously had
+  // no fix short of rejecting the note and asking the room for it again. The
+  // API allows exactly the same thing and records the previous wording.
+  //
+  // IT DOES NOT UNFREEZE THE DRAG. Rewording a note is a correction; moving it
+  // to another panel changes which category it was approved in, which is a
+  // decision rather than a correction. The API refuses that too, so the two
+  // surfaces state one rule rather than two.
   const decided = factor.state === "approved" || factor.state === "rejected";
-  const editable = canEdit && !decided;
+  const editable = canEdit && (!decided || Boolean(canCorrect));
   const draggable = canMove && !decided && !editing && Boolean(onDragHandle);
 
   useEffect(() => {
@@ -505,7 +523,13 @@ export function StickyNote({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {editable && onDelete && (
+            {/* NOT ON A DECIDED NOTE, even for the facilitator who may now
+                reword one. The API refuses to delete an approved factor —
+                "reject it instead so the decision stays on the record" — so
+                showing the bin here would be a control that cannot work, the
+                same shape as every other offer this product has had to
+                withdraw. Correcting and destroying are different acts. */}
+            {editable && !decided && onDelete && (
               <button
                 type="button"
                 onClick={onDelete}

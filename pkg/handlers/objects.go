@@ -353,7 +353,10 @@ func CreateObject(w http.ResponseWriter, r *http.Request) {
 	if pool == nil {
 		return
 	}
-	if _, err := authz.RequireWorkshopRole(r2.Context(), pool, user.ID, workshopID, contributorRoles...); err != nil {
+	// THE KIND SAYS WHO MAY WRITE IT, not one list for all five. A participant
+	// groups notes into themes (that is the participant flow's Stage 1) and
+	// still may not author an insight or a recommendation.
+	if _, err := authz.RequireWorkshopRole(r2.Context(), pool, user.ID, workshopID, kind.Contributors()...); err != nil {
 		writeAuthzErr(w, err)
 		return
 	}
@@ -863,11 +866,15 @@ func ReviewObject(w http.ResponseWriter, r *http.Request) {
 
 // ---- helpers ----
 
-// contributorRoles may create and edit analysis objects. Unlike factor
-// capture, synthesis and interpretation are analytical work: participants
-// contribute factors, but shaping them into themes and insights is the
-// facilitator's and analyst's job (App Spec §3.17).
-var contributorRoles = []string{"facilitator", "analyst"}
+// contributorRoles is the rule for things that are NOT registry object kinds:
+// building and publishing reports, and running an AI function.
+//
+// OBJECT KINDS NO LONGER READ THIS (2026-11-14) — each one declares its own
+// through `objects.Kind.Contributors()`, because the answer stopped being the
+// same for all of them when participants began grouping notes into themes.
+// Reaching for this var in an object handler would quietly re-close that.
+// It stays identical to objects.DefaultContributorRoles by construction.
+var contributorRoles = objects.DefaultContributorRoles
 
 type setObjectOrderBody struct {
 	// The initiative whose actions these are, or the quadrant whose
@@ -1029,7 +1036,10 @@ func loadObjectForWrite(w http.ResponseWriter, r *http.Request) (
 	if pool == nil {
 		return nil, nil, nil, nil, empty, false
 	}
-	if _, err := authz.RequireWorkshopRole(ctx, pool, user.ID, workshopID, contributorRoles...); err != nil {
+	// Same rule as the create path, from the same place — editing a theme you
+	// made by stacking two notes has to be as open as making it was, or the
+	// gesture half works.
+	if _, err := authz.RequireWorkshopRole(ctx, pool, user.ID, workshopID, kind.Contributors()...); err != nil {
 		writeAuthzErr(w, err)
 		return nil, nil, nil, nil, empty, false
 	}

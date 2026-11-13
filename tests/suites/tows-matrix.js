@@ -454,6 +454,48 @@ runSuite("tows-matrix", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) =>
     r.ok(summaryLiterals === 1 && /const SUMMARY_NOTES = \d+;/.test(matrix),
       "the summary length is stated once, not repeated in three places",
       `${summaryLiterals} use of the constant`);
+
+    // ================================================================
+    r.section("one pairing at a time (UAT 2026-11-14)");
+    // ================================================================
+    //
+    // "The TOWS Matrix is too overwhelming." Focus mode shows a single
+    // relationship type, which collapses the grid to one column and one row —
+    // so only the two categories that pairing uses appear on the axes.
+    //
+    // IT MUST STAY A FILTER OVER THE SAME GRID. A second layout would be a
+    // second place for the drop rules, the ranking and the "+N more" control
+    // to drift, and the two would be discovered to disagree in front of a
+    // room. So the assertion is that the renderer reads ONE grid variable,
+    // and that the variable is derived from the focused cell.
+    r.ok(/const viewGrid = useMemo/.test(body),
+      "the focused view is derived from the full grid, not built separately");
+    r.ok(
+      /viewGrid\.cols\.map/.test(body) && /viewGrid\.rows\.map/.test(body) &&
+        !/\bgrid\.cols\.map/.test(body) && !/\bgrid\.rows\.map/.test(body),
+      "...and the renderer draws that one view, so focus and full share a path",
+    );
+    // ROW-MAJOR, which is what makes the order the room's order without this
+    // file knowing whose methodology it is. For a 2x2 the reading order is
+    // the opportunities row then the threats row — the sequence UAT asked
+    // for — and a six-type methodology gets six steps from the same code.
+    r.ok(/for \(const row of grid\.rows\)[\s\S]{0,120}for \(const col of grid\.cols\)/.test(body),
+      "the steps follow the grid's own reading order");
+    // BOTH DIRECTIONS IN ONE CONTROL. A way in with no visible way out is how
+    // a facilitator ends up stuck in a view mid-session.
+    r.ok(/function FocusControl/.test(body), "there is a single control for the mode");
+    r.ok(/onChange\(null\)/.test(body) && /onChange\(index \+ 1\)/.test(body),
+      "...offering both the next pairing and the way back to the whole grid");
+    // The floor has to follow the column count: focus mode exists to give one
+    // pairing more room, and a fixed minimum wider than the content would
+    // scroll the page sideways to show empty space — the same bug the board's
+    // 19rem panel floor was.
+    r.ok(/viewGrid\.cols\.length \* 22\.5/.test(body),
+      "the grid's minimum width follows how many columns are actually shown");
+    // Still no methodology vocabulary: the step labels are the relationship
+    // types' own names, from config.
+    r.ok(/cells\[index\]\?\.type/.test(body) && /current\?\.name/.test(body),
+      "the step is labelled from config, not from a list of quadrant names");
   } finally {
     // Restore what was found. This suite writes to the DEMO workshop, so
     // anything it leaves behind becomes part of what the next UAT session

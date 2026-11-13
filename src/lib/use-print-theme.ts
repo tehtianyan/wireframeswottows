@@ -10,8 +10,10 @@ import { useEffect } from "react";
 // ancestor `.dark` class, not a media query, so a media-query-only approach
 // would leave every `dark:` utility firing on white paper.
 //
-// The app defaults to dark, so without this a printed report is a page of
-// black ink.
+// It reads the LIVE class rather than the default, which is why it kept
+// working when the default became day on 2026-11-14: somebody who has chosen
+// dark still gets paper rather than a page of black ink, and somebody already
+// in day mode is left alone instead of being toggled twice.
 export function usePrintTheme() {
   useEffect(() => {
     if (typeof window === "undefined") return;

@@ -227,9 +227,47 @@ type Kind struct {
 	// not have must not be invented here.
 	DescriptionRequired bool   `json:"description_required"`
 	DescriptionLabel    string `json:"description_label"`
+	// ContributorRoles are the workshop roles that may CREATE and EDIT this
+	// kind. Empty means the platform default below.
+	//
+	// IT IS PER KIND BECAUSE THE ANSWER IS NOT THE SAME FOR ALL OF THEM
+	// (DECIDED 2026-11-14). One list governed every kind, and it was
+	// facilitator+analyst on App Spec §3.17's reasoning: participants
+	// contribute factors, and shaping them into themes and insights is
+	// analytical work.
+	//
+	// The participant flow shipped on 2026-11-06 reversed half of that and the
+	// server was never told. Stage 1 is Strengths and EVERYTHING done to
+	// strengths happens there — capture the notes, group them into themes,
+	// rate those themes — so the capture board offers a participant the
+	// stacking gesture (`canStack={contributor && ...}`) while CreateObject
+	// refused them. They dragged one note onto another, named the theme, and
+	// got a 403. The UI promised a gesture the server would not honour, which
+	// is the same shape as "disable user" disabling nothing: two places
+	// answering one question separately.
+	//
+	// Only `synthesis` opens. An insight is a CLAIM about the evidence and a
+	// recommendation commits the organisation to work, so §3.17 still holds
+	// for them — and `objects.js` asserts that a participant is still refused
+	// there, or this becomes "participants may do anything".
+	ContributorRoles []string       `json:"contributor_roles,omitempty"`
 	Fields           []Field        `json:"fields"`
 	Evidence         []EvidenceLink `json:"evidence"`
 	Pairing          *Pairing       `json:"pairing,omitempty"`
+}
+
+// DefaultContributorRoles may create and edit an analysis object whose kind
+// names no roles of its own.
+var DefaultContributorRoles = []string{"facilitator", "analyst"}
+
+// Contributors is the roles that may create and edit this kind — the kind's
+// own list, or the platform default. Always call this rather than reading the
+// field: a nil list means "the default", not "nobody".
+func (k *Kind) Contributors() []string {
+	if len(k.ContributorRoles) == 0 {
+		return DefaultContributorRoles
+	}
+	return k.ContributorRoles
 }
 
 // registry is keyed by Kind.Key.
@@ -248,7 +286,10 @@ var registry = map[string]*Kind{
 		// capture board with nothing but a name.
 		DescriptionRequired: false,
 		DescriptionLabel:    "What this theme says",
-		Fields:              []Field{},
+		// PARTICIPANTS GROUP NOTES INTO THEMES. See ContributorRoles on Kind
+		// for why this one kind opens and the others do not.
+		ContributorRoles: []string{"facilitator", "analyst", "participant"},
+		Fields:           []Field{},
 		Evidence: []EvidenceLink{
 			{CitesKind: "factor", Table: "synthesis_factors", SelfCol: "synthesis_id", OtherCol: "factor_id", OtherTable: "factors"},
 		},
