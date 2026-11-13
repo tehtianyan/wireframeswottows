@@ -389,3 +389,156 @@ func TestDeliverableKindRefusesAKindWithNoDeliveryColumn(t *testing.T) {
 		t.Fatalf("a recommendation was refused: %q", msg)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// What it takes to deliver it (UAT 2026-11-14)
+// ---------------------------------------------------------------------------
+
+func days(f float64) *float64 { return &f }
+
+// boardWithPlan is sampleBoard with the delivery detail filled in two
+// different ways: one action owned by a real account, one by a typed name.
+func boardWithPlan() *DeliveryBoard {
+	b := sampleBoard()
+	start, end := "2026-03-02", "2026-06-30"
+	uid := "user-1"
+	b.Items[0].OwnerUserID = &uid
+	b.Items[0].OwnerName = "Jane Smith"
+	b.Items[0].OwnerEmail = "jane.smith@example.com"
+	b.Items[0].StartDate = &start
+	b.Items[0].EndDate = &end
+	b.Items[0].EffortPersonDays = days(12.5)
+	b.Items[0].ValueAmount = days(450000)
+	b.Items[0].ValueUnit = "money_annual"
+	b.Items[0].ValueBasis = "3% churn reduction on $15M ARR"
+
+	b.Items[1].OwnerName = "Head of Sales Ops"
+	return b
+}
+
+// A BARE NUMBER IN Original Estimate IS READ AS SECONDS. A 12.5-day estimate
+// arriving as 12.5 seconds imports without complaint and is only discovered
+// when somebody plans a sprint against it.
+func TestJiraCSVEstimateCarriesItsUnit(t *testing.T) {
+	body, err := renderJiraCSV(boardWithPlan(), map[string]weights.Aggregate{}, 0, "Q1", "SWOT-TOWS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, rows := parseCSV(t, body)
+	est, typeCol := column(header, "Original Estimate"), column(header, "Issue Type")
+	if est < 0 {
+		t.Fatal("no Original Estimate column")
+	}
+	var seen []string
+	for _, r := range rows {
+		if r[typeCol] == "Story" {
+			seen = append(seen, r[est])
+		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("expected two stories, got %d", len(seen))
+	}
+	if seen[0] != "12.5d" {
+		t.Errorf("estimate exported as %q, want \"12.5d\" — a bare number is seconds to Jira", seen[0])
+	}
+	// AN ABSENT ESTIMATE IS AN EMPTY CELL, NOT "0d". Zero is a claim nobody
+	// made, and it would plan as free work.
+	if seen[1] != "" {
+		t.Errorf("an action with no estimate exported %q, want empty", seen[1])
+	}
+}
+
+// THE OWNER REACHES JIRA AS AN EMAIL OR NOT AT ALL. Jira matches a person on
+// their account, so a display name in Assignee resolves to nobody — and an
+// action owned by somebody who was never in the workshop has no account to
+// name. Sending the name anyway would look assigned and not be.
+func TestJiraCSVAssignsOnlyRealAccounts(t *testing.T) {
+	body, err := renderJiraCSV(boardWithPlan(), map[string]weights.Aggregate{}, 0, "Q1", "SWOT-TOWS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, rows := parseCSV(t, body)
+	a, d, typeCol := column(header, "Assignee"), column(header, "Description"), column(header, "Issue Type")
+	var stories [][]string
+	for _, r := range rows {
+		if r[typeCol] == "Story" {
+			stories = append(stories, r)
+		}
+	}
+	if stories[0][a] != "jane.smith@example.com" {
+		t.Errorf("Assignee was %q, want the account's email", stories[0][a])
+	}
+	if stories[1][a] != "" {
+		t.Errorf("a typed-name owner exported Assignee %q, want empty", stories[1][a])
+	}
+	// ...and the name is not simply lost: it goes in the description, saying
+	// why the ticket arrived unassigned.
+	if !strings.Contains(stories[1][d], "Head of Sales Ops") {
+		t.Error("the typed owner's name is missing from the description")
+	}
+	if !strings.Contains(stories[1][d], "not assigned here") {
+		t.Error("an unassignable owner should say so, or the ticket looks dropped")
+	}
+}
+
+// THE VALUE ARRIVES AS WORDS, NOT AS A STORED KEY. A ticket reading
+// "450000 money_annual" is the kind of thing somebody has to explain in a
+// steering meeting. The labels come from the registry, so there is one list.
+func TestJiraCSVValueReadsAsWords(t *testing.T) {
+	body, err := renderJiraCSV(boardWithPlan(), map[string]weights.Aggregate{}, 0, "Q1", "SWOT-TOWS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body, "money_annual") {
+		t.Error("the stored unit key reached the export; it should be the registry's label")
+	}
+	if !strings.Contains(body, "Money, per year") {
+		t.Error("the unit's label is missing from the export")
+	}
+	// The basis travels with the figure, or it cannot be argued with later.
+	if !strings.Contains(body, "3% churn reduction on $15M ARR") {
+		t.Error("the basis for the value did not travel with it")
+	}
+	// Dates: the due date is a column of its own AND the range is readable.
+	if !strings.Contains(body, "2026-03-02") || !strings.Contains(body, "2026-06-30") {
+		t.Error("the dates did not reach the export")
+	}
+}
+
+// An action with none of it filled in must export exactly as it did before —
+// these fields are optional, and a facilitator who skipped them has not
+// produced a broken ticket.
+func TestJiraCSVUnplannedActionExportsCleanly(t *testing.T) {
+	body, err := renderJiraCSV(sampleBoard(), map[string]weights.Aggregate{}, 0, "Q1", "SWOT-TOWS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, rows := parseCSV(t, body)
+	for _, name := range []string{"Assignee", "Due Date", "Original Estimate"} {
+		c := column(header, name)
+		for _, r := range rows {
+			if r[c] != "" {
+				t.Errorf("%s was %q on a board with no delivery detail", name, r[c])
+			}
+		}
+	}
+	if strings.Contains(body, "Owner:") || strings.Contains(body, "Effort:") {
+		t.Error("a plan line was written for an action that has no plan")
+	}
+}
+
+func TestGroupDigits(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"0", "0"},
+		{"450", "450"},
+		{"1000", "1,000"},
+		{"450000", "450,000"},
+		{"12.5", "12.5"},
+		{"1234567.25", "1,234,567.25"},
+		{"-4500", "-4,500"},
+	} {
+		if got := groupDigits(c.in); got != c.want {
+			t.Errorf("groupDigits(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

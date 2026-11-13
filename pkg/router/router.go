@@ -196,6 +196,11 @@ func New() http.Handler {
 			r.Get("/{id}/delivery", handlers.GetDeliveryBoard)
 			r.Get("/{id}/delivery/export/jira.csv", handlers.ExportDeliveryJira)
 			r.Put("/{id}/delivery/{objectId}", handlers.SetDeliveryState)
+			// The plan behind a card. A route of its own rather than the
+			// generic object PATCH, because that one freezes an APPROVED
+			// object — so the actions the room agreed were exactly the ones
+			// whose owner and dates could not be recorded. See SetDeliveryPlan.
+			r.Put("/{id}/delivery/{objectId}/plan", handlers.SetDeliveryPlan)
 
 			// Every other reviewable object kind — syntheses, relationships,
 			// initiatives, insights, recommendations — shares one generic

@@ -22,12 +22,29 @@ import (
 // Field is a kind-specific column beyond the shared ones. The UI renders its
 // form from these rather than hardcoding what a recommendation looks like.
 type Field struct {
-	Name     string `json:"name"`
-	Label    string `json:"label"`
-	Type     string `json:"type"` // text | textarea | enum | int
-	Required bool   `json:"required"`
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	// text | textarea | enum | int | date | decimal | member
+	//
+	// `date` is an ISO calendar date, `decimal` a number that may have a
+	// fraction (half a person-day is a real estimate), and `member` a
+	// reference to somebody on the workshop's roster — the client renders a
+	// picker and the server checks the id really is a member.
+	Type     string   `json:"type"`
+	Required bool     `json:"required"`
 	Options  []string `json:"options,omitempty"`
-	Help     string `json:"help,omitempty"`
+	// OptionLabels, where present, are what a person reads for each Options
+	// entry, in the same order. The stored value stays a stable key, so
+	// rewording a label cannot orphan the rows already written with it.
+	OptionLabels []string `json:"option_labels,omitempty"`
+	Help         string   `json:"help,omitempty"`
+	// Group puts a field in a named section of the form instead of the main
+	// body. Delivery details are eight fields filled on the kanban, long after
+	// the action was written, and inlining them would have turned the stage's
+	// create form into a thirteen-field wall for something typed in front of a
+	// room. The client decides how to present a group; the server does not
+	// care which one a field is in.
+	Group string `json:"group,omitempty"`
 	// Min and Max bound an `int` field. They used to live only inside the
 	// label — "Impact (1-10)" — so nothing enforced them and a recommendation
 	// could be scored 500 from the form or the API. Sent to the client so the
@@ -37,6 +54,11 @@ type Field struct {
 }
 
 func intPtr(n int) *int { return &n }
+
+// DeliveryGroup is the form section holding what it takes to deliver an
+// action — owner, dates, effort, value. Named once so the registry and the
+// client cannot disagree about which string means this group.
+const DeliveryGroup = "delivery"
 
 // EvidenceLink is a many-to-many table joining this kind to the kind it cites.
 // This is what makes traceability (CLAUDE.md: "Traceability First") structural
@@ -250,8 +272,17 @@ type Kind struct {
 	// recommendation commits the organisation to work, so §3.17 still holds
 	// for them — and `objects.js` asserts that a participant is still refused
 	// there, or this becomes "participants may do anything".
-	ContributorRoles []string       `json:"contributor_roles,omitempty"`
-	Fields           []Field        `json:"fields"`
+	ContributorRoles []string `json:"contributor_roles,omitempty"`
+	// ExclusivePairs name fields of which AT MOST ONE may hold a value.
+	//
+	// An action's owner is either somebody on the roster or a typed name, and
+	// the database says so with a CHECK — but a CHECK speaks SQLSTATE, and
+	// "23514" is not an answer to give somebody filling in a form. Declaring
+	// the rule here lets the generic handler make the contradiction
+	// unreachable (setting one clears the other) instead of merely refusing
+	// it, and keeps objects.go free of any particular kind's field names.
+	ExclusivePairs [][2]string    `json:"exclusive_pairs,omitempty"`
+	Fields         []Field        `json:"fields"`
 	Evidence         []EvidenceLink `json:"evidence"`
 	Pairing          *Pairing       `json:"pairing,omitempty"`
 }
@@ -429,6 +460,8 @@ var registry = map[string]*Kind{
 		// description is what it claims. The asymmetry is the point.
 		DescriptionRequired: false,
 		DescriptionLabel:    "What to do",
+		// An owner is a person on the roster OR a typed name, never both.
+		ExclusivePairs: [][2]string{{"owner_user_id", "owner_name"}},
 		Fields: []Field{
 			{Name: "priority", Label: "Priority", Type: "enum", Required: true,
 				Options: []string{"critical", "high", "medium", "low"}},
@@ -438,6 +471,44 @@ var registry = map[string]*Kind{
 				Min: intPtr(1), Max: intPtr(10)},
 			{Name: "feasibility_score", Label: "Feasibility (1-10)", Type: "int",
 				Min: intPtr(1), Max: intPtr(10)},
+
+			// ---- what it takes to deliver it (UAT 2026-11-14) ----
+			//
+			// EVERY ONE OPTIONAL. They are filled on the kanban, often in the
+			// last ten minutes of a session; a required field here would stop
+			// the action being recorded at all.
+			//
+			// They are GROUPED so the Recommendations stage's create form does
+			// not become thirteen fields for something typed in front of a
+			// room — the group is a presentation hint the server ignores.
+			{Name: "owner_user_id", Label: "Owner", Type: "member", Group: DeliveryGroup,
+				Help: "Somebody in this workshop."},
+			{Name: "owner_name", Label: "…or a name", Type: "text", Group: DeliveryGroup,
+				Help: "For an owner who was not in the room. Only one of the two."},
+			{Name: "start_date", Label: "Starts", Type: "date", Group: DeliveryGroup},
+			{Name: "end_date", Label: "Ends", Type: "date", Group: DeliveryGroup},
+			{Name: "effort_person_days", Label: "Effort (person-days)", Type: "decimal",
+				Group: DeliveryGroup, Min: intPtr(0),
+				Help: "One unit for every action, so two of them can be added together."},
+
+			// THE VALUE IS AN AMOUNT AND A UNIT. A sentence cannot be totalled,
+			// sorted, or weighed against the effort beside it. The database
+			// refuses one without the other; the unit list lives here and
+			// nowhere else, so adding one is this line rather than a migration.
+			{Name: "value_amount", Label: "Business value", Type: "decimal",
+				Group: DeliveryGroup, Min: intPtr(0)},
+			{Name: "value_unit", Label: "Unit", Type: "enum", Group: DeliveryGroup,
+				Options: []string{
+					"money_annual", "money_once", "person_days",
+					"errors_avoided", "count_annual",
+				},
+				OptionLabels: []string{
+					"Money, per year", "Money, one-off", "Person-days freed, per year",
+					"Errors avoided, per year", "Other count, per year",
+				}},
+			{Name: "value_basis", Label: "How it was worked out", Type: "text",
+				Group: DeliveryGroup,
+				Help: "One line, so the figure can be argued with later."},
 		},
 		Evidence: []EvidenceLink{
 			{CitesKind: "insight", Table: "recommendation_insights", SelfCol: "recommendation_id", OtherCol: "insight_id", OtherTable: "insights"},

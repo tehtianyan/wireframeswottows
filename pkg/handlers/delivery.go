@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -50,6 +51,10 @@ import (
 // with the roles that own the report: a facilitator runs the workshop and an
 // analyst maintains its output. Everybody else reads the board.
 var deliveryEditRoles = []string{"facilitator", "analyst"}
+
+// strPtr is used where "not set" and "the empty value" must stay distinct
+// on the wire — a date nobody chose is null, never "".
+func strPtr(s string) *string { return &s }
 
 // DeliveryState is one column.
 type DeliveryState struct {
@@ -90,6 +95,29 @@ type DeliveryItem struct {
 	TypeName    string  `json:"type_name"`
 	Rank        int     `json:"rank"`
 	Priority    string  `json:"priority"`
+
+	// ---- what it takes to deliver it (UAT 2026-11-14) ----
+	//
+	// All optional, and all of them pointers or empty strings when unset —
+	// because "not filled in" and "zero" are different answers. An effort of
+	// 0 person-days is a claim; a missing effort is not, and a card that
+	// printed "0 days" over an estimate nobody made would be the same defect
+	// as "not yet rated" printed over work the room had rated.
+	OwnerUserID *string `json:"owner_user_id"`
+	// OwnerName is what a person reads: the roster member's name when the
+	// card names one, the typed name otherwise. Resolved here so the card
+	// needs no second request to show who owns the work.
+	OwnerName string `json:"owner_name"`
+	// OwnerEmail is empty unless the owner is a real account. It is what the
+	// Jira export puts in Assignee, because that is the field Jira matches a
+	// person on — a display name matches nothing.
+	OwnerEmail       string   `json:"owner_email,omitempty"`
+	StartDate        *string  `json:"start_date"`
+	EndDate          *string  `json:"end_date"`
+	EffortPersonDays *float64 `json:"effort_person_days"`
+	ValueAmount      *float64 `json:"value_amount"`
+	ValueUnit        string   `json:"value_unit"`
+	ValueBasis       string   `json:"value_basis"`
 }
 
 // DeliveryBoard is the whole response: the columns, the headings, the cards,
@@ -403,16 +431,40 @@ func loadDeliveryBoard(ctx context.Context, pool *pgxpool.Pool, m *methodology.M
 	// taken yet. So the board shows the work and labels its governance state,
 	// which is the honest version: a card you can see is a card you can ask
 	// about.
+	// THE DELIVERY DETAIL COLUMNS ARE ASKED FOR ONLY IF THE KIND HAS THEM.
+	// `recommendation` is the only deliverable kind today, and it is exactly
+	// the untaken branch that breaks when a second one arrives — the same
+	// reason the parent columns above degrade to literals.
+	deliveryCols := "null::uuid, '', '', null::date, null::date, null::numeric, null::numeric, '', ''"
+	ownerJoin := ""
+	if kind.Field("owner_user_id") != nil {
+		// ONE NAME WHICHEVER WAY THE OWNER WAS RECORDED. The two columns are
+		// how the database says "an account or a typed name, never both"; the
+		// card just wants somebody to read. Same display-name fallback chain
+		// the factor list uses, so one person is not "Jane Smith" on a note
+		// and an email address on a card.
+		deliveryCols = `o.owner_user_id,
+		       coalesce(nullif(trim(op.display_name), ''),
+		                nullif(trim(coalesce(op.first_name,'') || ' ' || coalesce(op.last_name,'')), ''),
+		                op.email, o.owner_name, ''),
+		       coalesce(op.email, ''),
+		       o.start_date, o.end_date, o.effort_person_days,
+		       o.value_amount, coalesce(o.value_unit, ''), coalesce(o.value_basis, '')`
+		ownerJoin = " left join public.profiles op on op.id = o.owner_user_id"
+	}
+
 	q := fmt.Sprintf(`
 		select o.id::text, o.title, coalesce(o.description, ''),
 		       coalesce(o.%s, ''), o.state,
-		       %s, %s, %s, %s, %s, %s
+		       %s, %s, %s, %s, %s, %s,
+		       %s
 		from public.%s o
-		%s
+		%s%s
 		where o.workshop_id = $1 and o.state not in ('rejected', 'archived')
 		order by %s, %s, o.created_at, o.id`,
 		kind.DeliveryCol, parentCol, parentTitle, typeKey, typeName, orderCol, priorityCol,
-		kind.Table, parentJoin, parentOrder, orderCol)
+		deliveryCols,
+		kind.Table, parentJoin, ownerJoin, parentOrder, orderCol)
 
 	rows, err := pool.Query(ctx, q, workshopID)
 	if err != nil {
@@ -423,10 +475,22 @@ func loadDeliveryBoard(ctx context.Context, pool *pgxpool.Pool, m *methodology.M
 		var it DeliveryItem
 		var stored string
 		var positionInGroup int
+		var start, end *time.Time
 		if err := rows.Scan(&it.ID, &it.Title, &it.Description, &stored, &it.ObjectState,
 			&it.GroupID, &it.GroupTitle, &it.TypeKey, &it.TypeName,
-			&positionInGroup, &it.Priority); err != nil {
+			&positionInGroup, &it.Priority,
+			&it.OwnerUserID, &it.OwnerName, &it.OwnerEmail, &start, &end, &it.EffortPersonDays,
+			&it.ValueAmount, &it.ValueUnit, &it.ValueBasis); err != nil {
 			return nil, err
+		}
+		// A DATE, NOT A TIMESTAMP. These are calendar dates — "starts in
+		// March" — and sending an RFC3339 instant would make the client show
+		// a timezone-shifted day for anybody east or west of the server.
+		if start != nil {
+			it.StartDate = strPtr(start.Format("2006-01-02"))
+		}
+		if end != nil {
+			it.EndDate = strPtr(end.Format("2006-01-02"))
 		}
 		it.State = cfg.States[0].Key
 		if stored != "" && cfg.has(stored) {
@@ -535,6 +599,149 @@ func SetDeliveryState(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, map[string]interface{}{
 		"id": objectID, "state": state, "state_name": cfg.stateName(state),
 	})
+}
+
+type setDeliveryPlanBody struct {
+	Fields map[string]interface{} `json:"fields"`
+}
+
+// SetDeliveryPlan — PUT /workshops/{id}/delivery/{objectId}/plan
+//
+// Who owns an action, when it runs, what it costs and what it is worth.
+//
+// A SEPARATE ENDPOINT, AND THAT IS THE WHOLE POINT (DECIDED 2026-11-14).
+//
+// The obvious implementation was the generic object PATCH, and it was wrong in
+// a way only an export printed to the screen revealed: UpdateObject freezes an
+// APPROVED object, so the actions a facilitator most wants to plan — the ones
+// the room agreed — were exactly the ones that could not be planned. The write
+// was refused and the board went on showing "Add owner, dates, effort, value".
+//
+// The freeze is right for CONTENT: an approval refers to a wording somebody
+// approved, so rewriting the title afterwards would make the record lie. None
+// of that applies here. Who will do an agreed action, and by when, is decided
+// AFTER the decision to do it — it is delivery, not content, which is why
+// moving a card between columns already has an endpoint of its own rather than
+// going through the object PATCH. This is the second field of that same kind.
+//
+// ONLY THE DELIVERY GROUP. The registry says which fields those are, so this
+// cannot become a back door that edits a title past the freeze: a field
+// outside the group is refused by name.
+func SetDeliveryPlan(w http.ResponseWriter, r *http.Request) {
+	r2, ok := httpctx.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx := r2.Context()
+	user := httpctx.UserFromContext(ctx)
+	workshopID := chi.URLParam(r2, "id")
+	objectID := chi.URLParam(r2, "objectId")
+	pool := mustPool(r2, w)
+	if pool == nil {
+		return
+	}
+	if _, err := authz.RequireWorkshopRole(ctx, pool, user.ID, workshopID, deliveryEditRoles...); err != nil {
+		writeAuthzErr(w, err)
+		return
+	}
+
+	var body setDeliveryPlanBody
+	if err := json.NewDecoder(r2.Body).Decode(&body); err != nil {
+		response.Fail(w, response.CodeValidationError, "invalid request body")
+		return
+	}
+
+	m, err := methodology.LoadForWorkshop(ctx, pool, workshopID)
+	if err != nil {
+		failDB(w, err)
+		return
+	}
+	_, cfg := resolveDeliveryStage(m, r2.URL.Query().Get("stage_key"))
+	if cfg == nil {
+		response.Fail(w, response.CodeValidationError,
+			"This workshop's methodology does not track delivery — no stage declares a board.")
+		return
+	}
+	kind, msg := deliverableKind(cfg)
+	if msg != "" {
+		response.Fail(w, response.CodeValidationError, msg)
+		return
+	}
+
+	// Refuse anything outside the delivery group BEFORE coercing, so the
+	// message names the real problem rather than a type mismatch.
+	for name := range body.Fields {
+		f := kind.Field(name)
+		if f == nil || f.Group != objects.DeliveryGroup {
+			response.Fail(w, response.CodeValidationError, fmt.Sprintf(
+				"%q is not part of the delivery plan. "+
+					"Only the owner, the dates, the effort and the value are set here.", name))
+			return
+		}
+	}
+
+	vals, msg := coerceFields(kind, body.Fields)
+	if msg != "" {
+		response.Fail(w, response.CodeValidationError, msg)
+		return
+	}
+	if msg := applyExclusivePairs(kind, vals); msg != "" {
+		response.Fail(w, response.CodeValidationError, msg)
+		return
+	}
+	if msg, err := requireMemberFields(ctx, pool, kind, workshopID, vals); err != nil {
+		failDB(w, err)
+		return
+	} else if msg != "" {
+		response.Fail(w, response.CodeValidationError, msg)
+		return
+	}
+	if len(vals) == 0 {
+		response.OK(w, map[string]interface{}{"id": objectID, "changed": 0})
+		return
+	}
+
+	// Column names come from the registry, never from the request — the same
+	// rule the generic SQL builder depends on. The loop walks the KIND's
+	// fields so an attacker-supplied key cannot reach the statement even if
+	// the guard above were ever loosened.
+	sets := []string{}
+	args := []interface{}{objectID, workshopID}
+	for _, f := range kind.Fields {
+		if f.Group != objects.DeliveryGroup {
+			continue
+		}
+		v, present := vals[f.Name]
+		if !present {
+			continue
+		}
+		args = append(args, v)
+		sets = append(sets, fmt.Sprintf("%s = $%d", f.Name, len(args)))
+	}
+	if len(sets) == 0 {
+		response.OK(w, map[string]interface{}{"id": objectID, "changed": 0})
+		return
+	}
+
+	tag, err := pool.Exec(ctx, fmt.Sprintf(
+		`update public.%s set %s where id = $1 and workshop_id = $2`,
+		kind.Table, strings.Join(sets, ", ")), args...)
+	if err != nil {
+		failDB(w, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		// Scoped by workshop, so an id from elsewhere is a 404 and never
+		// becomes something this caller can write to.
+		response.Fail(w, response.CodeNotFound, fmt.Sprintf(
+			"That %s is not part of this workshop.", strings.ToLower(kind.Label)))
+		return
+	}
+
+	audit.Record(ctx, pool, user.ID, "delivery.planned", cfg.Kind, objectID, "", "",
+		map[string]interface{}{"workshop_id": workshopID, "fields": len(sets)})
+
+	response.OK(w, map[string]interface{}{"id": objectID, "changed": len(sets)})
 }
 
 // ---- Export to Jira ----
@@ -677,8 +884,21 @@ func renderJiraCSV(board *DeliveryBoard, ratings map[string]weights.Aggregate,
 
 	// TWO `Labels` COLUMNS, which is Jira's documented way of giving one issue
 	// several labels in CSV: repeated headers become repeated values.
+	// ASSIGNEE, DUE DATE AND ORIGINAL ESTIMATE ARE JIRA'S OWN FIELDS, so the
+	// delivery detail arrives as data rather than as prose somebody has to
+	// re-key. The three were chosen because they are standard on every Jira —
+	// a start date and a business value are custom fields almost everywhere,
+	// and a column header that maps to nothing is worse than a sentence in
+	// the description, so those two stay in the description.
+	//
+	// AN UNKNOWN ASSIGNEE IMPORTS UNASSIGNED; it does not cost the row, which
+	// is why this is safe where an unmapped Priority was not. The email is
+	// what Jira matches on — a display name matches nothing — so an owner
+	// recorded as a typed name deliberately leaves this blank rather than
+	// sending a string that cannot resolve.
 	header := []string{
 		"Issue Type", "Summary", "Description", "Status", "Priority",
+		"Assignee", "Due Date", "Original Estimate",
 		"Epic Name", "Epic Link", "Labels", "Labels",
 	}
 	if err := cw.Write(header); err != nil {
@@ -695,6 +915,7 @@ func renderJiraCSV(board *DeliveryBoard, ratings map[string]weights.Aggregate,
 			fmt.Sprintf("%s from the %s workshop \"%s\".",
 				board.GroupKindLabel(), methodologyName, workshopName),
 			board.States[0].Name, "Medium",
+			"", "", "",
 			epicName[g.ID], "",
 			jiraLabel(g.TypeKey), methodologyLabel,
 		}
@@ -714,10 +935,15 @@ func renderJiraCSV(board *DeliveryBoard, ratings map[string]weights.Aggregate,
 		if !ok {
 			priority = "Medium"
 		}
+		due := ""
+		if it.EndDate != nil {
+			due = *it.EndDate
+		}
 		row := []string{
 			"Story", it.Title,
 			jiraDescription(it, ratings[it.ID], contributors, board, workshopName),
 			board.stateName(it.State), priority,
+			it.OwnerEmail, due, jiraEstimate(it.EffortPersonDays),
 			"", link,
 			jiraLabel(it.TypeKey), methodologyLabel,
 		}
@@ -834,6 +1060,48 @@ func jiraDescription(it DeliveryItem, rating weights.Aggregate, contributors int
 		parts = append(parts, "Workshop priority: not yet rated.")
 	}
 
+	// WHAT THE ROOM SAID IT WOULD TAKE AND BE WORTH.
+	//
+	// Due date and estimate also ride in their own Jira columns above; the
+	// start date and the business value have no standard field anywhere, so
+	// the description is where they survive. A figure with no basis beside it
+	// cannot be argued with six months later, which is the whole reason the
+	// basis is collected at all.
+	plan := []string{}
+	if it.OwnerName != "" {
+		owner := "Owner: " + it.OwnerName
+		if it.OwnerEmail == "" {
+			// Say so, or an unassigned ticket looks like the export dropped it.
+			owner += " (not a workshop account, so not assigned here)"
+		}
+		plan = append(plan, owner)
+	}
+	switch {
+	case it.StartDate != nil && it.EndDate != nil:
+		plan = append(plan, fmt.Sprintf("Runs %s to %s", *it.StartDate, *it.EndDate))
+	case it.StartDate != nil:
+		plan = append(plan, "Starts "+*it.StartDate)
+	case it.EndDate != nil:
+		plan = append(plan, "Due "+*it.EndDate)
+	}
+	if it.EffortPersonDays != nil {
+		plan = append(plan, fmt.Sprintf("Effort: %s person-days", trimFloat(*it.EffortPersonDays)))
+	}
+	if it.ValueAmount != nil && it.ValueUnit != "" {
+		// GROUPED DIGITS AND THE UNIT IN BRACKETS. "450000 Money, per year"
+		// is both hard to read at a glance and ungrammatical, and this line
+		// is the one a sponsor reads in a ticket months after the workshop.
+		line := fmt.Sprintf("Business value: %s (%s)",
+			groupDigits(trimFloat(*it.ValueAmount)), valueUnitLabel(it.ValueUnit))
+		if it.ValueBasis != "" {
+			line += fmt.Sprintf(" — %s", it.ValueBasis)
+		}
+		plan = append(plan, line)
+	}
+	if len(plan) > 0 {
+		parts = append(parts, strings.Join(plan, "\n"))
+	}
+
 	if it.ObjectState != "" && it.ObjectState != "approved" {
 		parts = append(parts, fmt.Sprintf(
 			"Status in the workshop: %s — not yet approved.", it.ObjectState))
@@ -841,6 +1109,73 @@ func jiraDescription(it DeliveryItem, rating weights.Aggregate, contributors int
 	parts = append(parts, fmt.Sprintf("Rank on the %s: %d.", strings.ToLower(board.Label), it.Rank+1))
 
 	return strings.Join(parts, "\n\n")
+}
+
+// groupDigits puts separators in the whole part of an already-formatted
+// number: "450000" becomes "450,000", "12.5" stays "12.5".
+//
+// Comma-grouped because the export is a CSV read by Jira, which has no locale
+// to consult — and the field is quoted, so a comma inside it is safe.
+func groupDigits(s string) string {
+	whole, frac := s, ""
+	if i := strings.IndexByte(s, '.'); i >= 0 {
+		whole, frac = s[:i], s[i:]
+	}
+	sign := ""
+	if strings.HasPrefix(whole, "-") {
+		sign, whole = "-", whole[1:]
+	}
+	if len(whole) <= 3 {
+		return sign + whole + frac
+	}
+	var out []byte
+	for i, c := range []byte(whole) {
+		if i > 0 && (len(whole)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, c)
+	}
+	return sign + string(out) + frac
+}
+
+// valueUnitLabel turns a stored unit key into the words somebody reads.
+//
+// FROM THE REGISTRY, NEVER A SECOND LIST. The options and their labels are
+// declared once on the recommendation kind; a copy here would be the place
+// they drift, and a ticket reading "money_annual" is the kind of thing that
+// only gets noticed by whoever has to explain it in a steering meeting.
+// An unknown key prints itself rather than vanishing, so a value written
+// before a unit was renamed is still legible.
+func valueUnitLabel(key string) string {
+	kind, err := objects.ByKey("recommendation")
+	if err != nil || kind == nil {
+		return key
+	}
+	f := kind.Field("value_unit")
+	if f == nil {
+		return key
+	}
+	for i, o := range f.Options {
+		if o == key && i < len(f.OptionLabels) {
+			return f.OptionLabels[i]
+		}
+	}
+	return key
+}
+
+// jiraEstimate turns person-days into the duration string Jira's importer
+// reads for Original Estimate.
+//
+// "3d", not 3: a bare number is interpreted as SECONDS, so a three-day
+// estimate would import as three seconds and nobody would notice until a
+// sprint was planned against it. Half-days survive as "0.5d", which Jira
+// accepts. An absent estimate is an empty cell, never "0d" — an estimate of
+// zero is a claim, and nobody made it.
+func jiraEstimate(days *float64) string {
+	if days == nil {
+		return ""
+	}
+	return trimFloat(*days) + "d"
 }
 
 // trimFloat prints 4 as "4" and 4.5 as "4.5", so a whole-number mean does not

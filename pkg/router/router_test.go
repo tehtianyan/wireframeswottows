@@ -91,6 +91,12 @@ func TestRoutePrecedence(t *testing.T) {
 		{"GET", "/api/v1/workshops/abc/delivery/export/jira.csv",
 			"/api/v1/workshops/{id}/delivery/export/jira.csv"},
 		{"PUT", "/api/v1/workshops/abc/delivery/r1", "/api/v1/workshops/{id}/delivery/{objectId}"},
+		// The plan sits one level BELOW the per-object PUT, so this asserts
+		// that ".../delivery/r1/plan" is not read as the state route with an
+		// object id of "r1" and a stray segment — which would silently route
+		// every plan save to the column-move handler.
+		{"PUT", "/api/v1/workshops/abc/delivery/r1/plan",
+			"/api/v1/workshops/{id}/delivery/{objectId}/plan"},
 
 		// Participants and archiving: more literals beside the {kind}
 		// wildcard, and these carry membership writes, so a routing mistake

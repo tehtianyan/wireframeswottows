@@ -412,6 +412,193 @@ runSuite("delivery", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     r.ok(records.slice(1).some((rec) => rec[descCol]?.includes("\n")),
       "a description's paragraphs stay inside one quoted field");
 
+    // ================================================================
+    r.section("an action carries who owns it, when, what it costs, what it is worth");
+    // ================================================================
+    //
+    // UAT 2026-11-14. EVERY ONE OPTIONAL — "so that the facilitator can skip
+    // these when he is out of time" — which is why the first assertion here
+    // is that an action with none of them set is still a valid action, and
+    // why the migration verifies no column arrived NOT NULL.
+    const actionId = board2.items[0].id;
+    const recRoute = "recommendations";
+
+    const plain = await F("POST", `/workshops/${WS}/${recRoute}`, {
+      title: `${PREFIX} an action nobody had time to plan`,
+      parent_id: board2.items[0].group_id,
+      fields: { priority: "medium" },
+      evidence: {},
+    });
+    r.ok(plain.success, "an action with no delivery detail is still accepted",
+      plain.error?.message);
+    if (plain.success) made.recommendations.push(plain.data.id);
+
+    // ---- the owner is an account OR a name, never both ----
+    const roster = (await F("GET", `/workshops/${WS}/participants`)).data ?? [];
+    const member = roster.find((p) => p.role === "participant") ?? roster[0];
+
+    const named = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: { owner_user_id: member.user_id },
+    });
+    r.ok(named.success, "an owner can be chosen from the roster", named.error?.message);
+
+    // THE CONTRADICTION IS UNREACHABLE, NOT MERELY REFUSED. Typing a name on
+    // a card that already names somebody has to replace them — the database
+    // CHECK would otherwise answer with a SQLSTATE, which is no use to
+    // anybody filling in a form.
+    const retyped = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: { owner_name: "Head of Sales Ops" },
+    });
+    r.ok(retyped.success, "...and typing a name instead replaces them rather than colliding",
+      retyped.error?.message);
+
+    const both = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: { owner_user_id: member.user_id, owner_name: "Two at once" },
+    });
+    r.ok(!both.success && /not both/i.test(both.error?.message ?? ""),
+      "...but asking for both in ONE request is refused, in words",
+      both.error?.message);
+
+    // AN OUTSIDER CANNOT BE NAMED AS AN ACCOUNT. The foreign key only asks
+    // whether the person exists, so without a roster check an owner could be
+    // somebody from another client's workshop.
+    const outsider = roster.find((p) => p.user_id !== member.user_id);
+    const stranger = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: { owner_user_id: "00000000-0000-0000-0000-000000000001" },
+    });
+    r.ok(!stranger.success && /in this workshop/i.test(stranger.error?.message ?? ""),
+      "an owner who is not on this roster is refused", stranger.error?.message);
+    void outsider;
+
+    // ---- the rest of the plan ----
+    const planned = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: {
+        owner_user_id: member.user_id,
+        start_date: "2026-03-02",
+        end_date: "2026-06-30",
+        effort_person_days: 12.5,
+        value_amount: 450000,
+        value_unit: "money_annual",
+        value_basis: "3% churn reduction on $15M ARR",
+      },
+    });
+    r.ok(planned.success, "the whole plan saves in one request", planned.error?.message);
+
+    const board3 = (await F("GET", `/workshops/${WS}/delivery?stage_key=${reportStage.key}`)).data;
+    const card = board3.items.find((i) => i.id === actionId);
+    r.ok(card?.owner_name === member.name || card?.owner_name === member.email,
+      "the card shows a NAME, not a uuid — whichever way the owner was recorded",
+      card?.owner_name);
+    r.ok(card?.owner_email === member.email,
+      "...and the email comes back too, which is what Jira can assign on",
+      card?.owner_email);
+    r.ok(card?.start_date === "2026-03-02" && card?.end_date === "2026-06-30",
+      "the dates are calendar dates, not timestamps that shift by timezone",
+      `${card?.start_date} → ${card?.end_date}`);
+    r.ok(Number(card?.effort_person_days) === 12.5,
+      "half a person-day survives the round trip", card?.effort_person_days);
+    r.ok(Number(card?.value_amount) === 450000 && card?.value_unit === "money_annual",
+      "the value keeps its unit, so two of them could be added together",
+      `${card?.value_amount} ${card?.value_unit}`);
+
+    // ---- what the database refuses whatever the handler does ----
+    const backwards = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: { start_date: "2026-06-30", end_date: "2026-03-02" },
+    });
+    r.ok(!backwards.success, "a date range that runs backwards is refused",
+      backwards.error?.message);
+
+    // A NUMBER WITH NO UNIT IS NOT A QUANTITY. The pair is what makes the
+    // value addable; half of it is a field somebody started filling in.
+    const halfValue = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: { value_amount: 999, value_unit: null },
+    });
+    r.ok(!halfValue.success, "an amount with no unit is refused", halfValue.error?.message);
+
+    const madeUpUnit = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: { value_amount: 999, value_unit: "bananas" },
+    });
+    r.ok(!madeUpUnit.success && /must be one of/i.test(madeUpUnit.error?.message ?? ""),
+      "...and a unit nobody declared is refused by name, listing the real ones",
+      madeUpUnit.error?.message);
+
+    const badDate = await F("PUT", `/workshops/${WS}/delivery/${actionId}/plan?stage_key=${reportStage.key}`, {
+      fields: { start_date: "2026-02-31" },
+    });
+    r.ok(!badDate.success, "a date that does not exist is refused before the database sees it",
+      badDate.error?.message);
+
+    // ---- AN APPROVED ACTION CAN STILL BE PLANNED ----------------------
+    //
+    // THE DEFECT THIS SECTION EXISTS FOR, and it only showed up when the Jira
+    // file was PRINTED: every plan column came back empty. The first version
+    // saved through the generic object PATCH, which freezes an approved
+    // object — so the actions a facilitator most wants to plan, the ones the
+    // room agreed, were precisely the ones that could not be. The board went
+    // on offering "Add owner, dates, effort, value" and the write was refused.
+    //
+    // The freeze is right for CONTENT and wrong for delivery: who does an
+    // agreed action, and by when, is decided after the decision to do it.
+    // Hence a route of its own, like moving a card between columns.
+    const approved = await F("POST", `/workshops/${WS}/${recRoute}`, {
+      title: `${PREFIX} an approved action`,
+      parent_id: board2.items[0].group_id,
+      fields: { priority: "high" },
+      evidence: {},
+    });
+    if (approved.success) made.recommendations.push(approved.data.id);
+    await F("POST", `/workshops/${WS}/${recRoute}/${approved.data.id}/review`, { action: "approve" });
+
+    const frozenEdit = await F("PATCH", `/workshops/${WS}/${recRoute}/${approved.data.id}`, {
+      title: "renamed after approval",
+    });
+    r.ok(!frozenEdit.success,
+      "an approved action's CONTENT is still frozen — the governance rule is intact",
+      frozenEdit.error?.message);
+
+    const planApproved = await F("PUT",
+      `/workshops/${WS}/delivery/${approved.data.id}/plan?stage_key=${reportStage.key}`, {
+        fields: { owner_name: "Head of Delivery", effort_person_days: 3 },
+      });
+    r.ok(planApproved.success,
+      "...but its delivery plan can still be filled in, which is the whole point",
+      planApproved.error?.message);
+
+    // AND THE ROUTE IS NOT A BACK DOOR PAST THE FREEZE. Only the delivery
+    // group is writable here; a title sent to this endpoint must be refused
+    // by name, or the governance rule above would be bypassable.
+    const sneaky = await F("PUT",
+      `/workshops/${WS}/delivery/${approved.data.id}/plan?stage_key=${reportStage.key}`, {
+        fields: { title: "renamed through the plan route" },
+      });
+    r.ok(!sneaky.success && /not part of the delivery plan/i.test(sneaky.error?.message ?? ""),
+      "...and content cannot be edited through it", sneaky.error?.message);
+
+    const stillNamed = (await F("GET", `/workshops/${WS}/${recRoute}`)).data
+      ?.find((o) => o.id === approved.data.id);
+    r.ok(stillNamed?.title === `${PREFIX} an approved action`,
+      "...the title really is unchanged", stillNamed?.title);
+
+    // ---- and it all travels to Jira ----
+    const csv2 = await F("GET",
+      `/workshops/${WS}/delivery/export/jira.csv?stage_key=${reportStage.key}`,
+      undefined, { raw: true });
+    const recs2 = parseCSV(csv2.text);
+    const h2 = recs2[0];
+    for (const col of ["Assignee", "Due Date", "Original Estimate"]) {
+      r.ok(h2.includes(col), `the export declares ${col}`);
+    }
+    const assignee = recs2.slice(1).map((rec) => rec[h2.indexOf("Assignee")]);
+    r.ok(assignee.includes(member.email),
+      "the owner reaches Jira as an email, which is what it matches on");
+    const est = recs2.slice(1).map((rec) => rec[h2.indexOf("Original Estimate")]);
+    r.ok(est.includes("12.5d"),
+      "the estimate carries its unit — a bare number is SECONDS to Jira", est.join("|"));
+    r.ok(!csv2.text.includes("money_annual"),
+      "the stored unit key does not reach the ticket; its label does");
+    r.ok(csv2.text.includes("3% churn reduction on $15M ARR"),
+      "the basis travels with the figure, so it can be argued with later");
+
     // ---- nothing else gained a board ------------------------------------
     r.section("no other methodology gained a delivery board");
     const leaked = await c.query(
@@ -451,6 +638,37 @@ runSuite("delivery", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS }) => {
     // last column underneath the first and stop it being a kanban.
     r.ok(!/boardColumns/.test(body),
       "the columns are not laid out with boardColumns, which would wrap them into a block");
+
+    // ---- the plan form is BUILT from the registry (UAT 2026-11-14) ----
+    //
+    // Eight fields, their types, their bounds and their unit labels are
+    // declared once on the server. A second list here is where the two drift,
+    // and the symptom is a card reading "money_annual" — which nobody notices
+    // until it has to be explained in a steering meeting.
+    r.ok(/DELIVERY_FIELD_GROUP/.test(body),
+      "the form takes its fields from the delivery group the server declares");
+    r.ok(!/"money_annual"|'money_annual'|"person_days"|'person_days'/.test(body),
+      "...and no unit key is written out in the component");
+    r.ok(!/Money, per year/.test(body),
+      "...nor any unit's label, which would be a second list to keep in step");
+    r.ok(/option_labels/.test(body),
+      "...the labels come from the registry with the options");
+
+    // A CARD IS SCANNED. Eight always-present rows would bury the one thing
+    // the board exists to show, so only what has been filled in is drawn.
+    r.ok(/if \(bits\.length === 0\) return null/.test(body),
+      "a card with no plan draws no plan row at all");
+    // "not set" and "zero" are different answers — the same rule the rating
+    // follows, where "not yet rated" must not be printed over work the room
+    // rated, and a 0-day estimate nobody made must not look like one they did.
+    r.ok(/effort_person_days !== null/.test(body),
+      "an absent effort is distinguished from an effort of zero");
+
+    // THE EDIT CONTROL MUST NOT ALSO LIFT THE CARD. The card is the drag
+    // handle, so a press that reaches a button inside it has to stop there —
+    // the same rule the matrix's "+N more" needed.
+    r.ok(/onPointerDown=\{\(e\) => e\.stopPropagation\(\)\}/.test(body),
+      "opening the plan does not start a drag");
 
     // A GRID, NOT A WRAPPING FLEX ROW. The first version was flex, measured
     // correctly at 1440px and came out 303/303/618 at 900 — a flex LINE

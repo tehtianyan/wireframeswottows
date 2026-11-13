@@ -353,14 +353,31 @@ export type CitableKind = "factor" | "synthesis" | "factor_relationship" | "insi
 export interface ObjectField {
   name: string;
   label: string;
-  type: "text" | "textarea" | "enum" | "int";
+  /**
+   * `date` is a calendar date, `decimal` a number that may have a fraction
+   * (half a person-day is a real estimate), and `member` somebody on this
+   * workshop's roster — the server checks the id really is a member.
+   */
+  type: "text" | "textarea" | "enum" | "int" | "date" | "decimal" | "member";
   required: boolean;
   options?: string[];
+  /** What a person reads for each option, in the same order as `options`. */
+  option_labels?: string[];
   help?: string;
-  /** Bounds for an `int` field; the server enforces the same values. */
+  /** Bounds for an `int` or `decimal` field; the server enforces the same. */
   min?: number;
   max?: number;
+  /**
+   * A named section of the form rather than the main body. Delivery detail is
+   * eight fields filled on the kanban long after the action was written;
+   * inlining them would make the stage's create form a wall of inputs for
+   * something typed in front of a room.
+   */
+  group?: string;
 }
+
+/** The form section holding what it takes to deliver an action. */
+export const DELIVERY_FIELD_GROUP = "delivery";
 
 export interface ObjectKind {
   key: ObjectKindKey;
@@ -863,6 +880,28 @@ export interface DeliveryItem {
   /** Position across the whole board, not within a heading. */
   rank: number;
   priority: string;
+
+  /**
+   * What it takes to deliver it. ALL OPTIONAL — these are filled on the board,
+   * often in the last ten minutes of a session, and a facilitator who skipped
+   * them has not produced a broken action.
+   *
+   * Null rather than zero throughout: "nobody estimated this" and "this takes
+   * no effort" are different answers, and a card printing "0 days" over an
+   * estimate nobody made is the same defect as "not yet rated" printed over
+   * work the room had rated.
+   */
+  owner_user_id: string | null;
+  /** Resolved for display: the account's name, or the typed one. */
+  owner_name: string;
+  /** Present only for a real account — what Jira can assign on. */
+  owner_email?: string;
+  start_date: string | null;
+  end_date: string | null;
+  effort_person_days: number | null;
+  value_amount: number | null;
+  value_unit: string;
+  value_basis: string;
 }
 
 export interface DeliveryBoard {
@@ -886,6 +925,28 @@ export const deliveryApi = {
     apiPut<{ id: string; state: string; state_name: string }>(
       `/workshops/${workshopId}/delivery/${objectId}?stage_key=${encodeURIComponent(stageKey)}`,
       { state },
+    ),
+
+  /**
+   * Who owns an action, when it runs, what it costs and what it is worth.
+   *
+   * NOT `objectsApi.update`. That path freezes an APPROVED object — which is
+   * right for a title the room signed off and wrong here, because the actions
+   * most worth planning are precisely the agreed ones. Going through it meant
+   * every save against an approved action was refused and the card went on
+   * offering "Add owner, dates, effort, value" as though nothing had happened.
+   * Delivery detail is decided after the decision to do the work, which is
+   * why moving a card between columns already has its own endpoint too.
+   */
+  setPlan: (
+    workshopId: string,
+    objectId: string,
+    stageKey: string,
+    fields: Record<string, unknown>,
+  ) =>
+    apiPut<{ id: string; changed: number }>(
+      `/workshops/${workshopId}/delivery/${objectId}/plan?stage_key=${encodeURIComponent(stageKey)}`,
+      { fields },
     ),
 
   /**

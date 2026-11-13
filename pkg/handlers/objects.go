@@ -562,6 +562,14 @@ func insertObject(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
 	if msg != "" {
 		return "", msg, nil
 	}
+	if msg := applyExclusivePairs(kind, fieldVals); msg != "" {
+		return "", msg, nil
+	}
+	if msg, err := requireMemberFields(ctx, pool, kind, workshopID, fieldVals); err != nil {
+		return "", "", err
+	} else if msg != "" {
+		return "", msg, nil
+	}
 	if msg := validateEvidence(kind, body.Evidence); msg != "" {
 		return "", msg, nil
 	}
@@ -700,6 +708,21 @@ func UpdateObject(w http.ResponseWriter, r *http.Request) {
 	}
 	fieldVals, msg := coerceFields(kind, body.Fields)
 	if msg != "" {
+		response.Fail(w, response.CodeValidationError, msg)
+		return
+	}
+	// Same two rules as the create path, from the same helpers. The PATCH case
+	// is the one that matters most for the pair: naming an owner on a card
+	// that already carries a typed name must replace it, not collide with the
+	// CHECK and hand back a SQLSTATE.
+	if msg := applyExclusivePairs(kind, fieldVals); msg != "" {
+		response.Fail(w, response.CodeValidationError, msg)
+		return
+	}
+	if msg, err := requireMemberFields(ctx, pool, kind, row.workshopID, fieldVals); err != nil {
+		failDB(w, err)
+		return
+	} else if msg != "" {
 		response.Fail(w, response.CodeValidationError, msg)
 		return
 	}
@@ -1274,6 +1297,80 @@ func trimPtr(s *string) *string {
 	return &t
 }
 
+// applyExclusivePairs makes a kind's "at most one of these two" rules
+// unreachable rather than merely refused: setting one side clears the other.
+//
+// The database states the same rule as a CHECK, which is what protects direct
+// SQL — but a CHECK violation surfaces as a SQLSTATE, and nobody filling in a
+// form can act on "23514". Supplying BOTH sides with values in ONE request is
+// a genuine contradiction and is refused in words.
+//
+// It mutates `vals` in place and returns a message when the request itself
+// contradicts.
+func applyExclusivePairs(kind *objects.Kind, vals map[string]interface{}) string {
+	for _, pair := range kind.ExclusivePairs {
+		a, b := pair[0], pair[1]
+		av, aSet := vals[a]
+		bv, bSet := vals[b]
+		aHas := aSet && av != nil
+		bHas := bSet && bv != nil
+		if aHas && bHas {
+			fa, fb := kind.Field(a), kind.Field(b)
+			la, lb := a, b
+			if fa != nil {
+				la = fa.Label
+			}
+			if fb != nil {
+				lb = fb.Label
+			}
+			return fmt.Sprintf("Set %s or %s, not both.", la, lb)
+		}
+		// One side given a value clears the other, INCLUDING on a PATCH that
+		// never mentioned it — which is the case the CHECK would otherwise
+		// catch: naming a person on a row that already carries a typed name.
+		if aHas {
+			vals[b] = nil
+		} else if bHas {
+			vals[a] = nil
+		}
+	}
+	return ""
+}
+
+// requireMemberFields checks that every `member`-typed field names somebody on
+// THIS workshop's roster.
+//
+// coerceFields cannot do it: it has no workshop. Without this an owner could
+// be any uuid in profiles — somebody from another client's workshop — and the
+// foreign key would accept it happily, because the FK only asks whether the
+// person exists.
+func requireMemberFields(ctx context.Context, pool *pgxpool.Pool, kind *objects.Kind,
+	workshopID string, vals map[string]interface{}) (string, error) {
+
+	for _, f := range kind.Fields {
+		if f.Type != "member" {
+			continue
+		}
+		v, present := vals[f.Name]
+		if !present || v == nil {
+			continue
+		}
+		id, _ := v.(string)
+		var ok bool
+		err := pool.QueryRow(ctx, `
+			select exists (
+			  select 1 from public.workshop_members
+			  where workshop_id = $1 and user_id = $2)`, workshopID, id).Scan(&ok)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return fmt.Sprintf("%s must be somebody in this workshop.", f.Label), nil
+		}
+	}
+	return "", nil
+}
+
 // coerceFields validates the kind-specific fields and returns only those the
 // caller actually supplied, so PATCH can distinguish "unset" from "cleared".
 func coerceFields(kind *objects.Kind, in map[string]interface{}) (map[string]interface{}, string) {
@@ -1310,10 +1407,65 @@ func coerceFields(kind *objects.Kind, in map[string]interface{}) (map[string]int
 				return nil, fmt.Sprintf("%s cannot be above %d.", f.Label, *f.Max)
 			}
 			out[name] = v
+		case "decimal":
+			// A NUMBER THAT MAY HAVE A FRACTION. Half a person-day is a real
+			// estimate, and a value of 0.5 days rounded to 0 or 1 by an `int`
+			// field would be silently wrong rather than refused.
+			n, ok := raw.(float64)
+			if !ok {
+				return nil, fmt.Sprintf("%s must be a number", f.Label)
+			}
+			if math.IsNaN(n) || math.IsInf(n, 0) {
+				return nil, fmt.Sprintf("%s must be a number", f.Label)
+			}
+			if f.Min != nil && n < float64(*f.Min) {
+				return nil, fmt.Sprintf("%s cannot be below %d.", f.Label, *f.Min)
+			}
+			if f.Max != nil && n > float64(*f.Max) {
+				return nil, fmt.Sprintf("%s cannot be above %d.", f.Label, *f.Max)
+			}
+			out[name] = n
+		case "date":
+			s, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Sprintf("%s must be a date", f.Label)
+			}
+			t := strings.TrimSpace(s)
+			if t == "" {
+				out[name] = nil
+				continue
+			}
+			// ISO ONLY, PARSED RATHER THAN PATTERN-MATCHED. A regex accepts
+			// 2026-02-31; time.Parse does not, and the difference is a date
+			// the database would then refuse with a SQLSTATE nobody can read.
+			if _, err := time.Parse("2006-01-02", t); err != nil {
+				return nil, fmt.Sprintf("%s must be a date like 2026-03-31.", f.Label)
+			}
+			out[name] = t
+		case "member":
+			// The id is checked against the workshop's roster by the caller,
+			// which is the only place that knows which workshop this is. Here
+			// it only has to be a string or an explicit clear.
+			s, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Sprintf("%s must be a person", f.Label)
+			}
+			t := strings.TrimSpace(s)
+			if t == "" {
+				out[name] = nil
+			} else {
+				out[name] = t
+			}
 		case "enum":
 			s, ok := raw.(string)
 			if !ok {
 				return nil, fmt.Sprintf("%s must be text", f.Label)
+			}
+			if strings.TrimSpace(s) == "" {
+				// Clearing an optional enum. A required one is caught by the
+				// NOT NULL column, not by refusing the empty string here.
+				out[name] = nil
+				continue
 			}
 			valid := false
 			for _, o := range f.Options {
