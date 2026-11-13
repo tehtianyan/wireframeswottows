@@ -132,6 +132,57 @@ function DashboardPage() {
               </div>
             </section>
 
+            {/* WHAT KEEPS COMING UP (UAT 2026-11-14). Below the workshops,
+                because the page's question is still "what requires my
+                attention today?" — this is the one that follows it. It
+                appears only when there IS a commonality: a panel saying
+                "nothing is shared" on somebody's first workshop is a row of
+                chrome explaining its own emptiness. */}
+            {data.commonalities.length > 0 && (
+              <section className="console-panel" data-build="live">
+                <PanelHeading
+                  build="live"
+                  title="Coming up more than once"
+                  hint={`across ${
+                    new Set(data.commonalities.flatMap((c) => c.workshops.map((w) => w.id))).size
+                  } of your workshops`}
+                />
+                <div className="divide-y divide-border">
+                  {data.commonalities.map((c) => (
+                    <div key={c.term} className="p-3.5">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span className="text-sm font-medium">{c.term}</span>
+                        {/* TWO NUMBERS. How many workshops raised it and how
+                            often — a term in four workshops is a stronger
+                            finding than one mentioned forty times in two, and
+                            either figure alone hides which. */}
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {c.workshops.length} workshops · {c.mentions} mentions
+                        </span>
+                      </div>
+                      {/* NAMED, NOT COUNTED. "Four workshops" invites "which?",
+                          and each one is quoted so the term is never shown
+                          without the words it came from. */}
+                      <div className="mt-1.5 space-y-1">
+                        {c.workshops.map((w) => (
+                          <Link
+                            key={w.id}
+                            to="/w/$workshopId"
+                            params={{ workshopId: w.id }}
+                            className="block text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <span className="font-medium text-foreground/80">{w.name}</span>
+                            <span className="mx-1.5">—</span>
+                            <span className="italic">“{w.example}”</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <div className="flex flex-wrap gap-2">
               <DrawerLink
                 icon={<History className="size-3.5" />}

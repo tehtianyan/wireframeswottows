@@ -31,6 +31,7 @@ const suites = [
   ["tows-matrix", "Strategy matrix — axes from config, initiatives, actions, ranking"],
   ["visual-matrix", "Strategy matrix — measured in a real browser (needs the dev UI)"],
   ["delivery", "Delivery board — the kanban on Reporting, and Export to Jira"],
+  ["standing", "Where a workshop has got to, and what recurs across several"],
   ["objects", "Phase 2 — analysis objects and governance"],
   ["reporting", "Phase 4 — reports, versioning, export"],
   ["knowledge", "Phase 5 — knowledge, notifications, admin"],

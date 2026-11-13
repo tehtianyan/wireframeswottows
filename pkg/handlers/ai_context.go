@@ -46,6 +46,19 @@ func buildAIContext(ctx context.Context, pool *pgxpool.Pool, m *methodology.Meth
 			}
 			out[k.Route] = items
 		}
+		// WHERE THE ROOM HAS GOT TO, which is the question Summarize Workshop
+		// is actually asked at a coffee break: what is done, what is waiting
+		// on somebody, and what to pick up next. Without it the assistant
+		// could describe the CONTENT of a workshop in detail and had no way to
+		// know that two stages were untouched or that nine items were sitting
+		// unreviewed — so "incomplete_items" was a guess dressed as a finding.
+		standing, err := fetchWorkshopStanding(ctx, pool, m, workshopID)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range standing {
+			out[k] = v
+		}
 		return out, nil
 	}
 

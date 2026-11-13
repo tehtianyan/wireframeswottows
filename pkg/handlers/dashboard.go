@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -58,6 +59,11 @@ type Dashboard struct {
 	Workshops      []DashboardWorkshop `json:"workshops"`
 	AwaitingMyReview int               `json:"awaiting_my_review"`
 	RecentActivity []ActivityEvent     `json:"recent_activity"`
+	// Commonalities are the things more than one of these workshops raised.
+	// A facilitator running six sessions a quarter has had no way to notice
+	// that four of them said the same thing — Knowledge can be SEARCHED for a
+	// term, which only answers a question you already knew to ask.
+	Commonalities []Commonality `json:"commonalities"`
 }
 
 // countableKinds is the registry's kinds plus factors, which predate it.
@@ -195,6 +201,16 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
 		actRows.Close()
 	}
 
+	// WHAT KEEPS COMING UP. Best effort, and said out loud when it fails: the
+	// dashboard's job is the workshop list and the review queue, and a
+	// roll-up that cannot be computed must not take those down with it.
+	out.Commonalities = []Commonality{}
+	if common, err := loadCommonalities(r2.Context(), pool, user.ID, 8); err == nil {
+		out.Commonalities = common
+	} else {
+		fmt.Fprintf(os.Stderr, "dashboard: could not load commonalities: %v\n", err)
+	}
+
 	response.OK(w, out)
 }
 
@@ -224,6 +240,11 @@ type WorkshopSummary struct {
 	HealthScore     int                 `json:"health_score"`
 	HealthSignals   []HealthSignal      `json:"health_signals"`
 	RecentActivity  []ActivityEvent     `json:"recent_activity"`
+	// Standing is what the room has produced and what is still waiting on
+	// somebody — the same answer the break-time summary is given, from the
+	// same function, so the panel and the summary cannot disagree in front of
+	// a room (UAT 2026-11-14).
+	Standing *WorkshopStanding `json:"standing,omitempty"`
 }
 
 type CategoryCount struct {
@@ -301,6 +322,20 @@ func GetWorkshopSummary(w http.ResponseWriter, r *http.Request) {
 		Scan(&summary.Participants)
 
 	summary.HealthSignals, summary.HealthScore = workshopHealth(summary, m)
+
+	// WHAT THE ROOM HAS PRODUCED, AND WHAT IS WAITING ON SOMEBODY. Best
+	// effort: this panel is an addition to a screen that already works, and a
+	// failure here must not take the whole overview down with it — the
+	// counts, the stages and the health score above are what the page is for.
+	if st, err := loadWorkshopStanding(r2.Context(), pool, m, workshopID); err == nil {
+		summary.Standing = st
+	} else {
+		// Said out loud rather than swallowed, the same rule audit.Record had
+		// to learn: a best-effort helper that fails in silence is how an empty
+		// panel becomes "there is nothing here" instead of "this broke".
+		fmt.Fprintf(os.Stderr,
+			"summary: could not load the standing for workshop %s: %v\n", workshopID, err)
+	}
 
 	actRows, err := pool.Query(r2.Context(), `
 		select a.action, a.object_type, coalesce(p.display_name, p.email, 'Someone'),

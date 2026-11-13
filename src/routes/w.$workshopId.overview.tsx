@@ -13,6 +13,7 @@ import {
   workshopsApi,
   type Activity,
   type MethodologyStage,
+  type WorkshopStanding,
   type WorkshopSummary,
 } from "@/lib/api";
 
@@ -193,6 +194,126 @@ function WorkshopOverview() {
 // §1.15's activity feed is still here, in the drawer behind the "Recent
 // activity" link at the top: it is reference, and it was occupying a column of
 // the page on the way to the stages.
+/**
+ * What the room has produced, and what is still waiting on somebody.
+ *
+ * UAT 2026-11-14 asked the Metrics panel to track outstanding participant
+ * actions, to show the themes once the capture stages are done and to show the
+ * initiatives and actions once the matrix is, "and identify emerging
+ * properties"/"identify strategic projects" from each.
+ *
+ * THE COUNTS ARE HERE; THE READING IS THE ASSISTANT'S. Everything below is
+ * arithmetic a facilitator can check against the board — how the themes are
+ * spread, how many actions are in each column, how many have nobody's name on
+ * them. Naming the emerging properties or the strategic projects is a
+ * judgement, and this product puts judgements through the assistant under
+ * review rather than printing them as status. "Where this workshop stands",
+ * already on this page, is the button that asks for one.
+ *
+ * EACH ROW APPEARS WHEN ITS WORK DOES. A themes row on a workshop with no
+ * themes is a blank the facilitator has to interpret.
+ */
+function StandingRows({ standing }: { standing: WorkshopStanding }) {
+  const themeSpread = Object.entries(standing.themes_by_category);
+  const actionStates = Object.entries(standing.actions_by_state);
+  const queues = Object.entries(standing.awaiting_review);
+  const ownedActions = standing.actions.length - standing.actions_unowned;
+  const plannedActions = standing.actions.filter((a) => a.planned).length;
+
+  if (
+    themeSpread.length === 0 &&
+    standing.actions.length === 0 &&
+    queues.length === 0 &&
+    standing.themes === 0
+  ) {
+    return null;
+  }
+
+  return (
+    <>
+      {queues.length > 0 && (
+        <div className="border-t border-border p-3.5">
+          <p className="label-caps">Waiting on a decision</p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+            {queues.map(([label, n]) => (
+              <span key={label} className="inline-flex items-center gap-1.5 text-xs">
+                {label}
+                <span className="font-mono text-amber-600 dark:text-amber-400">{n}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {standing.themes > 0 && (
+        <div className="border-t border-border p-3.5">
+          <p className="label-caps">
+            Themes <span className="font-mono text-muted-foreground">{standing.themes}</span>
+          </p>
+          {themeSpread.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+              {themeSpread.map(([name, n]) => (
+                <span key={name} className="inline-flex items-center gap-1.5 text-xs">
+                  {name}
+                  <span className="font-mono text-muted-foreground">{n}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {/* A theme citing notes from more than one category has no single
+              home — the matrix reports those separately rather than dropping
+              them, and so does this. */}
+          {standing.themes > themeSpread.reduce((a, [, n]) => a + n, 0) && (
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              {standing.themes - themeSpread.reduce((a, [, n]) => a + n, 0)} span more than one
+              category.
+            </p>
+          )}
+        </div>
+      )}
+
+      {standing.actions.length > 0 && (
+        <div className="border-t border-border p-3.5">
+          <p className="label-caps">
+            Actions <span className="font-mono text-muted-foreground">{standing.actions.length}</span>
+            {standing.initiatives > 0 && (
+              <span className="ml-2 font-normal normal-case tracking-normal text-muted-foreground">
+                under {standing.initiatives}{" "}
+                {standing.initiatives === 1 ? "initiative" : "initiatives"}
+              </span>
+            )}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+            {actionStates.map(([state, n]) => (
+              <span key={state} className="inline-flex items-center gap-1.5 text-xs">
+                {state}
+                <span className="font-mono text-muted-foreground">{n}</span>
+              </span>
+            ))}
+          </div>
+          {/* TWO NUMBERS, NOT ONE. "12 actions" reads as twelve pieces of work
+              somebody is doing; twelve with three owners is a different
+              finding, and it is the one the facilitator has to act on before
+              everybody leaves the room. */}
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            {ownedActions} of {standing.actions.length} have an owner · {plannedActions} have
+            dates, effort or value
+          </p>
+        </div>
+      )}
+
+      {standing.participants > 0 && standing.contributed < standing.participants && (
+        <div className="border-t border-border p-3.5">
+          <p className="text-[11px] text-muted-foreground">
+            {standing.contributed} of {standing.participants} on the roster have added
+            something.
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
 function SummaryPanels({ summary }: { summary: WorkshopSummary }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -234,6 +355,13 @@ function SummaryPanels({ summary }: { summary: WorkshopSummary }) {
               </div>
             </div>
           )}
+
+          {/* WHAT THE ROOM HAS PRODUCED, AND WHAT IS WAITING ON SOMEBODY.
+              Appears as the work appears: themes once there are themes, the
+              actions once there are actions. A panel of empty rows on a
+              workshop that has not started reads as a form somebody failed to
+              fill in. (UAT 2026-11-14) */}
+          {summary.standing && <StandingRows standing={summary.standing} />}
         </section>
 
       </div>

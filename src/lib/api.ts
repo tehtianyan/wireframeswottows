@@ -1019,6 +1019,24 @@ export interface Dashboard {
   workshops: DashboardWorkshop[];
   awaiting_my_review: number;
   recent_activity: ActivityEvent[];
+  /**
+   * Things more than one of these workshops raised.
+   *
+   * COUNTED, NOT INTERPRETED. A term in the live themes and notes of two or
+   * more workshops is a fact, and each row names the workshops and quotes one
+   * thing each actually said. Calling the pattern "a systemic capability gap"
+   * is a reading, and readings go through the assistant under review.
+   */
+  commonalities: Commonality[];
+}
+
+export interface Commonality {
+  /** The shared word, in the spelling the rooms most often used. */
+  term: string;
+  /** Which workshops raised it — the list, because "four" invites "which?". */
+  workshops: { id: string; name: string; example: string }[];
+  /** Mentions across all of them: one per title, not per repetition. */
+  mentions: number;
 }
 
 export interface HealthSignal {
@@ -1054,6 +1072,56 @@ export interface WorkshopSummary {
   health_score: number;
   health_signals: HealthSignal[];
   recent_activity: ActivityEvent[];
+  /**
+   * What the room has produced and what is still waiting on somebody.
+   *
+   * THE SAME ANSWER THE BREAK-TIME SUMMARY IS GIVEN, from the same function
+   * on the server — so the panel and the assistant cannot describe the same
+   * workshop differently in front of a room.
+   *
+   * Optional because it is computed best-effort: a failure here must not take
+   * down the counts, the stages and the health score the page is really for.
+   */
+  standing?: WorkshopStanding;
+}
+
+export interface StageStanding {
+  key: string;
+  name: string;
+  stage_type: string;
+  sequence_number: number;
+  status: "not_started" | "in_progress" | "completed";
+  items: number;
+  /** A tool rather than a step in the room's path. */
+  facilitator_only: boolean;
+}
+
+export interface ActionStanding {
+  title: string;
+  /** The delivery column, resolved — never a key with no column. */
+  state: string;
+  /** Empty when nobody has been named. */
+  owner: string;
+  /** True once any of the delivery detail has been filled in. */
+  planned: boolean;
+  approved: boolean;
+  group?: string;
+}
+
+export interface WorkshopStanding {
+  stages: StageStanding[];
+  /** Submitted items per kind label — which queue is blocked, not a total. */
+  awaiting_review: Record<string, number>;
+  themes: number;
+  /** How the themes are spread: the countable half of "emerging properties". */
+  themes_by_category: Record<string, number>;
+  initiatives: number;
+  actions: ActionStanding[];
+  actions_by_state: Record<string, number>;
+  actions_unowned: number;
+  participants: number;
+  /** How many have actually put something in — the finding, not the roster. */
+  contributed: number;
 }
 
 export const dashboardApi = {

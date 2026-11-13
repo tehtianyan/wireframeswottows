@@ -79,6 +79,74 @@ runSuite("scoping", async ({ baseUrl, results: r, c }) => {
     const assetsBefore = await api("GET", "/knowledge/assets");
     r.ok(assetsBefore.success, "knowledge assets are readable");
 
+    // HOW MANY THERE WERE, so the "zero after removal" check below is known
+    // not to be vacuous.
+    //
+    // THIS CAUGHT ITSELF IMMEDIATELY. Written as a plain assertion it went
+    // red, because the account this suite uses on purpose — an executive
+    // viewer, the least-privileged real one — belongs to too few workshops
+    // for a roll-up ACROSS workshops to find anything. So "zero afterwards"
+    // was passing while proving nothing, which is the shape of every test
+    // that passes for the wrong reason in this repo.
+    //
+    // It SKIPS rather than passing, and skipping is loud: a check that cannot
+    // tell "could not look" from "nothing there" reports the second when it
+    // means the first.
+    const commonBefore = (await api("GET", "/dashboard")).data?.commonalities ?? [];
+    const rollupExercised = commonBefore.length > 0;
+    if (rollupExercised) {
+      r.ok(true, "the cross-workshop roll-up finds something while membership is intact",
+        commonBefore.map((cm) => `${cm.term}(${cm.workshops.length})`).join(", "));
+    } else {
+      r.skip(
+        `${EMAIL} belongs to too few workshops for the cross-workshop roll-up to find ` +
+          `anything, so the scoping check on it below would prove nothing`,
+      );
+    }
+
+    // ================================================================
+    r.section("the cross-workshop roll-up names only the caller's workshops");
+    // ================================================================
+    //
+    // "Commonalities across workshops" is BY DEFINITION a query that spans
+    // them, which is the exact shape of the five leaks found on 2026-09-18 —
+    // and this one carries CONTENT: each row quotes a line from each workshop
+    // that raised the term. An unchecked membership leaks somebody else's
+    // notes verbatim onto a dashboard.
+    //
+    // ASSERTED POSITIVELY, with an account that HAS several workshops. The
+    // removal test below uses an executive viewer on purpose (the
+    // least-privileged real account) and that account belongs to too few
+    // workshops for a cross-workshop roll-up to return anything — so the
+    // removal test alone would be vacuous here however green it looked.
+    const facilitator = client(baseUrl, await token(ACCOUNTS.facilitator));
+    const fUid = (await c.query("select id from public.profiles where email = $1",
+      [ACCOUNTS.facilitator])).rows[0].id;
+    const fDash = await facilitator("GET", "/dashboard");
+    const rollup = fDash.data?.commonalities ?? [];
+    r.ok(rollup.length > 0,
+      "the roll-up finds something for an account with several workshops",
+      rollup.map((cm) => `${cm.term}(${cm.workshops.length})`).join(", ") || "nothing");
+
+    const namedIDs = [...new Set(rollup.flatMap((cm) => cm.workshops.map((ws) => ws.id)))];
+    const allowed = (await c.query(
+      `select w.id::text as id from public.workshops w
+       join public.workshop_members wm on wm.workshop_id = w.id and wm.user_id = $1
+       join public.workspace_members wsm
+            on wsm.workspace_id = w.workspace_id and wsm.user_id = $1`, [fUid])).rows
+      .map((row) => row.id);
+    const foreign = namedIDs.filter((id) => !allowed.includes(id));
+    r.ok(foreign.length === 0,
+      "...and every workshop it names passes BOTH membership joins",
+      `${namedIDs.length} named, ${foreign.length} foreign`);
+
+    // Two workshops is the whole point: a term from one workshop is that
+    // workshop's content, not a commonality, and reporting it would fill the
+    // panel with noise that says nothing.
+    r.ok(rollup.every((cm) => cm.workshops.length >= 2),
+      "...and nothing is reported as common to a single workshop",
+      rollup.filter((cm) => cm.workshops.length < 2).map((cm) => cm.term).join(", ") || "none");
+
     r.section("after removing workspace membership");
     savedMemberships = (await c.query(
       "select * from public.workspace_members where user_id = $1", [uid])).rows;
@@ -100,6 +168,17 @@ runSuite("scoping", async ({ baseUrl, results: r, c }) => {
       "the dashboard is scoped too", dash.data?.workshops?.length);
     r.ok(dash.success && dash.data.recent_activity.length === 0,
       "and so is its activity feed", dash.data?.recent_activity?.length);
+    // ADDED 2026-11-14 WITH THE ROLL-UP ITSELF. "Commonalities across
+    // workshops" is BY DEFINITION a query that spans workshops, which is the
+    // exact shape of the five leaks found on 2026-09-18 — and this one
+    // carries CONTENT, not just counts: each row quotes a line from each
+    // workshop that raised the term. A membership that is not checked here
+    // leaks other people's notes verbatim onto a dashboard.
+    if (rollupExercised) {
+      r.ok(dash.success && (dash.data.commonalities ?? []).length === 0,
+        "and the cross-workshop roll-up, which quotes content from each workshop",
+        JSON.stringify(dash.data?.commonalities ?? []).slice(0, 80));
+    }
 
     const list = await api("GET", "/workshops");
     r.ok(list.success && list.data.length === 0,
