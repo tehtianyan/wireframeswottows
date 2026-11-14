@@ -140,6 +140,21 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
+	// THE SAME DENOMINATOR THE HEALTH PANEL USES — the steps the room walks,
+	// not every stage the methodology declares. This card said "0 of 10 stages"
+	// for a SWOT-TOWS workshop whose flow is six, and fixing only the panel
+	// that was reported would have left the identical misreading one screen
+	// away. One query for every workshop in the list; see stage_flow.go.
+	ids := make([]string, 0, len(found))
+	for _, x := range found {
+		ids = append(ids, x.id)
+	}
+	steps, err := loadStepCounts(r2.Context(), pool, ids)
+	if err != nil {
+		failDB(w, err)
+		return
+	}
+
 	out := Dashboard{Workshops: []DashboardWorkshop{}, RecentActivity: []ActivityEvent{}}
 	for _, x := range found {
 		counts, awaiting, err := countsFor(r2.Context(), pool, x.id)
@@ -148,10 +163,7 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var stagesTotal, stagesComplete int
-		pool.QueryRow(r2.Context(), `
-			select count(*), count(*) filter (where status = 'completed')
-			from public.activities where workshop_id = $1`, x.id).Scan(&stagesTotal, &stagesComplete)
+		stagesTotal, stagesComplete := steps[x.id].Total, steps[x.id].Complete
 
 		var firstStage string
 		pool.QueryRow(r2.Context(), `
@@ -422,20 +434,39 @@ func workshopHealth(s WorkshopSummary, m *methodology.Methodology) ([]HealthSign
 		Message: fmt.Sprintf("%d of %d captured factors approved", approvedFactors, totalFactors),
 	})
 
-	// 3. How far through the methodology.
-	done := 0
+	// 3. How far through the methodology — THE STEPS THE ROOM WALKS, not every
+	//    stage the methodology declares.
+	//
+	//    This counted all ten SWOT-TOWS stages, four of which are the
+	//    facilitator's analysis tools: screens used between steps that nobody
+	//    marks complete. So the panel read "0 of 10" under a Stages panel
+	//    saying six, and a facilitator who ran the whole methodology to the end
+	//    would still have read 6 of 10 — a target the signal cannot reach.
+	//    See stage_flow.go; the numerator is filtered with it too, or a
+	//    facilitator who closes a tool as well reads 7 of 6.
+	toolKeys := map[string]bool{}
+	for _, st := range m.Stages {
+		if stageIsFacilitatorOnly(st) {
+			toolKeys[st.Key] = true
+		}
+	}
+	done, steps := 0, 0
 	for _, st := range s.Stages {
+		if toolKeys[st.Key] {
+			continue
+		}
+		steps++
 		if st.Status == "completed" {
 			done++
 		}
 	}
 	progress := 0
-	if len(s.Stages) > 0 {
-		progress = done * 100 / len(s.Stages)
+	if steps > 0 {
+		progress = done * 100 / steps
 	}
 	signals = append(signals, HealthSignal{
-		Key: "progress", Label: "Stages complete", Value: done, Target: len(s.Stages),
-		Message: fmt.Sprintf("%d of %d %s stages complete", done, len(s.Stages), m.Name),
+		Key: "progress", Label: "Stages complete", Value: done, Target: steps,
+		Message: fmt.Sprintf("%d of %d %s stages complete", done, steps, m.Name),
 	})
 
 	// 4. Is a review queue building up?

@@ -313,6 +313,74 @@ runSuite("participant-flow", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS 
     r.ok(Math.min(...asideSeq) > Math.max(...flowSeq),
       "every facilitator-only stage sorts after every stage the room walks",
       `flow ends at ${Math.max(...flowSeq)}, tools start at ${Math.min(...asideSeq)}`);
+
+    // ================================================================
+    // The health score counts the STEPS, not every stage
+    // ================================================================
+    //
+    // UAT 2026-11-14: the panel read "0 of 10 stages complete" directly under a
+    // Stages panel saying six. The four it counted on top are the analysis
+    // TOOLS, which nobody marks complete — so the signal could not reach its
+    // own target, and a facilitator who ran the whole methodology to the end
+    // would still have read 6 of 10.
+    //
+    // ASSERTED AS A RELATIONSHIP, not as "6". The flow's length is
+    // configuration and has already moved once (Recommendations became
+    // facilitator-only, taking it from 7 to 6), so a literal here would break
+    // on the next correct change. See [[tests-that-pass-for-the-wrong-reason]].
+    r.section("the progress signal measures the flow, not the whole methodology");
+
+    const sum = (await F("GET", `/workshops/${WS}/summary`)).data;
+    const prog = (sum?.health_signals ?? []).find((s) => s.key === "progress");
+    r.ok(Boolean(prog), "the health panel reports a stage-progress signal");
+    r.ok(prog?.target === flowSeq.length,
+      "...and its denominator is the number of stages the room walks",
+      `target ${prog?.target}, flow ${flowSeq.length}, methodology ${all.length}`);
+    r.ok(prog?.target < all.length,
+      "...which on this methodology is fewer than every stage it declares",
+      `${prog?.target} of ${all.length}`);
+    // THE NUMERATOR MOVES WITH THE DENOMINATOR, or a facilitator who also
+    // closes a tool reads 7 of 6 — a worse number than the one being fixed.
+    r.ok(prog?.value <= prog?.target,
+      "...and the count of completed stages can never exceed it",
+      `${prog?.value} of ${prog?.target}`);
+    r.ok(/\d+ of \d+ .+ stages complete/.test(prog?.message ?? ""),
+      "...and the sentence beneath it states both numbers", prog?.message);
+    const msgTotal = Number(/of (\d+)/.exec(prog?.message ?? "")?.[1]);
+    r.ok(msgTotal === prog?.target,
+      "...with the same denominator as the figure, not a second count",
+      `message ${msgTotal}, target ${prog?.target}`);
+
+    // THE SAME DENOMINATOR ON EVERY SCREEN THAT SHOWS IT. Fixing only the
+    // panel that was reported would have left "0 of 10 stages" on the
+    // dashboard card and "0/10" on the executive portfolio.
+    const dashCard = ((await F("GET", "/dashboard")).data?.workshops ?? [])
+      .find((x) => x.id === WS);
+    r.ok(Boolean(dashCard), "the demo workshop is on the dashboard");
+    r.ok(dashCard?.stages_total === prog?.target,
+      "the dashboard card counts the same stages as the health panel",
+      `card ${dashCard?.stages_total}, panel ${prog?.target}`);
+    r.ok(dashCard?.stages_complete === prog?.value,
+      "...and the same completed count",
+      `card ${dashCard?.stages_complete}, panel ${prog?.value}`);
+
+    // ONE RULE, TWO LANGUAGES. Go answers it for the health panel and the
+    // break-time summary; the client answers it for the stage list. They were
+    // phrased differently — the client returned true for ANY declared role
+    // list, which would file a stage declaring ["participant","analyst"] under
+    // Facilitator tools and drop a real step out of the denominator. Nothing
+    // configured today declares one, so only a source check can see this.
+    const flowGo = fs.readFileSync(
+      path.join(process.cwd(), "pkg", "handlers", "stage_flow.go"), "utf8");
+    r.ok(/func configIsFacilitatorOnly\(/.test(flowGo),
+      "Go states the rule once, in stage_flow.go");
+    r.ok(/== "participant"/.test(flowGo) && /len\(raw\) == 0/.test(flowGo),
+      "...asking whether participants are excluded, and treating an empty list as everybody");
+    r.ok(/roles\.includes\("participant"\)/.test(stages) && /roles\.length === 0/.test(stages),
+      "...and the client asks the identical question, not merely whether roles are declared");
+    // The old phrasing, which is the one that could disagree.
+    r.ok(!/stageVisibleRoles\(stage\) !== null;/.test(code(stages)),
+      "...so the weaker 'any declared list' test is gone");
     // The flow is a CONTIGUOUS 1..n, or a participant reads a gap as a screen
     // that failed to load.
     r.ok(flowSeq.slice().sort((a, b) => a - b).every((n, i) => n === i + 1),

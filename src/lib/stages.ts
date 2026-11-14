@@ -66,14 +66,30 @@ export function visibleStages(
 }
 
 /**
- * True when a stage sits outside the participant flow.
+ * True when a stage sits outside the participant flow — a TOOL, not a step.
  *
- * Used to MARK it for the roles that can still see it, so a facilitator
- * reading "9. Theme Analysis" in a list that ends at 7 for everybody else is
- * told why rather than left to infer it from a gap in the numbering.
+ * Used to split the stage list, and to mark a tool for the roles that can
+ * still reach one, so a facilitator reading "9. Theme Analysis" in a list that
+ * ends at 6 for everybody else is told why rather than left to infer it from a
+ * gap in the numbering.
+ *
+ * IT ASKS WHETHER PARTICIPANTS ARE EXCLUDED, NOT WHETHER ROLES ARE DECLARED
+ * (tightened 2026-11-14). The first version returned true for any present
+ * list, which answers a different question: a stage declaring
+ * `["participant","analyst"]` is still something the room walks through, and
+ * calling it a tool would file a real step under Facilitator tools and drop it
+ * out of the health score's denominator.
+ *
+ * Nothing configured today declares such a list, so this changes no screen —
+ * it stops the two statements of the rule from disagreeing. `pkg/handlers/
+ * stage_flow.go` holds the Go one, because the health panel and the break-time
+ * summary need the same answer, and `tests/suites/participant-flow.js` pins
+ * them against each other by reading both files.
  */
 export function stageAsideFromFlow(stage: MethodologyStage): boolean {
-  return stageVisibleRoles(stage) !== null;
+  const roles = stageVisibleRoles(stage);
+  if (roles === null || roles.length === 0) return false;
+  return !roles.includes("participant");
 }
 
 /**

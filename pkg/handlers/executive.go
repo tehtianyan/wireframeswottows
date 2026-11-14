@@ -21,6 +21,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -149,10 +150,15 @@ func GetExecutiveBrief(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Portfolio (§10.17).
+	//
+	// The stage counts come from `loadStepCounts` rather than from `activities`
+	// here, for the reason given in stage_flow.go: "3/10 stages" on an
+	// executive screen reads as a workshop two thirds undone when the room has
+	// walked three of its six steps, and four of those ten are tools nobody
+	// completes. The same denominator as the dashboard card and the health
+	// panel, from the same function.
 	portRows, err := pool.Query(r2.Context(), `
 		select w.id::text, w.name, w.status,
-		       (select count(*) from public.activities a where a.workshop_id = w.id),
-		       (select count(*) from public.activities a where a.workshop_id = w.id and a.status = 'completed'),
 		       (select count(*) from public.recommendations rc where rc.workshop_id = w.id and rc.state = 'approved')
 		from public.workshops w
 		join public.workshop_members wm on wm.workshop_id = w.id and wm.user_id = $1
@@ -161,13 +167,25 @@ func GetExecutiveBrief(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		for portRows.Next() {
 			var p ExecPortfolio
-			if err := portRows.Scan(&p.ID, &p.Name, &p.Status, &p.StagesTotal,
-				&p.StagesComplete, &p.Recommendations); err != nil {
+			if err := portRows.Scan(&p.ID, &p.Name, &p.Status, &p.Recommendations); err != nil {
 				break
 			}
 			out.Portfolio = append(out.Portfolio, p)
 		}
 		portRows.Close()
+
+		ids := make([]string, 0, len(out.Portfolio))
+		for _, p := range out.Portfolio {
+			ids = append(ids, p.ID)
+		}
+		if steps, err := loadStepCounts(r2.Context(), pool, ids); err == nil {
+			for i := range out.Portfolio {
+				out.Portfolio[i].StagesTotal = steps[out.Portfolio[i].ID].Total
+				out.Portfolio[i].StagesComplete = steps[out.Portfolio[i].ID].Complete
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "executive: could not load stage counts: %v\n", err)
+		}
 	}
 	out.Workshops = len(out.Portfolio)
 

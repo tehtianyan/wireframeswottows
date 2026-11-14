@@ -74,25 +74,10 @@ type WorkshopStanding struct {
 	Contributed int `json:"contributed"`
 }
 
-// stageIsFacilitatorOnly reads `visible_to_roles` the way the client does.
-//
-// A stage listing roles and NOT listing "participant" is a tool rather than a
-// step in the room's path — so a summary must not chase the room to finish
-// one. An empty or absent list means everybody, which is why the check is for
-// a non-empty list that excludes participants rather than for the key's mere
-// presence.
-func stageIsFacilitatorOnly(st methodology.Stage) bool {
-	raw, ok := st.Config["visible_to_roles"].([]interface{})
-	if !ok || len(raw) == 0 {
-		return false
-	}
-	for _, v := range raw {
-		if s, _ := v.(string); s == "participant" {
-			return false
-		}
-	}
-	return true
-}
+// `stageIsFacilitatorOnly` moved to stage_flow.go on 2026-11-14, when the
+// health score's denominator needed the same question answered. A summary must
+// not chase the room to finish a stage it was never shown, and a progress
+// signal must not count one — the same rule, so it is stated once.
 
 // loadWorkshopStanding gathers it in a handful of aggregate queries.
 func loadWorkshopStanding(ctx context.Context, pool *pgxpool.Pool,
