@@ -1,13 +1,13 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, History, Loader2, Users } from "lucide-react";
+import { History, Loader2, Users } from "lucide-react";
 import { PanelHeading } from "@/components/workshop-ui";
 import { ActivityList, DrawerLink } from "@/components/DrawerLink";
 import { AiInlineActions } from "@/components/methodology/AiInlineActions";
 import { ArchiveWorkshopControl } from "@/components/ArchiveWorkshopControl";
 import { ParticipantsPanel } from "@/components/ParticipantsPanel";
 import { StageList } from "@/components/methodology/StageList";
-import { visibleStages } from "@/lib/stages";
+import { splitStages } from "@/lib/stages";
 import {
   dashboardApi,
   workshopsApi,
@@ -77,8 +77,12 @@ function WorkshopOverview() {
   const awaitingReview = factors.filter((f) => f.state === "submitted").length;
   // The same rule the stage header's navigation uses, from the same module —
   // two surfaces listing stages by different rules is how one of them ends up
-  // offering a stage the other hides.
-  const myStages = workshop ? visibleStages(workshop.methodology.stages, workshop.my_role) : [];
+  // offering a stage the other hides. ONE PARTITION: the flow the room walks,
+  // and the tools a facilitator reaches for between steps.
+  const { flow: flowStages, tools: toolStages } = splitStages(
+    workshop.methodology.stages,
+    workshop.my_role,
+  );
 
   return (
     <div className="grid-backdrop min-h-[calc(100vh-3.5rem)]">
@@ -164,16 +168,69 @@ function WorkshopOverview() {
             // The count is what THIS role can reach, not what the methodology
             // declares: "10 configured" above a list of seven reads as a
             // rendering fault rather than as a deliberately shorter flow.
-            hint={`${myStages.length} configured`}
+            hint={`${flowStages.length} in the flow`}
           />
           <StageList
             workshopId={workshop.id}
-            stages={myStages}
+            stages={flowStages}
             activityByStage={activityByStage}
             myRole={workshop.my_role}
             readOnly={workshop.status === "archived"}
+            // The stages render before their statuses arrive — a second
+            // request — and an absent answer is not a negative one. See
+            // StageList: every tile used to claim "Not started" over a stage
+            // the API was reporting in progress with five notes in it.
+            statusKnown={activitiesQuery.isSuccess}
           />
         </section>
+
+        {/* THE TOOLS, IN A LIST OF THEIR OWN (UAT 2026-11-14).
+            "Take the orphaned Stage 7 (Recommendations) to Stage 10 (Insight
+            Generation) from the Stages panel and put it in the Overview page."
+
+            They were marked in place — dashed, numbered past where everybody
+            else's list ends — which answered "why is this here?" and left the
+            ten-stage wall standing for the one person running the session.
+            A tool is not a step: these are where a facilitator goes to work the
+            room's votes, read across the themes or write up an insight BETWEEN
+            steps, and they are the stages nothing in the participant flow
+            requires.
+
+            NOTHING WAS REMOVED. Each of these is read by something else — the
+            capture board offers note-stacking only because a synthesize stage
+            exists, the vote weight and the report's ranked section are seeded
+            from the prioritize stage, and recommendations cite insights and
+            nothing else. Moving them is a navigation change; deleting one
+            would break the chain. See src/lib/stages.ts.
+
+            The panel is absent, not empty, when the methodology declares no
+            such stage — which is the other seven. */}
+        {toolStages.length > 0 && (
+          <section className="console-panel" data-build="live">
+            <PanelHeading
+              build="live"
+              title="Facilitator tools"
+              hint={`${toolStages.length} available`}
+            />
+            <p className="px-3 pt-2.5 text-[11px] leading-relaxed text-muted-foreground">
+              Not steps in the flow — the room does its prioritising and theming on each
+              capture stage. These are the full screens for the same work, for when you want
+              to see every vote at once, read across the themes, or write up an insight.
+              Participants do not see them.
+            </p>
+            <StageList
+              workshopId={workshop.id}
+              stages={toolStages}
+              activityByStage={activityByStage}
+              myRole={workshop.my_role}
+              readOnly={workshop.status === "archived"}
+              // The heading has already said these are off the flow; dashing
+              // every tile in a list of nothing but tools marks nothing.
+              markAside={false}
+              statusKnown={activitiesQuery.isSuccess}
+            />
+          </section>
+        )}
 
         {summaryQuery.data && <SummaryPanels summary={summaryQuery.data} />}
 

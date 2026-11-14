@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, ClipboardCheck, PenLine } from "lucide-react";
+import { ChevronDown, ClipboardCheck, LayoutPanelLeft, PenLine } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { stageAsideFromFlow, visibleStages } from "@/lib/stages";
+import { splitStages, stageAsideFromFlow } from "@/lib/stages";
 import { BuildBadge } from "@/components/workshop-ui";
 import type { Activity, FactorCategory, MethodologyStage, WorkshopDetail } from "@/lib/api";
 
@@ -49,6 +49,20 @@ export function StageShell({
   // and then in the way.
   const [guidanceOpen, setGuidanceOpen] = useState(!dense);
   const accentStyle = category ? ({ "--stage-accent": `var(--${category.color_token})` } as React.CSSProperties) : undefined;
+
+  // THE STRIP IS THE FLOW. The stages a facilitator can reach that the room
+  // does not walk through moved to the overview's own panel on 2026-11-14, so
+  // leaving them inline here would have moved the clutter rather than removed
+  // it — and the Overview button beside Review mode is how they are reached.
+  //
+  // THE STAGE YOU ARE ON IS ALWAYS IN IT, THOUGH, even when it is one of those
+  // tools. `visible_to_roles` is an affordance and a pasted URL still opens, so
+  // a facilitator sent straight to Theme Analysis would otherwise be looking at
+  // a strip with nothing highlighted in it and no way back into the flow.
+  const { flow, tools } = splitStages(workshop.methodology.stages, workshop.my_role);
+  const navStages = tools.some((s) => s.key === stage.key)
+    ? [...flow, stage]
+    : flow;
 
   return (
     <div className="grid-backdrop min-h-[calc(100vh-3.5rem)]">
@@ -125,6 +139,28 @@ export function StageShell({
                 offered the same way, so both belong to the shell rather than to
                 any one stage. */}
             <div className="flex shrink-0 items-center gap-2 self-start">
+              {/* THE WAY OUT TO THE OVERVIEW, AS A CONTROL (UAT 2026-11-14).
+                  The workshop's name above is a link and has been since the
+                  redirect into stage 1 landed, but it reads as a breadcrumb —
+                  it looks like where you are, not somewhere to go. UAT asked
+                  for a button, and it is now load-bearing rather than a
+                  convenience: the facilitator tools left this strip for that
+                  page, so this is the route to them.
+
+                  NOT FACILITATOR-ONLY. The overview is also the only route to
+                  the roster, the objective and the archived-workshop notice,
+                  which a participant needs too — gating the button would make
+                  that page reachable for them only through a link that does
+                  not look like one. */}
+              <Link
+                to="/w/$workshopId/overview"
+                params={{ workshopId: workshop.id }}
+                title="Workshop overview — stages, participants, metrics and the facilitator tools"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <LayoutPanelLeft className="size-3.5" />
+                Overview
+              </Link>
               {assistant}
               <Link
                 to="/w/$workshopId/stage/$stageKey"
@@ -142,17 +178,16 @@ export function StageShell({
               the names are whatever the methodology declares, filtered to the
               stages this role sees (src/lib/stages.ts owns that rule).
 
-              ONE INLINE LIST, in the methodology's real sequence. A
-              facilitator sees the three stages outside the participant flow
-              in place, marked, rather than in a group of their own — so the
-              numbers on screen are the numbers the room says out loud, and a
-              facilitator reading "9." in a list that ends at 7 for everybody
-              else is told why. */}
+              THE FLOW, IN THE METHODOLOGY'S REAL SEQUENCE. The numbers on
+              screen are the numbers the room says out loud, which is why
+              20261106100000 renumbered the stages rather than computing an
+              index: a facilitator reading "stage 7" while the room reads
+              "stage 5" off the same screen is worse than either. */}
           <nav
             className={cn("flex flex-wrap gap-1.5", dense ? "mt-2.5" : "mt-4")}
             aria-label="Methodology stages"
           >
-            {visibleStages(workshop.methodology.stages, workshop.my_role).map((s) => {
+            {navStages.map((s) => {
               const aside = stageAsideFromFlow(s);
               return (
                 <Link

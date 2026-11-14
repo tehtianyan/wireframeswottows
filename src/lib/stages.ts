@@ -77,6 +77,45 @@ export function stageAsideFromFlow(stage: MethodologyStage): boolean {
 }
 
 /**
+ * The flow, and the tools, as ONE partition of what this role can see.
+ *
+ * UAT 2026-11-14: "take the orphaned Stage 7 (Recommendations) to Stage 10
+ * (Insight Generation) from the Stages panel and put it in the Overview page."
+ * Marking those four in place was the previous answer and it was the smaller
+ * half of the job. Dashing their border told a facilitator WHY the numbering
+ * runs past everybody else's, which was the complaint it was written for —
+ * but they still sat in the flow's own list and in the strip above every
+ * stage, so the ten-stage wall the participant flow removed for participants
+ * was still there for the one person who has to run the session.
+ *
+ * SO THEY ARE A SECOND LIST, NOT A STYLED MEMBER OF THE FIRST. The flow is the
+ * sequence the room walks; a tool is something a facilitator reaches for
+ * between steps, and the two answer different questions badly when mixed.
+ *
+ * ONE FUNCTION, ONE PASS, so a stage lands in exactly one list BY
+ * CONSTRUCTION. Two filters over the same predicate would be two places for
+ * the rule to drift, and the failure mode is a stage that appears in neither
+ * list — reachable by URL, listed nowhere, which is the shape of every
+ * "rendered and wired to nothing" defect in this project.
+ *
+ * NOTHING HERE NAMES A METHODOLOGY OR A STAGE KEY. `tools` is empty for the
+ * other seven methodologies, because no stage of theirs declares
+ * `visible_to_roles` — so they get one list, exactly as before, and
+ * `tests/suites/genericity.js` asserts PESTLE still shows all of its stages.
+ */
+export function splitStages(
+  stages: MethodologyStage[],
+  role: WorkshopRole,
+): { flow: MethodologyStage[]; tools: MethodologyStage[] } {
+  const flow: MethodologyStage[] = [];
+  const tools: MethodologyStage[] = [];
+  for (const stage of visibleStages(stages, role)) {
+    (stageAsideFromFlow(stage) ? tools : flow).push(stage);
+  }
+  return { flow, tools };
+}
+
+/**
  * The stage a person should land on when they open a workshop — "Stage 1" as
  * the room says it.
  *

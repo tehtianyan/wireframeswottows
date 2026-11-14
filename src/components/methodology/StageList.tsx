@@ -67,6 +67,8 @@ export function StageList({
   activityByStage,
   myRole,
   readOnly = false,
+  markAside = true,
+  statusKnown = true,
 }: {
   workshopId: string;
   /** Already filtered to what this role may see, by the caller. */
@@ -75,6 +77,32 @@ export function StageList({
   myRole: WorkshopRole;
   /** True when the workshop is archived: the stages are shown, not changed. */
   readOnly?: boolean;
+  /**
+   * Whether to dash the border of a stage outside the participant flow.
+   *
+   * The dash exists to answer "why does this list run to 10 when everybody
+   * else's ends at 6?", so it earns its keep in a list that MIXES the two and
+   * says nothing in a list of nothing but tools, under a heading that has
+   * already said so. Every tile dashed is every tile unmarked.
+   */
+  markAside?: boolean;
+  /**
+   * False while the activities are still being fetched.
+   *
+   * A TILE MUST NOT SAY "NOT STARTED" ABOUT A STAGE WITH FIVE NOTES IN IT.
+   * `activity?.status ?? "not_started"` read an absent answer as a negative
+   * one, so every tile claimed the stage was untouched until the second
+   * request landed — on a workshop whose API was meanwhile reporting
+   * `in_progress` with real counts for nine of its ten stages. Found by
+   * photographing the panel, which is the third time in this project that a
+   * card has stated a fact while the answer was still in flight ("not yet
+   * rated" over work the room had rated; the presence dot).
+   *
+   * ABSENT IS HONEST, A GUESS IS NOT — the same rule the presence dot follows
+   * when the socket is down. The default is `true` so a caller that genuinely
+   * has the answer says nothing extra.
+   */
+  statusKnown?: boolean;
 }) {
   const queryClient = useQueryClient();
 
@@ -116,7 +144,7 @@ export function StageList({
             className={cn(
               "group flex min-w-0 items-start gap-2 rounded border px-2.5 py-2 transition-colors",
               STATUS_RING[status] ?? STATUS_RING["not_started"],
-              aside && "border-dashed",
+              aside && markAside && "border-dashed",
             )}
           >
             <Link
@@ -126,9 +154,11 @@ export function StageList({
               // The words are here rather than on the tile: a status pill that
               // says NOT STARTED is three times the width of the dot that says
               // the same thing, on a tile whose job is to show the name.
-              title={`${stage.name} — ${STATUS_WORDS[status] ?? status}${
-                aside ? ", not part of the participant flow" : ""
-              }${renderable ? "" : ", no renderer yet"}`}
+              title={`${stage.name} — ${
+                statusKnown ? STATUS_WORDS[status] ?? status : "checking"
+              }${aside && markAside ? ", not part of the participant flow" : ""}${
+                renderable ? "" : ", no renderer yet"
+              }`}
               className="min-w-0 flex-1"
             >
               <span className="flex items-baseline gap-1.5">
@@ -144,13 +174,24 @@ export function StageList({
                   {stage.name}
                 </span>
               </span>
-              <span className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
-                <StatusDot status={status} />
-                {/* TWO THINGS, NOT ONE: the state AND what it was derived
-                    from. "In progress" beside nothing would be unexplainable,
-                    and a count alone would not say whether the room had
-                    finished with the stage. */}
-                {count > 0 ? `${count} item${count === 1 ? "" : "s"}` : STATUS_WORDS[status]}
+              <span
+                className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-muted-foreground"
+                data-stage-status={statusKnown ? status : "unknown"}
+              >
+                {statusKnown ? (
+                  <>
+                    <StatusDot status={status} />
+                    {/* TWO THINGS, NOT ONE: the state AND what it was derived
+                        from. "In progress" beside nothing would be
+                        unexplainable, and a count alone would not say whether
+                        the room had finished with the stage. */}
+                    {count > 0 ? `${count} item${count === 1 ? "" : "s"}` : STATUS_WORDS[status]}
+                  </>
+                ) : (
+                  // Not a status. The line keeps its height so the tiles do
+                  // not jump when the real answer lands.
+                  <span className="opacity-50">&middot; &middot; &middot;</span>
+                )}
               </span>
             </Link>
 

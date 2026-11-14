@@ -66,8 +66,31 @@ runSuite("participant-flow", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS 
       "src/lib/stages.ts owns visibleStages");
     r.ok(stages.includes("export function stageAsideFromFlow("),
       "and the marker for a stage outside the flow");
+    r.ok(stages.includes("export function splitStages("),
+      "and the one partition into the flow and the facilitator's tools");
     r.ok(stages.includes("export function synthesisWeightKeys("),
       "and which weights a synthesize stage declares");
+
+    // ONE PASS, ONE PUSH SITE — which is what makes "a stage is in exactly one
+    // of the two lists" true BY CONSTRUCTION rather than by both filters
+    // agreeing. Two filters over the same predicate is two places for the rule
+    // to drift, and the failure is a stage in NEITHER list: reachable by URL,
+    // listed nowhere, which is the shape of every "rendered and wired to
+    // nothing" defect in this project. So this asserts the structure, not a
+    // spelling: if the split is ever rewritten as a pair of filters, this goes
+    // red on purpose.
+    const splitBody = code(stages).slice(
+      code(stages).indexOf("export function splitStages("),
+      code(stages).indexOf("export function firstStageFor("),
+    );
+    r.ok((splitBody.match(/for \(/g) ?? []).length === 1,
+      "the split walks the visible stages exactly once",
+      `${(splitBody.match(/for \(/g) ?? []).length} loops`);
+    r.ok((splitBody.match(/\.push\(/g) ?? []).length === 1,
+      "...with a single push site, so nothing can land in neither list or both",
+      `${(splitBody.match(/\.push\(/g) ?? []).length} pushes`);
+    r.ok(/visibleStages\(/.test(splitBody),
+      "...over the role-filtered list, not the methodology's whole set");
 
     // READ FROM CONFIG, NOT NAMED. A stage key or a methodology name here
     // would make the flow SWOT-TOWS knowledge in the platform engine, which
@@ -85,27 +108,111 @@ runSuite("participant-flow", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS 
     r.section("every surface that lists stages goes through it");
 
     const shell = SRC("components/methodology/StageShell.tsx");
-    r.ok(shell.includes("visibleStages(workshop.methodology.stages, workshop.my_role)"),
-      "the stage header filters the nav by role");
+    r.ok(shell.includes("splitStages(workshop.methodology.stages, workshop.my_role)"),
+      "the stage header takes its nav from the one partition");
     r.ok(shell.includes("stageAsideFromFlow(s)"),
-      "and marks the stages outside the participant flow");
+      "and still marks a stage outside the participant flow when it shows one");
     // The real assertion: the unfiltered list is no longer reachable. A
     // `.stages.map(` left anywhere here is the bug coming back.
     r.ok(!/methodology\.stages\.map\(/.test(shell),
       "the header no longer maps the unfiltered stage list");
 
     const overview = SRC("routes/w.$workshopId.overview.tsx");
-    r.ok(overview.includes("visibleStages(workshop.methodology.stages, workshop.my_role)"),
-      "the workshop overview filters the same way");
+    r.ok(overview.includes("splitStages("),
+      "the workshop overview reads the same partition");
     r.ok(!/methodology\.stages\.map\(/.test(overview),
       "the overview no longer maps the unfiltered list");
-    // A count of ten above a list of seven reads as a rendering fault.
-    r.ok(overview.includes("${myStages.length} configured"),
+    // A count of ten above a list of six reads as a rendering fault.
+    r.ok(/\$\{flowStages\.length\}/.test(overview),
       "and counts what the caller can actually reach");
 
     const search = SRC("components/GlobalSearch.tsx");
     r.ok(search.includes("visibleStages(d.methodology.stages, d.my_role)"),
       "search obeys the rule too — it is how somebody finds a hidden screen");
+
+    // ================================================================
+    // The tools are a SECOND LIST, not a styled member of the first
+    // ================================================================
+    //
+    // UAT 2026-11-14: "take the orphaned Stage 7 (Recommendations) to Stage 10
+    // (Insight Generation) from the Stages panel and put it in the Overview
+    // page. Create a button to the Overview page for the Facilitator."
+    //
+    // Marking them in place was the previous answer and it only explained the
+    // numbering. These checks READ SOURCE, because the API was correct
+    // throughout both versions: every one of those stages returned the right
+    // data before and after, and WHERE a correct list is drawn is invisible to
+    // an HTTP check. Six UAT reports in this project have turned out to be
+    // exactly that.
+    r.section("the facilitator's tools have a panel of their own");
+
+    r.ok(/title="Facilitator tools"/.test(overview),
+      "the overview carries a tools panel");
+    r.ok(/stages=\{flowStages\}/.test(overview) && /stages=\{toolStages\}/.test(overview),
+      "the Stages panel gets the flow and the tools panel gets the tools");
+    // ABSENT, NOT EMPTY, for the other seven methodologies — a titled panel
+    // with nothing in it reads as something that failed to load.
+    r.ok(/toolStages\.length > 0 &&/.test(code(overview)),
+      "and it does not render at all when the methodology declares no tool stage");
+    // The dash answered "why does this list run past everybody else's?". In a
+    // list of nothing but tools, under a heading that has already said so,
+    // every tile dashed is every tile unmarked.
+    r.ok(/markAside=\{false\}/.test(overview),
+      "the tools are not each dashed as well as grouped and labelled");
+
+    // A TILE MUST NOT SAY "NOT STARTED" ABOUT A STAGE WITH FIVE NOTES IN IT.
+    // The statuses are a SECOND request and `activity?.status ?? "not_started"`
+    // read an absent answer as a negative one, so every tile on this panel
+    // claimed the stage was untouched until it landed — on a workshop whose
+    // API was reporting nine of its ten stages in progress with real counts.
+    // ABSENT IS HONEST, A GUESS IS NOT, which is the rule the presence dot
+    // already follows when the socket is down. Found by photographing the
+    // panel; nothing in the API could see it.
+    const list = SRC("components/methodology/StageList.tsx");
+    r.ok(/statusKnown/.test(list),
+      "the stage list knows whether the statuses have arrived");
+    r.ok(/statusKnown \? \(/.test(code(list)),
+      "...and withholds the status rather than defaulting it to Not started");
+    r.ok((code(overview).match(/statusKnown=\{activitiesQuery\.isSuccess\}/g) ?? []).length === 2,
+      "...and BOTH panels are told, not just the one that was being looked at",
+      `${(code(overview).match(/statusKnown=/g) ?? []).length} panels told`);
+
+    // THE STRIP IS THE FLOW NOW. Leaving them inline above every stage would
+    // have moved the clutter rather than removed it.
+    r.ok(/navStages\.map\(/.test(code(shell)),
+      "the stage strip draws the flow, not everything the role may see");
+    // ...BUT THE STAGE YOU ARE ON IS ALWAYS IN IT. `visible_to_roles` is an
+    // affordance and a pasted URL still opens, so a facilitator sent straight
+    // to Theme Analysis must not land on a strip with nothing highlighted and
+    // no way back into the flow.
+    r.ok(/tools\.some\(\(s\) => s\.key === stage\.key\)/.test(code(shell)),
+      "...plus the current stage when that stage is one of the tools");
+
+    // THE BUTTON. The workshop's name has linked here since the redirect into
+    // stage 1 landed, but it reads as a breadcrumb — where you are, not
+    // somewhere to go — and now that the tools live on that page the route to
+    // them has to look like one.
+    r.ok(/<LayoutPanelLeft/.test(shell) && />\s*Overview\s*</.test(shell),
+      "the stage header carries a labelled Overview control");
+    // It is a CONTROL, beside Review mode, not a third breadcrumb. The two
+    // existing links on the workshop's name stay — this adds one, and the
+    // count is asserted so the slice below cannot silently anchor on the wrong
+    // element the way a bare indexOf would.
+    const shellCode = code(shell);
+    const overviewLinks = (shellCode.match(/to="\/w\/\$workshopId\/overview"/g) ?? []).length;
+    r.ok(overviewLinks === 3,
+      "...alongside the two breadcrumbs on the workshop's name, not replacing them",
+      `${overviewLinks} links to the overview`);
+    // NOT FACILITATOR-ONLY: the overview is also the only route to the roster,
+    // the objective and the archived-workshop notice. Gating the button would
+    // leave a participant reaching that page only through a link that does not
+    // look like one. Asserted over the WHOLE file, which is the stronger claim
+    // and needs no fragile window: this shell branches on no role at all — the
+    // only thing it asks about one is which stages to list.
+    const roleGates = (shellCode.match(/my_role/g) ?? []).length;
+    r.ok(roleGates === 1 && /splitStages\([^)]*my_role\)/.test(shellCode),
+      "...and the shell asks about the caller's role for one thing only: the stage list",
+      `${roleGates} mentions of my_role`);
 
     r.section("the board reads its weight from config, never by name");
 
@@ -172,7 +279,7 @@ runSuite("participant-flow", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS 
     // ================================================================
     // The configuration is real
     // ================================================================
-    r.section("the participant flow is stages 1-7, TOWS at 5");
+    r.section("the participant flow is numbered the way the room says it");
 
     const wsF = (await F("GET", `/workshops/${WS}`)).data;
     const all = wsF.methodology.stages;
@@ -189,9 +296,28 @@ runSuite("participant-flow", async ({ baseUrl, results: r, c, DEMO_WORKSHOP: WS 
       const s = all.find((x) => x.key === key);
       r.ok(JSON.stringify(s?.config?.visible_to_roles) === '["facilitator"]',
         `${key} is facilitator-only`, JSON.stringify(s?.config?.visible_to_roles));
-      r.ok((s?.sequence_number ?? 0) > 7,
-        `${key} sits after the participant flow`, s?.sequence_number);
     }
+
+    // THE RELATIONSHIP, NOT A NUMBER. This read `sequence_number > 7` and was
+    // really checking a magic number: Recommendations became facilitator-only
+    // with the TOWS work, which moved the flow's last number from 7 to 6, and a
+    // correct change would have broken a literal. What has to hold is that the
+    // tools sort AFTER the flow — otherwise the numbers on screen stop being
+    // the numbers the room says out loud, which is the whole reason
+    // 20261106100000 renumbered the stages instead of computing an index.
+    const asideSeq = all.filter((s) => s.config?.visible_to_roles).map((s) => s.sequence_number);
+    const flowSeq = all.filter((s) => !s.config?.visible_to_roles).map((s) => s.sequence_number);
+    r.ok(asideSeq.length > 0 && flowSeq.length > 0,
+      "this methodology has both a flow and some tools, so there is something to separate",
+      `${flowSeq.length} in the flow, ${asideSeq.length} tools`);
+    r.ok(Math.min(...asideSeq) > Math.max(...flowSeq),
+      "every facilitator-only stage sorts after every stage the room walks",
+      `flow ends at ${Math.max(...flowSeq)}, tools start at ${Math.min(...asideSeq)}`);
+    // The flow is a CONTIGUOUS 1..n, or a participant reads a gap as a screen
+    // that failed to load.
+    r.ok(flowSeq.slice().sort((a, b) => a - b).every((n, i) => n === i + 1),
+      "...and the flow itself runs 1..n with no gap",
+      flowSeq.slice().sort((a, b) => a - b).join(","));
 
     // The jsonb merge, asserted rather than assumed: an assignment where a
     // merge was meant would have taken the vote budget with it, and the
